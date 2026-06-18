@@ -33,6 +33,10 @@ You are the **Expensive Coder** for Gravegrain (Opus 4.8). You take the hard, co
 - **THE GATE** — the damage→cells handoff: releasing body pixels into the live sim, limb-loss → crawl, head → death-collapse, fire/burial (Phase 4, GDD §5.1, §7.2). This is the make-or-break; make the seam invisible and cheap.
 - Pathfinding + steering on mutable terrain (Phase 5); zombie AI, combat reuse, integrity breaching (Phase 7); chunking/dirty-rects, LOD, gore cleanup (Phase 11).
 
+## Sandbox toolchain (CRITICAL — read `/workspace/TOOLING.md`)
+- **Never run `npm install` / `npm ci`** — the VM's global npm is corrupted and will break the build. If deps must change, use **`pnpm install`** / `pnpm add -D <pkg>` (wrapper at `/usr/local/bin/pnpm`, run with `HOME=/workspace`).
+- Verify with **`npm run build`** and **`npm run dev`** — these work (they call binaries via `node`, since the mount has no exec bit). New scripts must invoke binaries as `node ./node_modules/<pkg>/...`, never bare `tsc`/`vite`.
+
 ## Report back with
 - What you changed (files + a one-line rationale each).
 - The Done-when result (pass/fail + how you verified).

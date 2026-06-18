@@ -4,11 +4,25 @@
  * Fixed-timestep loop at SIM_HZ, decoupled from requestAnimationFrame render.
  */
 
-import { SIM_HZ, CELL_SIZE, WORLD_W, WORLD_H } from './config';
+import {
+  SIM_HZ,
+  CELL_SIZE,
+  WORLD_W,
+  WORLD_H,
+  TEST_FLOOR_TOP,
+  TEST_FLOOR_THICKNESS,
+  TEST_WATER_W,
+  TEST_WATER_H,
+  TEST_SAND_W,
+  TEST_SAND_H,
+  TEST_SAND_GAP,
+} from './config';
 import { initInput } from './input';
 import { initRenderer, getRenderer } from './render/renderer';
 import { clampCamera } from './camera';
 import * as grid from './engine/grid';
+import * as simulation from './engine/simulation';
+import { SAND, STONE, WATER } from './engine/materials';
 
 // ============================================================================
 // Bootstrap: grab canvas and 2D context
@@ -53,23 +67,43 @@ const renderer = initRenderer(canvas, ctx);
 initInput(canvas);
 
 // ============================================================================
-// Debug fill: seed the grid with a pattern across the full WORLD_W
-// This makes horizontal scrolling visually obvious.
-// Pattern: vertical colour bands (alternating 0 and 1 every 40 columns).
+// Phase 1 test scene (p1-t4): a full-width STONE floor with a body of WATER
+// resting on it, and a SAND blob suspended just above the water surface.
+// On run, the water should seek its level (collapse to a flat sheet, never
+// pile), and the sand should fall in and SINK through the water to the bottom
+// while the displaced water rises above it (GDD §5.2 density swap).
 // ============================================================================
 
-function seedDebugPattern(): void {
-  const bandWidth = 40;
-  for (let y = 0; y < WORLD_H; y++) {
+function seedTestScene(): void {
+  // Stone floor: full world width, TEST_FLOOR_THICKNESS rows thick.
+  for (let y = TEST_FLOOR_TOP; y < TEST_FLOOR_TOP + TEST_FLOOR_THICKNESS; y++) {
     for (let x = 0; x < WORLD_W; x++) {
-      const band = Math.floor(x / bandWidth);
-      const material = band % 2; // Alternates between 0 (dark) and 1 (white)
-      grid.set(x, y, material);
+      grid.set(x, y, STONE);
+    }
+  }
+
+  // Water body: centred, resting directly on top of the floor.
+  const waterBottom = TEST_FLOOR_TOP; // row just above the first stone row
+  const waterTop = waterBottom - TEST_WATER_H;
+  const waterLeft = Math.floor((WORLD_W - TEST_WATER_W) / 2);
+  for (let y = waterTop; y < waterBottom; y++) {
+    for (let x = waterLeft; x < waterLeft + TEST_WATER_W; x++) {
+      grid.set(x, y, WATER);
+    }
+  }
+
+  // Sand blob: centred, suspended TEST_SAND_GAP rows above the water surface.
+  const sandBottom = waterTop - TEST_SAND_GAP;
+  const sandTop = sandBottom - TEST_SAND_H;
+  const sandLeft = Math.floor((WORLD_W - TEST_SAND_W) / 2);
+  for (let y = sandTop; y < sandBottom; y++) {
+    for (let x = sandLeft; x < sandLeft + TEST_SAND_W; x++) {
+      grid.set(x, y, SAND);
     }
   }
 }
 
-seedDebugPattern();
+seedTestScene();
 
 // ============================================================================
 // Fixed-timestep game loop
@@ -85,8 +119,8 @@ let lastFrameTime = performance.now();
  * Will be populated in Phase 1.
  */
 function simulationTick(): void {
-  // Phase 0: no simulation yet.
-  // Phase 1+ will add falling-sand updates here.
+  // Phase 1: advance the falling-sand cellular update one tick (GDD §5.2).
+  simulation.step();
 }
 
 /**
@@ -135,7 +169,7 @@ function renderLoop(): void {
 // Start the loop
 requestAnimationFrame(renderLoop);
 
-console.log('Gravegrain Phase 0 initialized');
+console.log('Gravegrain Phase 1 initialized');
 console.log(`World: ${WORLD_W}×${WORLD_H} cells, ${WORLD_W * CELL_SIZE}×${WORLD_H * CELL_SIZE}px`);
 console.log(`Simulation: ${SIM_HZ} Hz`);
-console.log('Controls: drag to pan, P to pause, . or ] to step');
+console.log('Controls: use toolbar to select tool (Pan/Sand/Stone/Water/Erase), drag to use, P to pause, . or ] to step');

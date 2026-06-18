@@ -8,9 +8,10 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 1 — Falling-sand core
-- **Status:** not started (Phase 0 complete & committed)
-- **Last passed Done-when:** Phase 0 — wide world renders, visible-window + FPS, fixed-timestep loop w/ pause/step, pointer-first drag-to-pan; TS-strict build + dev server verified
+- **Current phase:** Phase 2 — Materials, fire, interactions, integrity
+- **Status:** not started (Phase 1 complete & committed)
+- **Last passed Done-when:** Phase 1 — sand piles, water seeks level, stone holds, density swap (sand sinks through water), pan-vs-paint toolbar, pause/step; planner-verified PASS, TS-strict build + dev server (HTTP 200) green
+- **Carry-forward (Phase 10):** renderer builds a CSS-px ImageData while main.ts does ctx.scale(dpr); putImageData ignores the transform, so on dpr>1 the world draws into a corner. Fix in Phase 10 (devicePixelRatio render path).
 - **THE GATE:** not reached (locked — Phases 0–4 must pass before any Phase 5+ work)
 - **Run mode:** unattended / set-and-forget
 
@@ -19,6 +20,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 ## Phase checklist
 
 - [x] Phase 0 — Scaffold, render loop & camera
+- [x] Phase 1 — Falling-sand core
 - [ ] Phase 1 — Falling-sand core
 - [ ] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 3 — Hybrid body locomotion **(GATE)**
@@ -47,6 +49,15 @@ ENV NOTE · cheap_coder's configured model `openai/gpt-5-codex` is NOT authed in
 Phase 0 · p0-t1 · cheap_coder(haiku) · attempt 1/1 · pass · Vite+TS-strict scaffold; npm build green.
 Phase 0 · p0-t2..t7 · cheap_coder(haiku) · attempt 1/1 · pass · config, grid (2x Uint8Array), camera (clamp+round-trip), visible-window renderer (FPS,dpr), fixed-timestep loop (pause P, step ./]), pointer-first drag-pan (touch-action:none). Orchestrator fixed a pan-runaway bug in input.ts (anchor not reset on move). Build + dev-server (HTTP 200) verified.
 
+ENV RECOVERY (mid-Phase-1) · A coder's `npm install` triggered the VM's broken global npm (truncated filenames in @sigstore, dropped rollup/esbuild musl binaries) — dev server crashed. Fix: installed standalone **pnpm** (persisted at `/workspace/.tooling/pnpm`, wrapper `/usr/local/bin/pnpm`), reinstalled deps with correct musl rollup/esbuild. Mount has no exec bit → rewrote package.json scripts to call binaries via `node ./node_modules/<pkg>/...`. Documented in `TOOLING.md`; added "never npm install" warnings to both coder agents. `npm run build`/`dev` work again.
+
+Phase 1 · p1-t1 · cheap_coder(haiku) · 1/1 · pass · materials.ts (AIR/SAND/STONE/WATER table+helpers) + config densities/BRUSH_RADIUS/GRAVITY_STEPS.
+Phase 1 · p1-t2 · cheap_coder(haiku) · 1/1 · pass · renderer palette from MATERIALS, pre-parsed RGB.
+Phase 1 · p1-t3 · expensive_coder(opus) · 1/1 · pass · sand sim: bottom-up scan, scan-flip, angle of repose; headless 10/10 (mass-conserved, no tunnel, stable pile, no bias).
+Phase 1 · p1-t4 · expensive_coder(opus) · 1/1 · pass · water seek-level + general density swap + explicit moved-guard; headless verified (water flattens, sand sinks, masses conserved, single-cell moves, 0.88ms/tick).
+Phase 1 · p1-t5 · cheap_coder(haiku) · 1/1 · pass · pan-vs-paint toolbar (Pan/Sand/Stone/Water/Erase), brush disc, single Pointer-Events path. (Agent returned no summary but work landed; orchestrator verified.)
+Phase 1 · VERIFY · planner · PASS · sim correctness + mode coherence + MVP scope confirmed; flagged dpr putImageData issue for Phase 10.
+
 ---
 
 ## Blockers
@@ -57,4 +68,5 @@ _(none)_
 
 ## Commit log (phase boundaries)
 
-Phase 0 — see commit below.
+Phase 0 — commit 8972036.
+Phase 1 — see commit below (includes toolchain recovery: pnpm + TOOLING.md).

@@ -7,17 +7,25 @@
 import { CELL_SIZE, WORLD_W, WORLD_H } from '../config';
 import { camera, clampCamera, worldToScreen } from '../camera';
 import * as grid from '../engine/grid';
+import { MATERIALS } from '../engine/materials';
 
 /**
- * Colour palette for Phase 0 (debug / minimal).
- * 0 (AIR) = dark background
- * 1 (debug fill) = white
- * More materials will be added in Phase 1.
+ * Pre-parsed material colours: RGB[material_id] = [r, g, b] tuple.
+ * Built at init from MATERIALS table hex colours.
+ * Avoids per-cell parseInt overhead in hot render loop.
  */
-const COLOURS: Record<number, string> = {
-  0: '#1a1a1a', // AIR / empty
-  1: '#ffffff', // debug fill / light
-};
+let RGB_PALETTE: Array<[number, number, number]> = [];
+
+/**
+ * Parse hex colour string (#RRGGBB) to RGB tuple.
+ * Assumes valid 7-char hex input.
+ */
+function hexToRgb(hex: string): [number, number, number] {
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  return [r, g, b];
+}
 
 /**
  * Renderer state: canvas, context, and internal buffers.
@@ -39,7 +47,16 @@ class Renderer {
     this.canvas = canvas;
     this.ctx = ctx;
     this.dpr = window.devicePixelRatio || 1;
+    this.initializePalette();
     this.onResize();
+  }
+
+  /**
+   * Build RGB_PALETTE from MATERIALS table at init.
+   * Pre-parse all material hex colours once, avoiding per-cell overhead.
+   */
+  private initializePalette(): void {
+    RGB_PALETTE = MATERIALS.map((material) => hexToRgb(material.color));
   }
 
   /**
@@ -79,12 +96,7 @@ class Renderer {
       for (let cellX = startX; cellX < endX; cellX++) {
         // Get the material at this cell.
         const material = grid.get(cellX, cellY);
-        const colour = COLOURS[material] || COLOURS[0];
-
-        // Convert hex to RGB (simple version — assumes #RRGGBB).
-        const r = parseInt(colour.slice(1, 3), 16);
-        const g = parseInt(colour.slice(3, 5), 16);
-        const b = parseInt(colour.slice(5, 7), 16);
+        const [r, g, b] = RGB_PALETTE[material] || RGB_PALETTE[0];
 
         // Calculate the screen-pixel region for this cell.
         const screenX = (cellX - camera.x) * CELL_SIZE;

@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FabLittleBag — Live Klaviyo Flows</title>
+<style>
+  :root{
+    --ink:#1d1d1b; --muted:#6b6b6b; --line:#e3e3e0; --bg:#ffffff;
+    --trigger:#2a6fb0; --email-bg:#f3f8f3; --email-line:#cfe3cf;
+    --split-bg:#fbf6ec; --split-line:#ead9b8; --yes:#2f7d32; --no:#b06a2a;
+  }
+  *{box-sizing:border-box}
+  body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:var(--ink);background:#faf9f7;margin:0;padding:32px;line-height:1.45}
+  header{max-width:1100px;margin:0 auto 24px}
+  h1{font-size:24px;margin:0 0 4px}
+  .sub{color:var(--muted);font-size:13px}
+  .legend{display:flex;flex-wrap:wrap;gap:16px;font-size:12px;color:var(--muted);margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:14px;height:14px;border-radius:4px;display:inline-block;border:1px solid var(--line)}
+  .grid{max-width:1100px;margin:0 auto;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;align-items:start}
+  .card{border:1px solid var(--line);border-radius:12px;padding:16px;background:var(--bg)}
+  .card h3{font-size:15px;margin:0 0 2px;line-height:1.25}
+  .meta{font-size:11px;color:var(--muted);margin-bottom:12px;text-transform:uppercase;letter-spacing:.03em}
+  .node{border-radius:8px;padding:8px 11px;font-size:12.5px;line-height:1.35;border:1px solid var(--line)}
+  .trigger{background:var(--trigger);color:#fff;border:none;font-weight:600}
+  .trigger .s,.email .s,.split .s{display:block;font-weight:400;font-size:11px;margin-top:2px}
+  .trigger .s{opacity:.92}
+  .email{background:var(--email-bg);border-color:var(--email-line)}
+  .email .s{color:var(--muted)}
+  .split{background:var(--split-bg);border-color:var(--split-line);font-weight:600}
+  .split .s{color:var(--muted)}
+  .arr{text-align:center;color:#9a9a9a;font-size:12px;margin:5px 0}
+  .arr small{font-style:normal}
+  .seq{display:flex;flex-direction:column}
+  .exit{font-size:11px;color:#8a8a8a;text-align:center;margin-top:4px}
+  .yes{color:var(--yes)} .no{color:var(--no)}
+  footer{max-width:1100px;margin:24px auto 0;font-size:12px;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <h1>FabLittleBag — Live Klaviyo Flows</h1>
+  <div class="sub">8 live flows · triggers and actions · pulled from Klaviyo (account WHBpKt). Draft and unconfigured flows excluded.</div>
+  <div class="legend">
+    <span><span class="sw" style="background:var(--trigger);border:none"></span> Trigger</span>
+    <span><span class="sw" style="background:#fff;border-style:dashed"></span> Time delay</span>
+    <span><span class="sw" style="background:var(--split-bg);border-color:var(--split-line)"></span> Conditional split</span>
+    <span><span class="sw" style="background:var(--email-bg);border-color:var(--email-line)"></span> Email send</span>
+  </div>
+</header>
+
+<div class="grid">
+
+  <div class="card">
+    <h3>Welcome Series – Blend</h3>
+    <div class="meta">B2C onboarding</div>
+    <div class="seq">
+      <div class="node trigger">Trigger: Added to List<span class="s">Newsletter sign-up list</span></div>
+      <div class="arr">↓</div>
+      <div class="node email">Email 1 — "Welcome Fabber! 🍃"<span class="s">10% off first order</span></div>
+      <div class="arr">↓ <small>wait 3 days</small></div>
+      <div class="node split">Split: placed an order yet?<span class="s"><span class="no">No → continue</span> · <span class="yes">Yes → exit</span></span></div>
+      <div class="arr">↓ <small class="no">No</small></div>
+      <div class="node email">Email 2 — "5 tips for a greener period 🍃"</div>
+      <div class="arr">↓ <small>wait 7 days → split (no order?)</small></div>
+      <div class="node email">Email 3 — "Let's be friends? 😎"</div>
+      <div class="arr">↓ <small>wait 7 days → split (no order?)</small></div>
+      <div class="node email">Email 4 — "How Have You Found FLB? 💚"</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Abandoned Cart – Blend</h3>
+    <div class="meta">Cart recovery</div>
+    <div class="seq">
+      <div class="node trigger">Trigger: Checkout Started<span class="s">Filter: 0 orders since flow start</span></div>
+      <div class="arr">↓ <small>wait 2 hrs → split (no order?)</small></div>
+      <div class="node email">Email 1 — "We saw you looking 👀"</div>
+      <div class="arr">↓ <small>wait 1 day → split (no order?)</small></div>
+      <div class="node email">Email 2 — "You're Forgetting Something! 👋"</div>
+      <div class="arr">↓ <small>wait 1 day → split (no order?)</small></div>
+      <div class="node email">Email 3 — "Hey Girl, Want To Be Friends? 💌"</div>
+      <div class="arr">↓ <small>wait 1 day → split (no order?)</small></div>
+      <div class="node email">Email 4 — "Playing Hard To Get? 👀"</div>
+      <div class="exit">Each split: order placed → exit flow</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Post-Purchase Refills / Dispenser – Blend</h3>
+    <div class="meta">Post-purchase education</div>
+    <div class="seq">
+      <div class="node trigger">Trigger: Placed Order<span class="s">Items contain a Dispenser / Refill product</span></div>
+      <div class="arr">↓ <small>wait 1 day</small></div>
+      <div class="node email">Email 1 — "How To Install & Refill Your Dispenser!"</div>
+      <div class="arr">↓ <small>wait 1 day</small></div>
+      <div class="node email">Email 2 — "We Think You'll Need These!"</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Dispenser Instructions</h3>
+    <div class="meta">Post-purchase education</div>
+    <div class="seq">
+      <div class="node trigger">Trigger: Placed Order<span class="s">Items contain Dispenser Starter Kit / Fab Dispenser</span></div>
+      <div class="arr">↓ <small>wait 20 mins</small></div>
+      <div class="node email">Email — "Your Dispenser Kit – Here's How to Use It 💡"</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Post-Purchase ReviewsIO Followup</h3>
+    <div class="meta">Reviews / feedback</div>
+    <div class="seq">
+      <div class="node trigger">Trigger: Placed Order<span class="s">Any order</span></div>
+      <div class="arr">↓ <small>wait 21 days</small></div>
+      <div class="node email">Email 1 — "How Are You Finding FabLittleBag? 💚"</div>
+      <div class="arr">↓ <small>wait 21 days</small></div>
+      <div class="node email">Email 2 — "All Feedback Is Good Feedback! ⭐"</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Conference</h3>
+    <div class="meta">Competition / event</div>
+    <div class="seq">
+      <div class="node trigger">Trigger: Added to List<span class="s">Conference entry list</span></div>
+      <div class="arr">↓</div>
+      <div class="node email">Email — "Thanks For Entering! 🤩"</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>New B2B Welcome Pack</h3>
+    <div class="meta">B2B routing</div>
+    <div class="seq">
+      <div class="node trigger">Trigger: Placed Order<span class="s">then routed by account Tag</span></div>
+      <div class="arr">↓</div>
+      <div class="node split">Tag = b2b-hotels?<span class="s"><span class="yes">Yes →</span> "Your Hotel Is Qualified! 🎉"</span></div>
+      <div class="arr">↓ <small class="no">No</small></div>
+      <div class="node split">Tag = b2b-employer?<span class="s"><span class="yes">Yes →</span> "Your Workplace Is Qualified! 🎉"</span></div>
+      <div class="arr">↓ <small class="no">No</small></div>
+      <div class="node split">Tag = b2b-school?<span class="s"><span class="yes">Yes →</span> "Your School Is Qualified! 🎉"</span></div>
+      <div class="arr">↓ <small class="no">No</small></div>
+      <div class="node split">Tag = b2b-sports-club?<span class="s"><span class="yes">Yes →</span> "Your Sports Club Is Period Supportive! 🎉"</span></div>
+      <div class="exit">No match → exit flow</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Welcome Series B2B – Rococo</h3>
+    <div class="meta">B2B routing</div>
+    <div class="seq">
+      <div class="node trigger">Trigger: Segment entry<span class="s">Filter: has placed ≥1 order (all-time)</span></div>
+      <div class="arr">↓</div>
+      <div class="node split">Tag = b2b-hotels?<span class="s"><span class="yes">Yes →</span> "Your Hotel Is Qualified! 🎉"</span></div>
+      <div class="arr">↓ <small class="no">No</small></div>
+      <div class="node split">Tag = b2b-business?<span class="s"><span class="yes">Yes →</span> "Your Workplace Is Qualified! 🎉"</span></div>
+      <div class="arr">↓ <small class="no">No</small></div>
+      <div class="node split">Tag = b2b-sports-clubs?<span class="s"><span class="yes">Yes →</span> "Your Sports Club Is Qualified! 🎉"</span></div>
+      <div class="arr">↓ <small class="no">No</small></div>
+      <div class="node split">Tag = b2b-schools?<span class="s"><span class="yes">Yes →</span> "Your School Is Qualified! 🎉"</span></div>
+      <div class="exit">No match → exit flow</div>
+    </div>
+  </div>
+
+</div>
+
+<footer>
+  Prepared by Rococo Digital · Source: Klaviyo flow definitions (live flows only). Smart Sending and message-level settings omitted for clarity.
+</footer>
+</body>
+</html>

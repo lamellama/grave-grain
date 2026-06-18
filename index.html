@@ -23,10 +23,65 @@
       width: 100%;
       height: 100%;
     }
+
+    /* Toolbar: minimal, thumb-reachable, fixed at bottom (GDD §12.3, §12.4) */
+    #toolbar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      display: flex;
+      gap: 0.5rem;
+      padding: 0.5rem;
+      background: rgba(0, 0, 0, 0.7);
+      z-index: 100;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    .tool-btn {
+      padding: 0.75rem 1rem;
+      font-size: 1rem;
+      font-weight: bold;
+      border: 2px solid #666;
+      background: #333;
+      color: #ccc;
+      cursor: pointer;
+      border-radius: 4px;
+      min-width: 4rem;
+      text-align: center;
+      transition: all 0.2s;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    .tool-btn:hover {
+      background: #444;
+      border-color: #999;
+    }
+
+    /* Active tool: highlighted (GDD §12.3: highlight the active mode) */
+    .tool-btn.active {
+      background: #00aa00;
+      color: #000;
+      border-color: #00ff00;
+      box-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
+    }
   </style>
 </head>
 <body>
   <canvas id="game"></canvas>
+
+  <!-- Minimal toolbar: Pan, Sand, Stone, Water, Erase -->
+  <!-- GDD §12.3: persistent, thumb-reachable toolbar. GDD §12.4: big, no hover dependence -->
+  <div id="toolbar">
+    <button class="tool-btn" data-tool="pan" title="Pan mode: drag to scroll">Pan</button>
+    <button class="tool-btn" data-tool="paint" data-material="1" title="Paint sand">Sand</button>
+    <button class="tool-btn" data-tool="paint" data-material="2" title="Paint stone">Stone</button>
+    <button class="tool-btn" data-tool="paint" data-material="3" title="Paint water">Water</button>
+    <button class="tool-btn" data-tool="paint" data-material="0" title="Erase (paint air)">Erase</button>
+  </div>
+
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

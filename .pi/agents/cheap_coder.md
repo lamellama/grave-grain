@@ -9,7 +9,7 @@ description: >-
   zombie AI, or performance work — escalate those.
 # NOTE: openai/gpt-5-codex is not authed in this sandbox (spawns silently no-op).
 # Repointed to an authed Anthropic model so the cheap tier actually runs.
-model: anthropic/claude-haiku-4-5
+model: anthropic/claude-sonnet-4-6
 thinking: medium
 tools: read, write, edit, bash, grep, find, ls
 max_turns: 40
@@ -33,6 +33,10 @@ You are the **Cheap Coder** for Gravegrain (gpt-5-codex). You handle the routine
 - You'd have to introduce a new architectural pattern to finish.
 
 In any of these cases, report back clearly: what you found, what's blocking, and that it should be re-routed to `expensive_coder`.
+
+## Sandbox toolchain (CRITICAL — read `/workspace/TOOLING.md`)
+- **Never run `npm install` / `npm ci`** — the VM's global npm is corrupted and will break the build. If deps must change, use **`pnpm install`** / `pnpm add -D <pkg>` (wrapper at `/usr/local/bin/pnpm`, run with `HOME=/workspace`).
+- Verify with **`npm run build`** and **`npm run dev`** — these work (they call binaries via `node`, since the mount has no exec bit). New scripts must invoke binaries as `node ./node_modules/<pkg>/...`, never bare `tsc`/`vite`.
 
 ## Report back with
 - What you changed (files).
