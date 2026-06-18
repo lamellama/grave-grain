@@ -25,7 +25,7 @@ import {
   P3_PACE_RIGHT,
   P3_STALL_TICKS,
 } from './config';
-import { initInput } from './input';
+import { initInput, setTargetBody } from './input';
 import { initRenderer, getRenderer, setBody } from './render/renderer';
 import { clampCamera } from './camera';
 import * as grid from './engine/grid';
@@ -84,6 +84,7 @@ initInput(canvas);
 
 const body = createBody(BODY_SPAWN_X, BODY_SPAWN_Y);
 setBody(body); // renderer draws it every frame from here on
+setTargetBody(body); // Shoot tool damages this body (GDD §14 hand-test, p4-t7)
 
 // ============================================================================
 // Phase-3 test terrain (p3-t5)

@@ -13,6 +13,9 @@ import {
   DENSITY_ASH,
   DENSITY_FIRE,
   DENSITY_SMOKE,
+  DENSITY_FLESH,
+  DENSITY_BONE,
+  DENSITY_BLOOD,
   WOOD_INTEGRITY,
   FOLIAGE_INTEGRITY,
 } from '../config';
@@ -47,6 +50,10 @@ export const FOLIAGE = 7;
 export const FIRE = 8;
 export const SMOKE = 9;   // doubles as steam
 export const ASH = 10;
+// Material IDs — Phase 4 body matter (GDD §5.2; do NOT renumber above)
+export const FLESH = 11;
+export const BONE = 12;
+export const BLOOD = 13;
 
 /**
  * MATERIALS — indexed lookup table of material properties.
@@ -187,6 +194,44 @@ export const MATERIALS: Material[] = [
     hasIntegrity: false,
     baseIntegrity: 0,
   },
+  // FLESH (id=11) — body matter: flammable, bleeds when damaged (GDD §5.2).
+  // A live body pixel and the cell it sheds share this colour & resolution —
+  // that match is the load-bearing illusion (GDD §14 gate point 5).
+  {
+    name: 'flesh',
+    color: '#b5503f', // red-meat
+    density: DENSITY_FLESH,
+    isFluid: false,
+    isStatic: false,
+    flammable: true,
+    permeableToBodies: false,
+    hasIntegrity: false,
+    baseIntegrity: 0,
+  },
+  // BONE (id=12) — body matter: rigid, harder to destroy than flesh (GDD §5.2).
+  {
+    name: 'bone',
+    color: '#e8e0cf', // off-white
+    density: DENSITY_BONE,
+    isFluid: false,
+    isStatic: false,
+    flammable: false,
+    permeableToBodies: false,
+    hasIntegrity: false,
+    baseIntegrity: 0,
+  },
+  // BLOOD (id=13) — body matter: thin fluid, stains, DOUSES NOTHING (GDD §5.2).
+  {
+    name: 'blood',
+    color: '#7a1414', // dark red
+    density: DENSITY_BLOOD,
+    isFluid: true,
+    isStatic: false,
+    flammable: false,
+    permeableToBodies: false,
+    hasIntegrity: false,
+    baseIntegrity: 0,
+  },
 ];
 
 /**
@@ -240,7 +285,10 @@ export function isFlammable(id: number): boolean {
  *
  * Phase 6: honour permeableToBodies for foliage (foliage collides until then).
  * Out-of-range ids are treated as solid (fail safe — never tunnel).
+ *
+ * BLOOD (Phase 4) joins the non-solid set: it is a thin fluid, so a body must
+ * not stand on a blood smear (loose FLESH/BONE piles still bury & support).
  */
 export function isSolidForBody(id: number): boolean {
-  return !(id === AIR || id === WATER || id === FIRE || id === SMOKE);
+  return !(id === AIR || id === WATER || id === FIRE || id === SMOKE || id === BLOOD);
 }

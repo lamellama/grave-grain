@@ -8,10 +8,10 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 4 — Damage→cells handoff **(THE GATE — make-or-break)**
-- **Status:** not started (Phase 3 complete & committed)
-- **Last passed Done-when:** Phase 3 — rigged 52-px body walks uneven terrain, climbs 1-cell step, stops at tall walls, falls into pits; NO tunnelling (~1500 ticks clean); pixel-perfect cell-grid alignment. Planner-verified PASS. THE GATE part 1 met.
-- **GATE NOTE:** Phase 4 is the DECISIVE half of THE GATE (damage→cells handoff, GDD §14 Milestone 0). It must PASS before ANY Phase 5+ work. If its gate test fails, STOP and flag for human — the architecture is meant to change here. All Phase 4 tasks → expensive_coder.
+- **Current phase:** Phase 5 — Survivors: needs + autonomy + pathing
+- **Status:** not started (Phase 4 complete & committed)
+- **Last passed Done-when:** Phase 4 — THE GATE 5-point test PASSED. Leg→crawl (0.40 ratio, no-tunnel), headshot→52/52 indistinguishable mound, flesh burns like wood, drown@tick179 + sand-pin, illusion has zero seam (shed cell = live pixel's address/material/colour/CELL_SIZE), perf 1.41ms/tick (8.5% of 60Hz budget). Planner-verified PASS.
+- **✅ THE GATE IS CLEARED.** The hybrid-body architecture is proven. Phase 5+ is now UNLOCKED. Routing returns to normal policy (sim/AI/pathfinding → expensive_coder; UI/glue → cheap_coder).
 - **Carry-forward (Phase 10):** renderer builds a CSS-px ImageData while main.ts does ctx.scale(dpr); putImageData ignores the transform, so on dpr>1 the world draws into a corner. Fix in Phase 10 (devicePixelRatio render path).
 - **THE GATE:** not reached (locked — Phases 0–4 must pass before any Phase 5+ work)
 - **Run mode:** unattended / set-and-forget
@@ -24,6 +24,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 - [x] Phase 1 — Falling-sand core
 - [x] Phase 2 — Materials, fire, interactions, integrity
 - [x] Phase 3 — Hybrid body locomotion **(GATE part 1)**
+- [x] Phase 4 — Damage→cells handoff **(GATE CLEARED ✅)**
 - [ ] Phase 1 — Falling-sand core
 - [ ] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 3 — Hybrid body locomotion **(GATE)**
@@ -77,6 +78,15 @@ Phase 3 · p3-t4 · cheap_coder(haiku) · 1/1 · pass · renderer setBody + draw
 Phase 3 · p3-t5 · cheap_coder(haiku) · 1/1 · pass · main.ts wires createBody+setBody+updateBody (after sim.step); arrow driver + stall-flip pacer; test terrain (step+pit). (Agent returned no summary; work landed, orchestrator verified build+dev.)
 Phase 3 · VERIFY · planner · PASS · full Done-when over real modules; no-tunnel held ~1500 ticks; alignment/illusion confirmed; MVP scope clean. THE GATE part 1 met.
 
+Phase 4 (THE GATE) · p4-t1 · expensive_coder(opus) · 1/1 · pass · FLESH/BONE/BLOOD materials + BodyPixel.material; pixel colour from material; reactions key on WATER (blood douses nothing); 37 FLESH/15 BONE.
+Phase 4 · p4-t2 · expensive_coder(opus) · 1/1 · pass · sim rules for FLESH/BONE (powderFall) + BLOOD (water-like); damage.ts releaseBone (floor never overwritten, cells fall/pile, idempotent).
+Phase 4 · p4-t3 · expensive_coder(opus) · 1/1 · pass · applyDamage dispatch + dissolveBody; head→52/52 pile; leg/arm flags; torso threshold; displaceable narrowed to AIR|fluid (terrain never deleted).
+Phase 4 · p4-t4 · expensive_coder(opus) · 1/1 · pass · crawl @CRAWL_SPEED (ratio 0.40), dead-body guard, no-tunnel 500t.
+Phase 4 · p4-t5 · expensive_coder(opus) · 1/1 · pass · drown @DROWN_TICKS=180 (died tick179) + sand/dirt head-pin (0 vs 18); reactToEnvironment.
+Phase 4 · p4-t6 · expensive_coder(opus) · attempt1 no-op (interrupted), attempt2/2 pass · FLESH burns like wood; living body catches fire (checkFire) & dissolves; no spurious ignition.
+Phase 4 · p4-t7 · expensive_coder(opus) · 1/1 · pass · Shoot tool + pick.ts pickBone (DOM-free, unit-tested); setTargetBody; gate hand-runnable.
+Phase 4 · VERIFY (THE GATE) · planner · PASS · all 5 points over real modules; zero illusion seam; 1.41ms/tick worst-case. ARCHITECTURE PROVEN — Phase 5 unlocked.
+
 ---
 
 ## Blockers
@@ -90,4 +100,5 @@ _(none)_
 Phase 0 — commit 8972036.
 Phase 1 — commit de42b5c (includes toolchain recovery: pnpm + TOOLING.md).
 Phase 2 — commit aca1595.
-Phase 3 — see commit below.
+Phase 3 — commit fc9cd1e.
+Phase 4 (THE GATE) — see commit below.

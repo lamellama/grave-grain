@@ -13,18 +13,40 @@ import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
 import { ignite } from './engine/simulation';
 import { BRUSH_RADIUS } from './config';
+import type { Body } from './characters/body';
+import { pickBone } from './characters/pick';
+import { applyDamage } from './characters/damage';
+
+// Re-export the pure picking query so callers can reach it via the input module
+// while it stays defined in a DOM-free helper (GDD §14 hand-test, p4-t7).
+export { pickBone } from './characters/pick';
 
 /**
  * Tool mode state: 'Pan' (drag scrolls camera), 'Paint' (drag paints), or
  * 'Ignite' (drag ignites flammable cells — GDD §8 ignite verb).
  * GDD §12.3: the currently selected tool defines what a drag does.
  */
-type ToolMode = 'Pan' | 'Paint' | 'Ignite';
+type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot';
 
 const toolState = {
   mode: 'Pan' as ToolMode,
   paintMaterialId: SAND, // which material to paint when in Paint mode
 };
+
+/**
+ * The live body the Shoot tool targets (p4-t7). Module-level reference mirroring
+ * the renderer's setBody; null when no body is registered. Only used by the
+ * temporary Shoot hand-test tool (Phase-7 combat replaces this).
+ */
+let targetBody: Body | null = null;
+
+/**
+ * Register the body the Shoot tool damages (GDD §14 Milestone 0 hand-test).
+ * main.ts calls this alongside the renderer's setBody so a click drives THE GATE.
+ */
+export function setTargetBody(body: Body | null): void {
+  targetBody = body;
+}
 
 /**
  * Input state for drag tracking.
@@ -128,6 +150,20 @@ function onPointerDown(event: PointerEvent): void {
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     igniteDisc(worldCoords.x, worldCoords.y);
+  } else if (toolState.mode === 'Shoot') {
+    // Shoot on DOWN only (a click = a single hit; drags don't repeat-fire).
+    // Pick the body region under the cursor and route it through THE GATE
+    // (GDD §14 hand-test, §7.2 emergent damage). No-op if no live body.
+    if (targetBody && targetBody.alive) {
+      const canvasCoords = getCanvasRelativeCoords(event, canvas);
+      const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+      const cellX = Math.floor(worldCoords.x);
+      const cellY = Math.floor(worldCoords.y);
+      const name = pickBone(targetBody, cellX, cellY);
+      if (name) {
+        applyDamage(targetBody, name);
+      }
+    }
   }
 }
 
@@ -179,6 +215,7 @@ function onPointerUp(_event: PointerEvent): void {
 export function setToolMode(mode: 'Pan'): void;
 export function setToolMode(mode: 'Paint', materialId: number): void;
 export function setToolMode(mode: 'Ignite'): void;
+export function setToolMode(mode: 'Shoot'): void;
 export function setToolMode(mode: ToolMode, materialId?: number): void {
   toolState.mode = mode;
   if (mode === 'Paint' && materialId !== undefined) {
@@ -204,6 +241,8 @@ function updateToolbarUI(): void {
       isActive = toolState.mode === 'Paint' && toolState.paintMaterialId === materialId;
     } else if (btnMode === 'ignite') {
       isActive = toolState.mode === 'Ignite';
+    } else if (btnMode === 'shoot') {
+      isActive = toolState.mode === 'Shoot';
     }
 
     btn.classList.toggle('active', isActive);
@@ -236,6 +275,8 @@ export function initInput(canvas: HTMLCanvasElement): void {
         setToolMode('Paint', parseInt(materialId, 10));
       } else if (mode === 'ignite') {
         setToolMode('Ignite');
+      } else if (mode === 'shoot') {
+        setToolMode('Shoot');
       }
     });
   });

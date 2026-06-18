@@ -14,7 +14,14 @@
  *
  * SCOPE (p3-t1): data + factory only. No locomotion (t2/t3), no damage/release
  * (Phase 4). DOM-free pure logic so it stays headless-testable.
+ *
+ * Phase 4 (p4-t1): each pixel now carries a body `material` (FLESH/BONE) and
+ * derives its render `color` from MATERIALS[material].color, so a LIVE body
+ * pixel and the cell it sheds are identical in colour and resolution — the
+ * load-bearing illusion (GDD §14 gate point 5).
  */
+
+import { MATERIALS, FLESH, BONE } from '../engine/materials';
 
 /**
  * One authored pixel of a bone, in the bone's LOCAL cell space.
@@ -22,15 +29,15 @@
  *                           Math.round(body.y) + bone.offset.dy + pixel.dy
  * (dy negative = up, since the body anchor is the feet-centre.)
  *
- * Phase 4 will add a `material` slot here (FLESH/BONE/BLOOD — GDD §5.2) so a
- * released pixel knows which body material to write into the grid; for now only
- * a placeholder render `color` is authored.
+ * `material` (FLESH/BONE/BLOOD — GDD §5.2) is what a released pixel writes into
+ * the grid when Phase 4 sheds it. `color` is DERIVED from that material so the
+ * live figure and its shed cells match exactly (GDD §14 gate point 5).
  */
 export interface BodyPixel {
   dx: number;
   dy: number;
-  color: string;
-  // Phase 4: material: number;  // FLESH | BONE | BLOOD — what this pixel sheds as
+  material: number; // FLESH | BONE | BLOOD — what this pixel sheds as
+  color: string; // = MATERIALS[material].color (kept in sync at authoring)
 }
 
 export type BoneName = 'head' | 'torso' | 'lArm' | 'rArm' | 'lLeg' | 'rLeg';
@@ -65,32 +72,66 @@ export interface Body {
   moveDir: -1 | 0 | 1;
   rig: Bone[];
   alive: boolean;
+  // Consecutive ticks the head bone has sat in WATER (p4-t5, THE GATE gate
+  // point 4). Incremented while ANY head cell is WATER, reset to 0 the instant
+  // the head clears the surface; at DROWN_TICKS the body drowns and dissolves
+  // (GDD §5.2 "water drowns bodies when head submerged too long" / §7.3).
+  drownTicks: number;
+  // Capability flags — what the rig has lost (GDD §7.2 emergent damage). Set by
+  // Phase-4 damage when a limb's bone is destroyed and its pixels are released
+  // into the sim. Kept on the Body (not just derived from bone.destroyed) so
+  // locomotion (t4 crawl) and combat (t7 reach) can query them cheaply.
+  lLegLost: boolean;
+  rLegLost: boolean;
+  lArmLost: boolean;
+  rArmLost: boolean;
+  // Per-side attack reach (GDD §7.2 "loses that arm's reach"). True while the
+  // arm is intact; set false when that arm is lost (consumed by Phase-7 combat).
+  reachLeft: boolean;
+  reachRight: boolean;
 }
-
-// Placeholder render palette (Phase 4 replaces these with real body materials).
-const SKIN = '#c98a5e'; // head + arms
-const SHIRT = '#4a5a7a'; // torso cloth
-const TROUSERS = '#37374a'; // legs cloth
 
 /**
  * Build a filled w×h rectangle of BodyPixels in local cell space, with its
- * top-left at (x0, y0). Keeps the authored figure chunky and guarantees no two
- * pixels in a bone collide.
+ * top-left at (x0, y0). Every pixel is authored with the given body `material`
+ * and its colour DERIVED from MATERIALS[material].color, so the live figure and
+ * any cell it later sheds are the same colour (GDD §14 gate point 5). Keeps the
+ * authored figure chunky and guarantees no two pixels in a bone collide.
  */
 function rect(
   w: number,
   h: number,
   x0: number,
   y0: number,
-  color: string,
+  material: number,
 ): BodyPixel[] {
+  const color = MATERIALS[material].color;
   const out: BodyPixel[] = [];
   for (let dy = 0; dy < h; dy++) {
     for (let dx = 0; dx < w; dx++) {
-      out.push({ dx: x0 + dx, dy: y0 + dy, color });
+      out.push({ dx: x0 + dx, dy: y0 + dy, material, color });
     }
   }
   return out;
+}
+
+/**
+ * Re-paint the pixels of `pixels` matching `pred` to a new body `material`,
+ * keeping `color` derived from MATERIALS so live figure == shed cell. Used to
+ * lay BONE structure (skull cells, spine, leg columns) inside FLESH limbs.
+ */
+function paint(
+  pixels: BodyPixel[],
+  material: number,
+  pred: (p: BodyPixel) => boolean,
+): void {
+  const color = MATERIALS[material].color;
+  for (const p of pixels) {
+    if (pred(p)) {
+      p.material = material;
+      p.color = color;
+    }
+  }
 }
 
 /**
@@ -117,42 +158,57 @@ function rect(
  * two body pixels share a world cell. Bounding box = BODY_W×BODY_H.
  */
 export function createBody(x: number, y: number): Body {
+  // Body matter (GDD §5.2): mostly FLESH, with a chunky BONE structure (skull
+  // cap, torso spine column, one bone column per leg). No BLOOD is authored —
+  // blood is emitted on hit by Phase-4 damage, not part of the live figure.
+  const head = rect(2, 3, -1, -1, FLESH); // cols 2-3, rows 0-2
+  paint(head, BONE, (p) => p.dy === -1); // top row = 2 skull-cap BONE cells
+
+  const torso = rect(4, 5, -2, -2, FLESH); // cols 1-4, rows 3-7
+  paint(torso, BONE, (p) => p.dx === -1); // central spine column (BONE)
+
+  const lLeg = rect(2, 4, 0, -1, FLESH); // cols 1-2, rows 8-11
+  paint(lLeg, BONE, (p) => p.dx === 1); // inner bone column
+
+  const rLeg = rect(2, 4, 0, -1, FLESH); // cols 3-4, rows 8-11
+  paint(rLeg, BONE, (p) => p.dx === 0); // inner bone column
+
   // Each bone: offset = its anchor relative to feet-centre; pixels local to it.
   const rig: Bone[] = [
     {
       name: 'head',
       offset: { dx: 0, dy: -10 },
-      pixels: rect(2, 3, -1, -1, SKIN), // cols 2-3, rows 0-2
+      pixels: head,
       destroyed: false,
     },
     {
       name: 'torso',
       offset: { dx: 0, dy: -6 },
-      pixels: rect(4, 5, -2, -2, SHIRT), // cols 1-4, rows 3-7
+      pixels: torso,
       destroyed: false,
     },
     {
       name: 'lArm',
       offset: { dx: -3, dy: -6 },
-      pixels: rect(1, 5, 0, -2, SKIN), // col 0, rows 3-7
+      pixels: rect(1, 5, 0, -2, FLESH), // col 0, rows 3-7
       destroyed: false,
     },
     {
       name: 'rArm',
       offset: { dx: 2, dy: -6 },
-      pixels: rect(1, 5, 0, -2, SKIN), // col 5, rows 3-7
+      pixels: rect(1, 5, 0, -2, FLESH), // col 5, rows 3-7
       destroyed: false,
     },
     {
       name: 'lLeg',
       offset: { dx: -2, dy: -2 },
-      pixels: rect(2, 4, 0, -1, TROUSERS), // cols 1-2, rows 8-11
+      pixels: lLeg,
       destroyed: false,
     },
     {
       name: 'rLeg',
       offset: { dx: 0, dy: -2 },
-      pixels: rect(2, 4, 0, -1, TROUSERS), // cols 3-4, rows 8-11
+      pixels: rLeg,
       destroyed: false,
     },
   ];
@@ -167,5 +223,12 @@ export function createBody(x: number, y: number): Body {
     moveDir: 0,
     rig,
     alive: true,
+    drownTicks: 0,
+    lLegLost: false,
+    rLegLost: false,
+    lArmLost: false,
+    rArmLost: false,
+    reachLeft: true,
+    reachRight: true,
   };
 }

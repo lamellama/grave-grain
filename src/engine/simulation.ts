@@ -40,6 +40,9 @@ import {
   ASH,
   SMOKE,
   FIRE,
+  FLESH,
+  BONE,
+  BLOOD,
   density,
   isStatic,
   isFlammable,
@@ -122,8 +125,72 @@ function updateCell(x: number, y: number): void {
     updateFire(x, y);
   } else if (m === SMOKE) {
     updateGas(x, y);
+  } else if (m === FLESH) {
+    updateFlesh(x, y);
+  } else if (m === BONE) {
+    updateBone(x, y);
+  } else if (m === BLOOD) {
+    updateBlood(x, y);
   }
   // AIR is the empty target; STONE is static — neither has a rule.
+}
+
+/**
+ * Shared POWDER fall (GDD §7.2 "severed parts are loose body cells that fall &
+ * settle"). Identical primitive to sand: fall straight down through anything
+ * lighter and non-static (the density swap), else spill into the two diagonals
+ * below in random per-cell order so the gore piles at an angle of repose. Used
+ * by both released FLESH and BONE — they differ only in density (FLESH 3 sinks,
+ * BONE 5 sinks faster/under flesh), and that falls out of trySwap for free.
+ */
+function powderFall(x: number, y: number): void {
+  const below = y + 1;
+
+  // 1) Fall straight down through any lighter, non-static cell (AIR/WATER/BLOOD).
+  if (trySwap(x, y, x, below)) {
+    return;
+  }
+
+  // 2) Otherwise pile via the two diagonals below (random order, no side bias).
+  const leftFirst = Math.random() < 0.5;
+  const firstDx = leftFirst ? -1 : 1;
+  const secondDx = leftFirst ? 1 : -1;
+
+  if (trySwap(x, y, x + firstDx, below)) {
+    return;
+  }
+  trySwap(x, y, x + secondDx, below);
+}
+
+/**
+ * FLESH rule (GDD §5.2 / §7.2): a released flesh cell is a powder — it falls and
+ * piles like sand. Density 3, so it rests on the floor and is sunk-under by the
+ * heavier BONE (density 5).
+ */
+function updateFlesh(x: number, y: number): void {
+  powderFall(x, y);
+}
+
+/**
+ * BONE rule (GDD §5.2 / §7.2): a released bone cell is a heavier powder (density
+ * 5). Same fall/pile primitive as flesh; the density difference is what lets
+ * bone settle beneath flesh in a gore pile.
+ */
+function updateBone(x: number, y: number): void {
+  powderFall(x, y);
+}
+
+/**
+ * BLOOD rule (GDD §5.2: "thin fluid, stains, douses NOTHING"; §7.2 bleed).
+ * A thin fluid — it falls and seeks its level exactly like water (density 1),
+ * delegating to the same generic fluid logic. "Douses nothing" is handled by
+ * reactions() keying extinguish on WATER only (untouched here), so a blood
+ * smear never puts out a fire.
+ */
+function updateBlood(x: number, y: number): void {
+  // Reuse the water flow primitive: trySwap is density-generic, so BLOOD (1)
+  // falls/seeks-level identically without any blood-specific code path.
+  updateWater(x, y);
 }
 
 /**

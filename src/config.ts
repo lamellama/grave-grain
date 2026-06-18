@@ -28,6 +28,11 @@ export const GRAVITY_STEPS = 1;
 // Brush radius for placing/erasing materials (cells)
 export const BRUSH_RADIUS = 3;
 
+// Phase 4 — Shoot tool pick radius (THE GATE hand-test, GDD §14 / §7.2). Max
+// distance (cells) from a clicked world cell to a bone's nearest pixel for that
+// bone to be hit. A small slop so a click near a limb still registers.
+export const SHOOT_PICK_RADIUS = 6;
+
 // Material density constants (GDD §5.2 density rule)
 // Heavier materials displace lighter ones below them.
 // 255 = immovable/static (stone, bedrock).
@@ -69,6 +74,27 @@ export const DIRT_SPILL_CHANCE = 0.3;
 export const WOOD_INTEGRITY = 60;
 export const FOLIAGE_INTEGRITY = 10;
 
+// Phase 4 — Body materials (GDD §5.2 FLESH/BONE/BLOOD rows). Densities keep the
+// gore pile readable: bone is heaviest (sinks/structures), flesh middling, blood
+// is a thin near-weightless fluid that seeks its level and douses NOTHING.
+export const DENSITY_FLESH = 3;
+export const DENSITY_BONE = 5;
+export const DENSITY_BLOOD = 1;
+// Bone is "harder to destroy than flesh" (GDD §5.2) — used by Phase-4 damage.
+export const BONE_INTEGRITY = 30;
+
+// Phase 4 — Damage→cells handoff (THE GATE, GDD §5.1 #3, §7.2). On a hit that
+// releases a bone, up to this many BLOOD cells are spat into free AIR cells
+// around the bone's footprint so the shed limb bleeds (blood is a thin fluid
+// that seeks its level and douses nothing).
+export const BLOOD_PER_HIT = 4;
+
+// Phase 4 — Emergent damage model (THE GATE, GDD §7.2). Torso loss "bleeds,
+// weakens; enough loss triggers full disintegration": when the cumulative
+// fraction of destroyed body pixels reaches this threshold on a TORSO hit, the
+// whole body dissolves into falling cells (the Vagabond death-collapse, App. B).
+export const TORSO_DISINTEGRATE_THRESHOLD = 0.5;
+
 // FIRE state machine (GDD §5.2 "spreads to flammable neighbours, rises;
 // consumes fuel, makes smoke" + §7.3 fire vulnerability/spread).
 // FIRE_LIFETIME: ticks a fire cell burns before it expires (seeded into the
@@ -95,12 +121,36 @@ export const SMOKE_DISSIPATE = 0.02;
 
 // Horizontal walk speed in cells/tick.
 export const WALK_SPEED = 0.3;
+// Crawl speed in cells/tick (GDD §7.2: a body that loses a leg drops to a CRAWL,
+// "much slower"). Used by locomotion when lLegLost || rLegLost. ~0.4× WALK_SPEED.
+export const CRAWL_SPEED = 0.12;
 // Max height (cells) the body can step up in one move (gentle-slope climbing).
 export const STEP_UP_MAX = 1;
 // Downward acceleration applied to the body each tick when not grounded.
 export const BODY_GRAVITY = 0.4;
 // Terminal fall speed (cells/tick) so a falling body never tunnels terrain.
 export const BODY_FALL_MAX = 4;
+
+// Phase 4 — Buried / drowned reaction (THE GATE gate point 4, GDD §5.2 / §7.3:
+// "water drowns bodies when head submerged too long" / "buried by collapsing
+// sand"). The rigged body READS the world at its head cells and reacts:
+//   DROWN_TICKS: consecutive ticks the head may sit in WATER before the body
+//     drowns and dissolves into the sim (the death-collapse, App. B). At
+//     SIM_HZ=60 this is ~3 s underwater.
+//   BURIAL_PIN: when solid non-fluid terrain (sand/dirt/stone) sits directly on
+//     the head, the body is pinned — its horizontal walk is suppressed until it
+//     is dug/settled free (falling/settling still resolves).
+export const DROWN_TICKS = 180;
+export const BURIAL_PIN = true;
+
+// Phase 4 — Body ignition (THE GATE gate point 3, GDD §7.3: "flesh is
+// flammable ... it spreads body-to-body"). Per non-destroyed bone, per tick,
+// the probability that a LIVING body catches fire and sheds that bone when ANY
+// of its flesh cells is orthogonally adjacent to a FIRE cell. Kept low so a
+// brush with fire singes a limb gradually rather than vaporising the figure;
+// the released flesh then ignites from the same fire via the normal sim, and a
+// sustained head/torso catch cascades to death via the dissolve thresholds.
+export const BODY_BURN_DAMAGE_CHANCE = 0.08;
 
 // Authored body bounding box, in world cells. The figure is drawn at world-cell
 // resolution (GDD §14: "art direction is load-bearing") so released pixels are
