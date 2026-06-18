@@ -88,6 +88,8 @@ The orchestrator is expected to run **unattended**: kick off a phase and keep go
 5. **Immediate escalation (don't wait for 2 strikes):** if any coder reports the task actually touches **sim correctness, fluid/fire rules, the hybrid body, THE GATE, pathfinding, zombie AI, or performance/chunking**, escalate to `expensive_coder` right away.
 6. **`expensive_coder` fails twice → HARD STOP:** do not loop further. Write a `BLOCKED:` entry in `PROGRESS.md` (task id, what failed, both error summaries) and pause the run for human review. Burning tokens on a fourth+ attempt is never the answer.
 
+**Sandbox note (gondolin).** Tool calls run inside a micro-VM with the repo mounted at `/workspace`. Git's "dubious ownership" guard trips on that mount, so the orchestrator must run `git config --global --add safe.directory /workspace` once at session start, before its first commit. Re-run on any restart.
+
 **Guardrails that still apply unattended:**
 - **THE GATE holds:** never start Phase 5+ until Phase 4's gate Done-when passes. If it fails, stop and flag — the architecture is meant to change here, with a human.
 - **Phase order:** one phase at a time; confirm the previous phase's Done-when before starting the next; **commit at every phase boundary** (a clean rollback point).

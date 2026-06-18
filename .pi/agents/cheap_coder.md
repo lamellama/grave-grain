@@ -7,8 +7,9 @@ description: >-
   repetitive additions that mirror an existing pattern, glue code, tests, and
   docs. NOT for simulation correctness, the hybrid body, THE GATE, pathfinding,
   zombie AI, or performance work — escalate those.
-# Confirm the exact model id your OpenAI provider exposes (you called it "gpt-codex-5").
-model: openai/gpt-5-codex
+# NOTE: openai/gpt-5-codex is not authed in this sandbox (spawns silently no-op).
+# Repointed to an authed Anthropic model so the cheap tier actually runs.
+model: anthropic/claude-haiku-4-5
 thinking: medium
 tools: read, write, edit, bash, grep, find, ls
 max_turns: 40
