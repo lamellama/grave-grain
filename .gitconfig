@@ -1,0 +1,5 @@
+[safe]
+	directory = /workspace
+[user]
+	email = orchestrator@gravegrain.local
+	name = Gravegrain Orchestrator
