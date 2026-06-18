@@ -2,6 +2,7 @@
 	directory = /workspace
 	directory = /workspace
 	directory = /workspace
+	directory = /workspace
 [user]
 	email = orchestrator@gravegrain.local
 	name = Gravegrain Orchestrator

@@ -87,3 +87,54 @@ export const SMOKE_EMIT_CHANCE = 0.3;
 // thinning of a smoke plume so it trends to nothing over a bounded number of
 // ticks. Mass is intentionally NOT conserved (MVP scope).
 export const SMOKE_DISSIPATE = 0.02;
+
+// Phase 3 — Hybrid character locomotion (GDD §5.1, §6.1, §14 Milestone 0).
+// The living body is a rigged pixel sprite using cheap, reliable rigged-
+// character motion (NOT soft-body). These are seeds for t2/t3; t1 only needs
+// BODY_W/BODY_H to size the authored figure.
+
+// Horizontal walk speed in cells/tick.
+export const WALK_SPEED = 0.3;
+// Max height (cells) the body can step up in one move (gentle-slope climbing).
+export const STEP_UP_MAX = 1;
+// Downward acceleration applied to the body each tick when not grounded.
+export const BODY_GRAVITY = 0.4;
+// Terminal fall speed (cells/tick) so a falling body never tunnels terrain.
+export const BODY_FALL_MAX = 4;
+
+// Authored body bounding box, in world cells. The figure is drawn at world-cell
+// resolution (GDD §14: "art direction is load-bearing") so released pixels are
+// indistinguishable from sim cells in Phase 4.
+export const BODY_W = 6;
+export const BODY_H = 12;
+
+// Default spawn position for the lone Milestone-0 survivor (feet-centre anchor).
+export const BODY_SPAWN_X = 200;
+export const BODY_SPAWN_Y = 100;
+
+// Phase-3 test terrain (p3-t5) — uneven ground near BODY_SPAWN_X with a pit
+// and a gentle 1-cell step so locomotion is exercisable in the dev server.
+// Throwaway scaffold; replaced by proper level seeding in Phase 5.
+
+// Y-row of the main stone floor (cells increase downward; body feet rest at
+// P3_GROUND_Y - 1 when standing on it).
+export const P3_GROUND_Y = 140;
+
+// 1-cell step: additional stone at P3_GROUND_Y-1 from P3_STEP_X for P3_STEP_W cells.
+// Body climbs it using STEP_UP_MAX (GDD §5.1 gentle-slope rule).
+export const P3_STEP_X = 220;
+export const P3_STEP_W = 20;
+
+// Pit: gap in the ground from P3_PIT_X for P3_PIT_W cells, P3_PIT_DEPTH cells
+// deeper than the main floor. Deeper than STEP_UP_MAX so the body cannot step
+// out — pacer stall detection reverses direction instead.
+export const P3_PIT_X = 260;
+export const P3_PIT_W = 12;
+export const P3_PIT_DEPTH = 3;
+
+// Pacer x-bounds for the default back-and-forth script (cells).
+export const P3_PACE_LEFT = 165;
+export const P3_PACE_RIGHT = 340;
+
+// Ticks without horizontal progress before the pacer flips direction.
+export const P3_STALL_TICKS = 20;

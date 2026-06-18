@@ -8,6 +8,7 @@ import { CELL_SIZE, WORLD_W, WORLD_H } from '../config';
 import { camera, clampCamera, worldToScreen } from '../camera';
 import * as grid from '../engine/grid';
 import { MATERIALS } from '../engine/materials';
+import { type Body } from '../characters/body';
 
 /**
  * Pre-parsed material colours: RGB[material_id] = [r, g, b] tuple.
@@ -43,6 +44,9 @@ class Renderer {
   lastFpsTime = 0;
   currentFps = 0;
 
+  // GDD §5.1 / §14 Milestone 0: the active hybrid body to overlay on the cell layer.
+  private body: Body | null = null;
+
   constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     this.canvas = canvas;
     this.ctx = ctx;
@@ -67,6 +71,15 @@ class Renderer {
     this.viewportWidthPx = rect.width;
     this.viewportHeightPx = rect.height;
     clampCamera(this.viewportWidthPx, this.viewportHeightPx);
+  }
+
+  /**
+   * Register (or clear) the Body that will be drawn over the cell layer.
+   * Called from main.ts once a body is created (p3-t5 wiring).
+   * GDD §5.1: the body is authored at cell resolution so it sits flush with the grid.
+   */
+  setBody(body: Body | null): void {
+    this.body = body;
   }
 
   /**
@@ -124,11 +137,56 @@ class Renderer {
     // Draw the ImageData to the canvas.
     this.ctx.putImageData(imageData, 0, 0);
 
+    // GDD §5.1 / §14 Milestone 0: draw the hybrid body over the cell layer.
+    // Each body pixel fills exactly one CELL_SIZE×CELL_SIZE rect at the same
+    // screen position the cell layer would use for that world cell — guaranteeing
+    // pixel-perfect alignment with the CA grid (same formula: (wx - camera.x)*CELL_SIZE).
+    this.drawBody();
+
     // Draw FPS counter.
     this.drawFps();
 
     // Update FPS counter.
     this.updateFps();
+  }
+
+  /**
+   * Draw the hybrid body's bone pixels over the cell layer.
+   * GDD §5.1: body pixels are at cell resolution → worldToScreen gives the
+   * identical top-left as the ImageData loop above (same formula), so the body
+   * sits exactly on the grid and stays locked to the world while panning.
+   * Skips destroyed bones and off-screen pixels.
+   */
+  private drawBody(): void {
+    const body = this.body;
+    if (!body || !body.alive) return;
+
+    const vw = this.viewportWidthPx;
+    const vh = this.viewportHeightPx;
+    const ctx = this.ctx;
+    const bx = Math.round(body.x);
+    const by = Math.round(body.y);
+
+    for (const bone of body.rig) {
+      if (bone.destroyed) continue;
+      for (const pixel of bone.pixels) {
+        // World cell this pixel occupies (GDD §5.1 pixel formula).
+        const wx = bx + bone.offset.dx + pixel.dx;
+        const wy = by + bone.offset.dy + pixel.dy;
+
+        // Screen top-left — identical math to the ImageData cell loop above.
+        const { x: sx, y: sy } = worldToScreen(wx, wy);
+        const sx0 = Math.floor(sx);
+        const sy0 = Math.floor(sy);
+
+        // Skip if the rect is fully outside the viewport.
+        if (sx0 + CELL_SIZE <= 0 || sx0 >= vw) continue;
+        if (sy0 + CELL_SIZE <= 0 || sy0 >= vh) continue;
+
+        ctx.fillStyle = pixel.color;
+        ctx.fillRect(sx0, sy0, CELL_SIZE, CELL_SIZE);
+      }
+    }
   }
 
   /**
@@ -177,4 +235,14 @@ export function getRenderer(): Renderer {
     throw new Error('Renderer not initialized');
   }
   return renderer;
+}
+
+/**
+ * Register (or clear) the body drawn by the renderer.
+ * Module-level convenience wrapper — mirrors the getRenderer() export pattern.
+ * Call after initRenderer() has been called.
+ * GDD §5.1 / §14 Milestone 0.
+ */
+export function setBody(body: Body | null): void {
+  getRenderer().setBody(body);
 }

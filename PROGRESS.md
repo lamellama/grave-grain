@@ -8,10 +8,10 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 3 — Hybrid body locomotion **(START OF THE GATE)**
-- **Status:** not started (Phase 2 complete & committed)
-- **Last passed Done-when:** Phase 2 — ignite wood/foliage → fire spreads, burns to ash, smoke rises; water → extinguish + steam. Planner-verified PASS (peak fire 160, ash 108, burnout ~tick80; watered fire dies in 1 tick). TS-strict build + dev (HTTP 200) green.
-- **GATE NOTE:** Phase 3 begins THE GATE (hybrid body). Phases 3–4 must both pass before ANY Phase 5+ work. Phase 3 → expensive_coder (hybrid body is make-or-break per routing policy).
+- **Current phase:** Phase 4 — Damage→cells handoff **(THE GATE — make-or-break)**
+- **Status:** not started (Phase 3 complete & committed)
+- **Last passed Done-when:** Phase 3 — rigged 52-px body walks uneven terrain, climbs 1-cell step, stops at tall walls, falls into pits; NO tunnelling (~1500 ticks clean); pixel-perfect cell-grid alignment. Planner-verified PASS. THE GATE part 1 met.
+- **GATE NOTE:** Phase 4 is the DECISIVE half of THE GATE (damage→cells handoff, GDD §14 Milestone 0). It must PASS before ANY Phase 5+ work. If its gate test fails, STOP and flag for human — the architecture is meant to change here. All Phase 4 tasks → expensive_coder.
 - **Carry-forward (Phase 10):** renderer builds a CSS-px ImageData while main.ts does ctx.scale(dpr); putImageData ignores the transform, so on dpr>1 the world draws into a corner. Fix in Phase 10 (devicePixelRatio render path).
 - **THE GATE:** not reached (locked — Phases 0–4 must pass before any Phase 5+ work)
 - **Run mode:** unattended / set-and-forget
@@ -23,6 +23,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 - [x] Phase 0 — Scaffold, render loop & camera
 - [x] Phase 1 — Falling-sand core
 - [x] Phase 2 — Materials, fire, interactions, integrity
+- [x] Phase 3 — Hybrid body locomotion **(GATE part 1)**
 - [ ] Phase 1 — Falling-sand core
 - [ ] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 3 — Hybrid body locomotion **(GATE)**
@@ -69,6 +70,13 @@ Phase 2 · p2-t6 · expensive_coder(opus) · 1/1 · pass · reactions.ts water+f
 Phase 2 · p2-t7 · cheap_coder(haiku) · 1/1 · pass · toolbar Dirt/Wood/Foliage + Ignite tool via tryIgnite→ignite (flammable-only); 9/9 unit.
 Phase 2 · VERIFY · planner · PASS · end-to-end burn+douse over real modules; MVP scope clean (no FLESH/BONE/BLOOD, no breaching/zombies, no Ice/Snow).
 
+Phase 3 (GATE pt1) · p3-t1 · expensive_coder(opus) · 1/1 · pass · body.ts: Body/Bone/BodyPixel + createBody (52-px 6×12 humanoid, 6 bones, feet-centre anchor, unique cells); config seeds.
+Phase 3 · p3-t2 · expensive_coder(opus) · 1/1 · pass · locomotion.ts ground-probe + swept fall + isSolidForBody; rests on floor/pit, no-tunnel every tick.
+Phase 3 · p3-t3 · expensive_coder(opus) · 1/1 · pass · walk + step-up(≤STEP_UP_MAX) + wall-stop via xRemainder; climbs 1-cell step, stops at 3-cell wall, falls into pit; no-tunnel.
+Phase 3 · p3-t4 · cheap_coder(haiku) · 1/1 · pass · renderer setBody + draw bone pixels at cell resolution; worldToScreen alignment === cell layer (pixel-perfect, camera-locked).
+Phase 3 · p3-t5 · cheap_coder(haiku) · 1/1 · pass · main.ts wires createBody+setBody+updateBody (after sim.step); arrow driver + stall-flip pacer; test terrain (step+pit). (Agent returned no summary; work landed, orchestrator verified build+dev.)
+Phase 3 · VERIFY · planner · PASS · full Done-when over real modules; no-tunnel held ~1500 ticks; alignment/illusion confirmed; MVP scope clean. THE GATE part 1 met.
+
 ---
 
 ## Blockers
@@ -81,4 +89,5 @@ _(none)_
 
 Phase 0 — commit 8972036.
 Phase 1 — commit de42b5c (includes toolchain recovery: pnpm + TOOLING.md).
-Phase 2 — see commit below.
+Phase 2 — commit aca1595.
+Phase 3 — see commit below.

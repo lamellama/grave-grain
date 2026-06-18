@@ -232,3 +232,15 @@ export function isFlammable(id: number): boolean {
   }
   return MATERIALS[id].flammable;
 }
+
+/**
+ * Helper: does a material BLOCK a living body? (locomotion collision — GDD §5.1)
+ * Solid for everything EXCEPT the cells a body passes/falls through: AIR, WATER,
+ * FIRE, SMOKE. So SAND/STONE/DIRT/ORE/WOOD/FOLIAGE/ASH all block movement.
+ *
+ * Phase 6: honour permeableToBodies for foliage (foliage collides until then).
+ * Out-of-range ids are treated as solid (fail safe — never tunnel).
+ */
+export function isSolidForBody(id: number): boolean {
+  return !(id === AIR || id === WATER || id === FIRE || id === SMOKE);
+}
