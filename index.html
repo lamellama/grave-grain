@@ -72,13 +72,17 @@
 <body>
   <canvas id="game"></canvas>
 
-  <!-- Minimal toolbar: Pan, Sand, Stone, Water, Erase -->
+  <!-- Toolbar: Pan, Sand, Stone, Water, Dirt, Wood, Foliage, Ignite, Erase -->
   <!-- GDD §12.3: persistent, thumb-reachable toolbar. GDD §12.4: big, no hover dependence -->
   <div id="toolbar">
     <button class="tool-btn" data-tool="pan" title="Pan mode: drag to scroll">Pan</button>
     <button class="tool-btn" data-tool="paint" data-material="1" title="Paint sand">Sand</button>
     <button class="tool-btn" data-tool="paint" data-material="2" title="Paint stone">Stone</button>
     <button class="tool-btn" data-tool="paint" data-material="3" title="Paint water">Water</button>
+    <button class="tool-btn" data-tool="paint" data-material="4" title="Paint dirt">Dirt</button>
+    <button class="tool-btn" data-tool="paint" data-material="6" title="Paint wood">Wood</button>
+    <button class="tool-btn" data-tool="paint" data-material="7" title="Paint foliage">Foliage</button>
+    <button class="tool-btn" data-tool="ignite" title="Ignite flammable cells (wood/foliage only)">Ignite</button>
     <button class="tool-btn" data-tool="paint" data-material="0" title="Erase (paint air)">Erase</button>
   </div>
 

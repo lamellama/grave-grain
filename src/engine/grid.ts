@@ -5,6 +5,7 @@
  */
 
 import { WORLD_W, WORLD_H } from '../config';
+import { MATERIALS } from './materials';
 
 /**
  * Get the linear index of a cell at (x, y) in the grid.
@@ -71,4 +72,18 @@ export function setIntegrity(x: number, y: number, value: number): void {
     return;
   }
   integrity[idx(x, y)] = value;
+}
+
+/**
+ * Place a material at (x, y), seeding its baseIntegrity into the integrity array.
+ * Clearing (id=AIR=0) automatically resets integrity to 0.
+ * Bounds-safe: silently no-ops if out of bounds.
+ */
+export function placeMaterial(x: number, y: number, id: number): void {
+  if (!inBounds(x, y)) {
+    return;
+  }
+  set(x, y, id);
+  const mat = MATERIALS[id];
+  setIntegrity(x, y, mat?.hasIntegrity ? mat.baseIntegrity : 0);
 }

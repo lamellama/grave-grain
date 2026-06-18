@@ -52,3 +52,38 @@ export const TEST_WATER_H = 18; // height of the water body (cells)
 export const TEST_SAND_W = 30; // width of the sand blob (cells)
 export const TEST_SAND_H = 18; // height of the sand blob (cells)
 export const TEST_SAND_GAP = 8; // air gap between blob bottom and water surface
+
+// Phase 2 material density constants (GDD §5.2)
+export const DENSITY_DIRT = 4;   // >= sand so dirt settles under sand; steepness handled later via spill chance
+export const DENSITY_ASH = 2;    // light powder
+export const DENSITY_FIRE = 0;   // fire behaves like air to the density swap
+export const DENSITY_SMOKE = 0;  // gas, bubbles up
+
+// DIRT spill chance (GDD §5.2: "dirt piles steeper than sand").
+// Dirt falls straight down unconditionally (like sand), but only attempts its
+// diagonal spill with this probability per tick. Fewer diagonal moves than sand
+// → a narrower, steeper mound (steeper angle of repose). 1.0 would equal sand.
+export const DIRT_SPILL_CHANCE = 0.3;
+
+// Phase 2 structural integrity baselines (GDD §5.2)
+export const WOOD_INTEGRITY = 60;
+export const FOLIAGE_INTEGRITY = 10;
+
+// FIRE state machine (GDD §5.2 "spreads to flammable neighbours, rises;
+// consumes fuel, makes smoke" + §7.3 fire vulnerability/spread).
+// FIRE_LIFETIME: ticks a fire cell burns before it expires (seeded into the
+//   integrity slot as a countdown — see updateFire). Bounds the flame so it
+//   never burns forever, even sitting over AIR with no fuel.
+// FIRE_SPREAD_CHANCE: per-tick probability a fire cell ignites EACH adjacent
+//   flammable (WOOD/FOLIAGE) neighbour.
+// SMOKE_EMIT_CHANCE: on expiry, probability a fire cell puffs SMOKE instead of
+//   leaving ASH (net: burned fuel leaves ash and emits some rising smoke).
+export const FIRE_LIFETIME = 60;
+export const FIRE_SPREAD_CHANCE = 0.25;
+export const SMOKE_EMIT_CHANCE = 0.3;
+
+// SMOKE/STEAM dissipation chance (GDD §5.2: "gas, rises, dissipates").
+// Per-tick probability that a smoke cell vanishes (→ AIR). Drives the gradual
+// thinning of a smoke plume so it trends to nothing over a bounded number of
+// ticks. Mass is intentionally NOT conserved (MVP scope).
+export const SMOKE_DISSIPATE = 0.02;

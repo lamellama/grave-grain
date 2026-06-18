@@ -10,14 +10,16 @@
 import { camera, panCamera, clampCamera, screenToWorld } from './camera';
 import { getRenderer } from './render/renderer';
 import * as grid from './engine/grid';
-import { AIR, SAND, STONE, WATER } from './engine/materials';
+import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
+import { ignite } from './engine/simulation';
 import { BRUSH_RADIUS } from './config';
 
 /**
- * Tool mode state: either 'Pan' (drag scrolls camera) or 'Paint' (drag paints).
+ * Tool mode state: 'Pan' (drag scrolls camera), 'Paint' (drag paints), or
+ * 'Ignite' (drag ignites flammable cells — GDD §8 ignite verb).
  * GDD §12.3: the currently selected tool defines what a drag does.
  */
-type ToolMode = 'Pan' | 'Paint';
+type ToolMode = 'Pan' | 'Paint' | 'Ignite';
 
 const toolState = {
   mode: 'Pan' as ToolMode,
@@ -35,24 +37,58 @@ const inputState = {
 };
 
 /**
+ * Iterate all cells in a BRUSH_RADIUS disc centred on (centerX, centerY),
+ * calling the callback for each in-bounds cell (dx, dy offsets, absolute x, y).
+ * Shared by paintDisc and igniteDisc.
+ */
+function forEachDiscCell(
+  centerX: number,
+  centerY: number,
+  callback: (x: number, y: number) => void
+): void {
+  const radiusSq = BRUSH_RADIUS * BRUSH_RADIUS;
+  for (let dy = -BRUSH_RADIUS; dy <= BRUSH_RADIUS; dy++) {
+    for (let dx = -BRUSH_RADIUS; dx <= BRUSH_RADIUS; dx++) {
+      if (dx * dx + dy * dy <= radiusSq) {
+        callback(centerX + dx, centerY + dy);
+      }
+    }
+  }
+}
+
+/**
  * Paint a filled disc of material at the given world coordinates.
  * Floored to integers; paints all cells within BRUSH_RADIUS (GDD §8 direct placement).
  */
 function paintDisc(centerWorldX: number, centerWorldY: number, materialId: number): void {
-  // Floor to integer grid coordinates
   const centerX = Math.floor(centerWorldX);
   const centerY = Math.floor(centerWorldY);
+  forEachDiscCell(centerX, centerY, (x, y) => grid.placeMaterial(x, y, materialId));
+}
 
-  // Paint all cells within a circle of radius BRUSH_RADIUS
-  const radiusSq = BRUSH_RADIUS * BRUSH_RADIUS;
-  for (let dy = -BRUSH_RADIUS; dy <= BRUSH_RADIUS; dy++) {
-    for (let dx = -BRUSH_RADIUS; dx <= BRUSH_RADIUS; dx++) {
-      const distSq = dx * dx + dy * dy;
-      if (distSq <= radiusSq) {
-        grid.set(centerX + dx, centerY + dy, materialId);
-      }
-    }
+/**
+ * Attempt to ignite a single cell at (x, y).
+ * Only acts if the cell's material is flammable (WOOD/FOLIAGE); ignores all
+ * other materials (AIR, STONE, SAND, WATER, DIRT, etc.) — GDD §8 ignite verb.
+ * Calls simulation.ignite() which sets FIRE and seeds the lifetime countdown.
+ * Pure grid+materials query — exported for headless unit-testing.
+ */
+export function tryIgnite(x: number, y: number): void {
+  if (!grid.inBounds(x, y)) return;
+  const mat = grid.get(x, y);
+  if (isFlammable(mat)) {
+    ignite(x, y);
   }
+}
+
+/**
+ * Apply tryIgnite to every cell in a BRUSH_RADIUS disc centred on the given
+ * world coordinates (GDD §8 ignite verb, direct placement).
+ */
+function igniteDisc(centerWorldX: number, centerWorldY: number): void {
+  const centerX = Math.floor(centerWorldX);
+  const centerY = Math.floor(centerWorldY);
+  forEachDiscCell(centerX, centerY, tryIgnite);
 }
 
 /**
@@ -87,6 +123,11 @@ function onPointerDown(event: PointerEvent): void {
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     paintDisc(worldCoords.x, worldCoords.y, toolState.paintMaterialId);
+  } else if (toolState.mode === 'Ignite') {
+    // Ignite at current position — only flammable cells (GDD §8 ignite verb)
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    igniteDisc(worldCoords.x, worldCoords.y);
   }
 }
 
@@ -104,6 +145,11 @@ function onPointerMove(event: PointerEvent): void {
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     paintDisc(worldCoords.x, worldCoords.y, toolState.paintMaterialId);
+  } else if (toolState.mode === 'Ignite') {
+    // Ignite mode: drag ignites flammable cells continuously (GDD §8 ignite verb)
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    igniteDisc(worldCoords.x, worldCoords.y);
   } else {
     // Pan mode: drag scrolls camera (existing behaviour)
     // Incremental delta since the last move event. Reset the anchor each move
@@ -132,6 +178,7 @@ function onPointerUp(_event: PointerEvent): void {
  */
 export function setToolMode(mode: 'Pan'): void;
 export function setToolMode(mode: 'Paint', materialId: number): void;
+export function setToolMode(mode: 'Ignite'): void;
 export function setToolMode(mode: ToolMode, materialId?: number): void {
   toolState.mode = mode;
   if (mode === 'Paint' && materialId !== undefined) {
@@ -155,6 +202,8 @@ function updateToolbarUI(): void {
     } else if (btnMode === 'paint' && btnMaterialId !== null) {
       const materialId = parseInt(btnMaterialId, 10);
       isActive = toolState.mode === 'Paint' && toolState.paintMaterialId === materialId;
+    } else if (btnMode === 'ignite') {
+      isActive = toolState.mode === 'Ignite';
     }
 
     btn.classList.toggle('active', isActive);
@@ -185,6 +234,8 @@ export function initInput(canvas: HTMLCanvasElement): void {
         setToolMode('Pan');
       } else if (mode === 'paint' && materialId !== null) {
         setToolMode('Paint', parseInt(materialId, 10));
+      } else if (mode === 'ignite') {
+        setToolMode('Ignite');
       }
     });
   });

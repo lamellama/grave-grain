@@ -8,9 +8,10 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 2 — Materials, fire, interactions, integrity
-- **Status:** not started (Phase 1 complete & committed)
-- **Last passed Done-when:** Phase 1 — sand piles, water seeks level, stone holds, density swap (sand sinks through water), pan-vs-paint toolbar, pause/step; planner-verified PASS, TS-strict build + dev server (HTTP 200) green
+- **Current phase:** Phase 3 — Hybrid body locomotion **(START OF THE GATE)**
+- **Status:** not started (Phase 2 complete & committed)
+- **Last passed Done-when:** Phase 2 — ignite wood/foliage → fire spreads, burns to ash, smoke rises; water → extinguish + steam. Planner-verified PASS (peak fire 160, ash 108, burnout ~tick80; watered fire dies in 1 tick). TS-strict build + dev (HTTP 200) green.
+- **GATE NOTE:** Phase 3 begins THE GATE (hybrid body). Phases 3–4 must both pass before ANY Phase 5+ work. Phase 3 → expensive_coder (hybrid body is make-or-break per routing policy).
 - **Carry-forward (Phase 10):** renderer builds a CSS-px ImageData while main.ts does ctx.scale(dpr); putImageData ignores the transform, so on dpr>1 the world draws into a corner. Fix in Phase 10 (devicePixelRatio render path).
 - **THE GATE:** not reached (locked — Phases 0–4 must pass before any Phase 5+ work)
 - **Run mode:** unattended / set-and-forget
@@ -21,6 +22,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 - [x] Phase 0 — Scaffold, render loop & camera
 - [x] Phase 1 — Falling-sand core
+- [x] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 1 — Falling-sand core
 - [ ] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 3 — Hybrid body locomotion **(GATE)**
@@ -58,6 +60,15 @@ Phase 1 · p1-t4 · expensive_coder(opus) · 1/1 · pass · water seek-level + g
 Phase 1 · p1-t5 · cheap_coder(haiku) · 1/1 · pass · pan-vs-paint toolbar (Pan/Sand/Stone/Water/Erase), brush disc, single Pointer-Events path. (Agent returned no summary but work landed; orchestrator verified.)
 Phase 1 · VERIFY · planner · PASS · sim correctness + mode coherence + MVP scope confirmed; flagged dpr putImageData issue for Phase 10.
 
+Phase 2 · p2-t1 · cheap_coder(haiku) · 1/1 · pass · MATERIALS extended to 11 (DIRT/ORE/WOOD/FOLIAGE/FIRE/SMOKE/ASH) + config densities/integrity; 11/11 headless.
+Phase 2 · p2-t2 · cheap_coder(haiku) · 1/1 · pass · grid.placeMaterial seeds baseIntegrity; paint routed through it; 4/4 headless.
+Phase 2 · p2-t3 · expensive_coder(opus) · 1/1 · pass · updateDirt (steeper via DIRT_SPILL_CHANCE) + updateAsh (inert powder); dirt footprint 77 < sand 79, mass conserved, no tunnel.
+Phase 2 · p2-t4 · expensive_coder(opus) · 1/1 · pass · updateGas: SMOKE rises (meanY 229→169), ceiling blocks, dissipates in 176 ticks, no double-move (moved-guard for upward motion).
+Phase 2 · p2-t5 · expensive_coder(opus) · 1/1 · pass · updateFire: lifetime in integrity slot, spread, →ash/smoke, full burnout (peak 396, ash 274, out by tick91).
+Phase 2 · p2-t6 · expensive_coder(opus) · 1/1 · pass · reactions.ts water+fire→steam (watered dies in 1 tick vs 60); collapse via existing fall rule; shared ignite() helper. (Left a test/ harness — isolated, doesn't affect build.)
+Phase 2 · p2-t7 · cheap_coder(haiku) · 1/1 · pass · toolbar Dirt/Wood/Foliage + Ignite tool via tryIgnite→ignite (flammable-only); 9/9 unit.
+Phase 2 · VERIFY · planner · PASS · end-to-end burn+douse over real modules; MVP scope clean (no FLESH/BONE/BLOOD, no breaching/zombies, no Ice/Snow).
+
 ---
 
 ## Blockers
@@ -69,4 +80,5 @@ _(none)_
 ## Commit log (phase boundaries)
 
 Phase 0 — commit 8972036.
-Phase 1 — see commit below (includes toolchain recovery: pnpm + TOOLING.md).
+Phase 1 — commit de42b5c (includes toolchain recovery: pnpm + TOOLING.md).
+Phase 2 — see commit below.

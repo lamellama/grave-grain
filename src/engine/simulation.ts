@@ -21,9 +21,29 @@
  *    rule covers "fall" and "sink".
  */
 
-import { WORLD_W, WORLD_H } from '../config';
-import { material, idx } from './grid';
-import { SAND, WATER, density, isStatic } from './materials';
+import {
+  WORLD_W,
+  WORLD_H,
+  DIRT_SPILL_CHANCE,
+  SMOKE_DISSIPATE,
+  FIRE_LIFETIME,
+  FIRE_SPREAD_CHANCE,
+  SMOKE_EMIT_CHANCE,
+} from '../config';
+import { material, integrity, idx, set, setIntegrity } from './grid';
+import { reactions } from './reactions';
+import {
+  AIR,
+  SAND,
+  WATER,
+  DIRT,
+  ASH,
+  SMOKE,
+  FIRE,
+  density,
+  isStatic,
+  isFlammable,
+} from './materials';
 
 /**
  * Tick parity counter. Drives the per-tick column scan-direction flip so neither
@@ -39,7 +59,7 @@ let tick = 0;
  * what prevents double-moves now that material travels sideways and swaps
  * upward within a single bottom-up pass.
  */
-const moved = new Uint8Array(WORLD_W * WORLD_H);
+export const moved = new Uint8Array(WORLD_W * WORLD_H);
 
 /**
  * Advance the cellular simulation by one tick.
@@ -50,6 +70,18 @@ const moved = new Uint8Array(WORLD_W * WORLD_H);
 export function step(): void {
   // Clear the moved-guard for the new tick.
   moved.fill(0);
+
+  // Cross-material adjacency reactions run FIRST, before the movement scan
+  // (GDD §5.2 interactions). Rationale:
+  //  - They read the START-OF-TICK grid (a stable snapshot), so a reaction
+  //    never fires on a half-moved mid-scan state — deterministic and order-
+  //    independent.
+  //  - The extinguish path converts a watered FIRE to SMOKE and CLAIMS the cell
+  //    in the shared moved-guard, so the movement scan skips it this tick. A
+  //    fire touching water therefore dies on the SAME tick it is watered,
+  //    before it can age or spread — which is exactly the measurable speed-up
+  //    the phase Done-when checks for.
+  reactions();
 
   // Flip column scan direction every tick to avoid any lateral bias.
   const leftToRight = (tick & 1) === 0;
@@ -80,8 +112,16 @@ function updateCell(x: number, y: number): void {
   const m = material[idx(x, y)];
   if (m === SAND) {
     updateSand(x, y);
+  } else if (m === DIRT) {
+    updateDirt(x, y);
+  } else if (m === ASH) {
+    updateAsh(x, y);
   } else if (m === WATER) {
     updateWater(x, y);
+  } else if (m === FIRE) {
+    updateFire(x, y);
+  } else if (m === SMOKE) {
+    updateGas(x, y);
   }
   // AIR is the empty target; STONE is static — neither has a rule.
 }
@@ -101,6 +141,69 @@ function updateSand(x: number, y: number): void {
   }
 
   // 2) Otherwise pile via the two diagonals below (random order, no side bias).
+  const leftFirst = Math.random() < 0.5;
+  const firstDx = leftFirst ? -1 : 1;
+  const secondDx = leftFirst ? 1 : -1;
+
+  if (trySwap(x, y, x + firstDx, below)) {
+    return;
+  }
+  trySwap(x, y, x + secondDx, below);
+}
+
+/**
+ * DIRT rule (GDD §5.2: "dirt piles steeper than sand").
+ * Identical to sand for the straight-down fall (unconditional — sinks through
+ * anything lighter and non-static via the same density swap, so dirt still falls
+ * through air and sinks through water). The difference is the diagonal spill: it
+ * is only ATTEMPTED with probability DIRT_SPILL_CHANCE this tick. When the spill
+ * is skipped the grain simply rests this tick. Fewer diagonal moves over time
+ * means grains stack up more before sliding sideways, so the mound holds a
+ * steeper angle of repose and a narrower base than a sand pile of equal mass.
+ */
+function updateDirt(x: number, y: number): void {
+  const below = y + 1;
+
+  // 1) Fall straight down through any lighter, non-static cell (AIR or WATER).
+  if (trySwap(x, y, x, below)) {
+    return;
+  }
+
+  // 2) Blocked below → only spill diagonally with DIRT_SPILL_CHANCE (steepness).
+  if (Math.random() >= DIRT_SPILL_CHANCE) {
+    return;
+  }
+
+  // Same random L/R order and displacement primitive as sand.
+  const leftFirst = Math.random() < 0.5;
+  const firstDx = leftFirst ? -1 : 1;
+  const secondDx = leftFirst ? 1 : -1;
+
+  if (trySwap(x, y, x + firstDx, below)) {
+    return;
+  }
+  trySwap(x, y, x + secondDx, below);
+}
+
+/**
+ * ASH rule (GDD §5.2: "falls lightly, inert").
+ * A plain powder: identical fall/spill to sand (full diagonal spill, no fluid
+ * sideways flow — it piles and rests, it does not seek level). "Light" is
+ * expressed purely by its low density (DENSITY_ASH = 2). "Inert" means it has no
+ * reaction/ignition handling at all — it only ever falls and rests.
+ *
+ * NOTE: density(ASH)=2 > density(WATER)=1, so ash sinks through water and rests
+ * on the floor beneath it. That is the physical/accepted MVP behaviour.
+ */
+function updateAsh(x: number, y: number): void {
+  const below = y + 1;
+
+  // 1) Fall straight down through any lighter, non-static cell (AIR or WATER).
+  if (trySwap(x, y, x, below)) {
+    return;
+  }
+
+  // 2) Otherwise pile via the two diagonals below (random order, full spill).
   const leftFirst = Math.random() < 0.5;
   const firstDx = leftFirst ? -1 : 1;
   const secondDx = leftFirst ? 1 : -1;
@@ -150,6 +253,165 @@ function updateWater(x: number, y: number): void {
     return;
   }
   trySwap(x, y, x + dx2, y);
+}
+
+/**
+ * Ignite a cell (GDD §5.2 / §7.3): set it to FIRE and seed its lifetime.
+ *
+ * THE single ignition path. FIRE has no structural integrity, so it REUSES its
+ * `integrity` slot as a per-cell countdown seeded to FIRE_LIFETIME (see
+ * updateFire for the aging/expiry side). Routing every ignition through here
+ * keeps one place that knows the FIRE/lifetime invariant: fire spread (below),
+ * and the player Ignite tool (next task) both call this so they can never get
+ * out of sync. Bounds-safe via the grid set/setIntegrity helpers.
+ *
+ * NOTE: ignite does NOT touch the moved-guard — callers that need the freshly
+ * lit cell to skip the current tick's scan (e.g. fire spread, to avoid a
+ * same-tick ignition chain) flag `moved` themselves right after calling.
+ */
+export function ignite(x: number, y: number): void {
+  set(x, y, FIRE);
+  setIntegrity(x, y, FIRE_LIFETIME);
+}
+
+/**
+ * FIRE rule (GDD §5.2 "spreads to flammable neighbours, rises; consumes fuel,
+ * makes smoke" + §7.3 fire spread). A short-lived state machine — it must never
+ * become an eternal flame.
+ *
+ * LIFETIME STORAGE: FIRE has no structural integrity, so we REUSE its slot in
+ * the `integrity` array as a per-cell countdown. When a cell becomes FIRE its
+ * slot is seeded to FIRE_LIFETIME (here on ignite, and by the player ignite
+ * tool). Each tick we decrement it; at 0 the fire expires. The slot is cleared
+ * to 0 when the cell stops being FIRE (ASH/SMOKE have no integrity), so the
+ * reuse never leaks a stale value into a later structure placed in this cell.
+ *
+ * Per tick:
+ *   1) Spread: each adjacent flammable cell (4 orthogonal + 4 diagonal) is
+ *      ignited with chance FIRE_SPREAD_CHANCE — converted to FIRE, its lifetime
+ *      seeded, and flagged moved so it ages from next tick (no same-tick chain).
+ *   2) Age: decrement the countdown. On expiry → leave ASH, or with chance
+ *      SMOKE_EMIT_CHANCE puff SMOKE instead (burned fuel = ash + some smoke).
+ *
+ * Note: the fire cell itself does not move (density 0), so it is never re-entered
+ * by the bottom-up scan; aged-but-living fire needs no moved flag of its own.
+ * Fire over AIR with no fuel still ages out — the countdown is unconditional.
+ */
+function updateFire(x: number, y: number): void {
+  // 1) Spread to flammable neighbours (orthogonal + diagonal).
+  for (let dy = -1; dy <= 1; dy++) {
+    for (let dx = -1; dx <= 1; dx++) {
+      if (dx === 0 && dy === 0) {
+        continue;
+      }
+      const nx = x + dx;
+      const ny = y + dy;
+      if (nx < 0 || nx >= WORLD_W || ny < 0 || ny >= WORLD_H) {
+        continue;
+      }
+      const n = idx(nx, ny);
+      if (moved[n] || !isFlammable(material[n])) {
+        continue;
+      }
+      if (Math.random() < FIRE_SPREAD_CHANCE) {
+        ignite(nx, ny); // single ignition path (FIRE + seeded lifetime)
+        moved[n] = 1; // freshly lit: age from next tick, no same-tick re-spread
+      }
+    }
+  }
+
+  // 2) Age the countdown; expire to ASH (or a SMOKE puff) when it runs out.
+  const s = idx(x, y);
+  const life = integrity[s];
+  if (life <= 1) {
+    if (Math.random() < SMOKE_EMIT_CHANCE) {
+      material[s] = SMOKE;
+    } else {
+      material[s] = ASH;
+    }
+    integrity[s] = 0; // clear reused slot — ASH/SMOKE carry no integrity
+    moved[s] = 1; // claim the cell so the new ASH/SMOKE isn't re-processed now
+    return;
+  }
+  integrity[s] = life - 1;
+}
+
+/**
+ * SMOKE/STEAM rule (GDD §5.2: "gas, rises, dissipates"). SMOKE doubles as steam.
+ *
+ * Gas is the mirror image of sand: it travels UP, not down. That makes the
+ * moved-guard load-bearing — gas rises into rows the BOTTOM-UP scan has NOT yet
+ * processed this tick, so without flagging both cells on every move a single gas
+ * cell would be re-scanned higher up and skid several rows in one tick. We use a
+ * gas-specific move (gasMove) that only enters AIR and flags BOTH cells, never
+ * the generic trySwap (whose "strictly lighter target" test can't move SMOKE
+ * into AIR — both are density 0).
+ *
+ * Order each tick:
+ *   1) Dissipate with chance SMOKE_DISSIPATE → become AIR and stop (flag moved
+ *      so nothing else touches this cell this tick).
+ *   2) Rise straight up into AIR.
+ *   3) Blocked → try the two up-diagonals in random order.
+ *   4) Fully blocked above (under a ceiling) → drift sideways into AIR so a
+ *      plume spreads out under stone instead of stalling.
+ *
+ * Gas has density 0 (≈ air), so the generic density-fall never picks it up and
+ * heavier grains fall straight through it — that behaviour is untouched here.
+ */
+function updateGas(x: number, y: number): void {
+  // 1) Dissipate: a fraction of the plume vanishes each tick (not conserved).
+  if (Math.random() < SMOKE_DISSIPATE) {
+    const s = idx(x, y);
+    material[s] = AIR;
+    moved[s] = 1; // Claim the cell so nothing re-processes the freed AIR.
+    return;
+  }
+
+  const above = y - 1;
+
+  // 2) Rise straight up into AIR.
+  if (gasMove(x, y, x, above)) {
+    return;
+  }
+
+  // 3) Blocked → up-diagonals in random per-cell order (no lateral bias).
+  const leftFirst = Math.random() < 0.5;
+  const dx1 = leftFirst ? -1 : 1;
+  const dx2 = leftFirst ? 1 : -1;
+  if (gasMove(x, y, x + dx1, above) || gasMove(x, y, x + dx2, above)) {
+    return;
+  }
+
+  // 4) Under a ceiling → drift sideways into AIR so the plume spreads out.
+  if (gasMove(x, y, x + dx1, y)) {
+    return;
+  }
+  gasMove(x, y, x + dx2, y);
+}
+
+/**
+ * Gas move (GDD §5.2): move the gas at (sx,sy) into (tx,ty) iff the target is
+ * in-bounds, has NOT acted this tick, and is AIR. Unlike trySwap this does NOT
+ * compare densities — SMOKE and AIR are both density 0, so a density test would
+ * never let gas advance. Both cells are flagged moved so neither is re-processed
+ * — this is what stops a rising gas cell (moving into a not-yet-scanned row)
+ * from being picked up again and advancing multiple rows in one tick.
+ * Returns true if the move happened.
+ */
+function gasMove(sx: number, sy: number, tx: number, ty: number): boolean {
+  if (tx < 0 || tx >= WORLD_W || ty < 0 || ty >= WORLD_H) {
+    return false;
+  }
+  const t = idx(tx, ty);
+  if (moved[t] || material[t] !== AIR) {
+    return false;
+  }
+  const s = idx(sx, sy);
+  material[t] = material[s];
+  material[s] = AIR;
+  moved[t] = 1;
+  moved[s] = 1;
+  return true;
 }
 
 /**
