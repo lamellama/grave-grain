@@ -68,6 +68,12 @@
       box-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
     }
 
+    /* Disabled toolbar button: greyed-out when unaffordable (task 8-4, GDD §8) */
+    .tool-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
     /* Role-assign menu overlay (shown when a survivor is tapped in Assign mode) */
     #role-menu {
       display: none;
@@ -138,6 +144,8 @@
     <button class="tool-btn" data-tool="paint" data-material="4" title="Paint dirt">Dirt</button>
     <button class="tool-btn" data-tool="paint" data-material="6" title="Paint wood">Wood</button>
     <button class="tool-btn" data-tool="paint" data-material="7" title="Paint foliage">Foliage</button>
+    <button class="tool-btn" data-tool="build" data-structure="fence" title="Place wood fence (costs 1 wood/cell)">Fence</button>
+    <button class="tool-btn" data-tool="build" data-structure="wall" title="Place stone wall (costs 1 stone/cell)">Wall</button>
     <button class="tool-btn" data-tool="ignite" title="Ignite flammable cells (wood/foliage only)">Ignite</button>
     <button class="tool-btn" data-tool="shoot" title="Shoot a body region">Shoot</button>
     <button class="tool-btn" data-tool="assign" title="Assign a role to a survivor (tap them in Assign mode)">Assign</button>

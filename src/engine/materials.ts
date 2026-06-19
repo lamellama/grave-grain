@@ -18,6 +18,7 @@ import {
   DENSITY_BLOOD,
   WOOD_INTEGRITY,
   FOLIAGE_INTEGRITY,
+  WALL_INTEGRITY,
 } from '../config';
 
 /**
@@ -54,6 +55,8 @@ export const ASH = 10;
 export const FLESH = 11;
 export const BONE = 12;
 export const BLOOD = 13;
+// Material IDs — Phase 8 player building (GDD §8; do NOT renumber above)
+export const WALL = 14;
 
 /**
  * MATERIALS — indexed lookup table of material properties.
@@ -231,6 +234,22 @@ export const MATERIALS: Material[] = [
     permeableToBodies: false,
     hasIntegrity: false,
     baseIntegrity: 0,
+  },
+  // WALL (id=14) — player-placed STONE wall: "the real barrier" (GDD §8).
+  // hasIntegrity:true with a HIGH baseIntegrity so breaching (§7.4) chips it
+  // slowly, unlike raw STONE (id=2, hasIntegrity:false → never breached) and
+  // unlike the cheap, flammable WOOD fence. A bluer/lighter grey distinguishes
+  // it from raw stone (#6b6b6b) on screen.
+  {
+    name: 'wall',
+    color: '#8a93a0', // light blue-grey, distinct from raw stone
+    density: DENSITY_STONE, // static, immovable
+    isFluid: false,
+    isStatic: true,
+    flammable: false,
+    permeableToBodies: false,
+    hasIntegrity: true,
+    baseIntegrity: WALL_INTEGRITY,
   },
 ];
 

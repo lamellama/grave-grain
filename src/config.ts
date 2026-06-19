@@ -3,6 +3,8 @@
  * All magic numbers live here for easy tuning.
  */
 
+import type { ResourceKind } from './game/resources';
+
 // Cell size in pixels (chunky cells)
 export const CELL_SIZE = 6;
 
@@ -391,3 +393,26 @@ export const WAVE_INTERVAL = 1200;
 // §7.1 — Ticks between individual zombie spawns within the same wave,
 // so they trickle onto the map rather than teleporting in as a block.
 export const ZOMBIE_SPAWN_STAGGER = 30;
+
+// ---------------------------------------------------------------------------
+// Phase 8 — Player building & fire-as-tool (GDD §8, §7.4)
+// ---------------------------------------------------------------------------
+
+// §8 — Player-placed STONE WALL integrity. Walls are "the real barrier":
+// high integrity so breaching (§7.4 chips hasIntegrity cells) takes sustained
+// pressure. Compare WOOD/fence at 60. Fits in the Uint8Array integrity slot.
+export const WALL_INTEGRITY = 200;
+
+// §8 — Fence is wood: cheap, low-integrity, flammable. The fence's integrity is
+// already supplied by WOOD's baseIntegrity (WOOD_INTEGRITY) — this is an alias
+// for call-site clarity only. Do NOT change WOOD's value to tune the fence.
+export const FENCE_INTEGRITY = WOOD_INTEGRITY;
+
+// §8 — Build costs, per placed cell. Typed as Partial<Record<ResourceKind,…>>
+// so they drop straight into resources.canAfford/spend.
+export const FENCE_COST: Partial<Record<ResourceKind, number>> = { wood: 1 };
+export const WALL_COST: Partial<Record<ResourceKind, number>> = { stone: 1 };
+
+// §8 — Starting stone stockpile so a wall is buildable on load (used by main
+// in task 8-4).
+export const STARTING_STONE = 40;

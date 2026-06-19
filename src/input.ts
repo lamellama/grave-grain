@@ -12,6 +12,7 @@ import { getRenderer } from './render/renderer';
 import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
 import { ignite } from './engine/simulation';
+import { placeStructure, canPlace, type StructureKind } from './game/building';
 import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
@@ -32,11 +33,12 @@ export { pickBone } from './characters/pick';
  * 'Assign' (tap a survivor to open role menu — GDD §6.2, p6-t5).
  * GDD §12.3: the currently selected tool defines what a drag does.
  */
-type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Assign';
+type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Assign' | 'Build';
 
 const toolState = {
   mode: 'Pan' as ToolMode,
   paintMaterialId: SAND, // which material to paint when in Paint mode
+  buildStructure: 'fence' as StructureKind, // which structure to place in Build mode (task 8-3)
 };
 
 /**
@@ -237,6 +239,13 @@ function onPointerDown(event: PointerEvent): void {
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     paintDisc(worldCoords.x, worldCoords.y, toolState.paintMaterialId);
+  } else if (toolState.mode === 'Build') {
+    // Build mode: place one structure cell at the pointer cell (GDD §8 structures, task 8-3)
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    const cellX = Math.floor(worldCoords.x);
+    const cellY = Math.floor(worldCoords.y);
+    placeStructure(cellX, cellY, toolState.buildStructure);
   } else if (toolState.mode === 'Ignite') {
     // Ignite at current position — only flammable cells (GDD §8 ignite verb)
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
@@ -300,6 +309,13 @@ function onPointerMove(event: PointerEvent): void {
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     paintDisc(worldCoords.x, worldCoords.y, toolState.paintMaterialId);
+  } else if (toolState.mode === 'Build') {
+    // Build mode: drag places one structure cell per pointer cell (GDD §8 structures, task 8-3)
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    const cellX = Math.floor(worldCoords.x);
+    const cellY = Math.floor(worldCoords.y);
+    placeStructure(cellX, cellY, toolState.buildStructure);
   } else if (toolState.mode === 'Ignite') {
     // Ignite mode: drag ignites flammable cells continuously (GDD §8 ignite verb)
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
@@ -336,10 +352,13 @@ export function setToolMode(mode: 'Paint', materialId: number): void;
 export function setToolMode(mode: 'Ignite'): void;
 export function setToolMode(mode: 'Shoot'): void;
 export function setToolMode(mode: 'Assign'): void;
-export function setToolMode(mode: ToolMode, materialId?: number): void {
+export function setToolMode(mode: 'Build', structure: StructureKind): void;
+export function setToolMode(mode: ToolMode, materialIdOrStructure?: number | StructureKind): void {
   toolState.mode = mode;
-  if (mode === 'Paint' && materialId !== undefined) {
-    toolState.paintMaterialId = materialId;
+  if (mode === 'Paint' && typeof materialIdOrStructure === 'number') {
+    toolState.paintMaterialId = materialIdOrStructure;
+  } else if (mode === 'Build' && typeof materialIdOrStructure === 'string') {
+    toolState.buildStructure = materialIdOrStructure as StructureKind;
   }
   updateToolbarUI();
 }
@@ -365,9 +384,33 @@ function updateToolbarUI(): void {
       isActive = toolState.mode === 'Shoot';
     } else if (btnMode === 'assign') {
       isActive = toolState.mode === 'Assign';
+    } else if (btnMode === 'build') {
+      const btnStructure = btn.getAttribute('data-structure');
+      isActive = toolState.mode === 'Build' && btnStructure === toolState.buildStructure;
     }
 
     btn.classList.toggle('active', isActive);
+  });
+}
+
+/**
+ * Refresh the disabled/opacity state of Build toolbar buttons based on current
+ * stockpile affordability (task 8-4, GDD §8).  Called every render frame from
+ * main.ts next to the stockpile-readout update.
+ *
+ * Guards for null/empty button lists so it is safe to call before the DOM is
+ * fully initialised and under headless test stubs where querySelectorAll returns
+ * an empty array-like.
+ */
+export function refreshBuildButtons(): void {
+  const btns = document.querySelectorAll('[data-tool="build"]') as NodeListOf<HTMLButtonElement>;
+  if (!btns || btns.length === 0) return;
+  btns.forEach((btn) => {
+    const structure = btn.getAttribute('data-structure') as StructureKind | null;
+    if (!structure) return;
+    const affordable = canPlace(structure);
+    btn.disabled = !affordable;
+    btn.style.opacity = affordable ? '1' : '0.4';
   });
 }
 
@@ -403,6 +446,11 @@ export function initInput(canvas: HTMLCanvasElement): void {
         setToolMode('Assign');
         // Close any open role menu when switching to Assign tool.
         closeRoleMenu();
+      } else if (mode === 'build') {
+        const structure = button.getAttribute('data-structure');
+        if (structure) {
+          setToolMode('Build', structure as StructureKind);
+        }
       }
     });
   });

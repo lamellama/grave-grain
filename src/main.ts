@@ -22,8 +22,9 @@ import {
   SURVIVOR_COUNT,
   SURVIVOR_SPAWN_SPREAD,
   STARTING_WOOD,
+  STARTING_STONE,
 } from './config';
-import { initInput, setTargetBody, setSurvivors, setZombies } from './input';
+import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons } from './input';
 import { initRenderer, getRenderer, setBodies, setZombieBodies } from './render/renderer';
 import { clampCamera } from './camera';
 import * as grid from './engine/grid';
@@ -198,6 +199,8 @@ function seedPhase6Scene(): void {
 
   // Starting resources: enough wood to craft one axe immediately (GDD §6.2).
   addResource('wood', STARTING_WOOD);
+  // Starting stone so Wall build button is enabled on load (task 8-4, GDD §8).
+  addResource('stone', STARTING_STONE);
 }
 
 seedPhase6Scene();
@@ -433,6 +436,10 @@ function renderLoop(): void {
     stockpileReadoutEl.textContent =
       `Wood ${sp.wood}  Stone ${sp.stone}  Food ${sp.food}  Ore ${sp.ore}`;
   }
+
+  // Refresh build-button affordability every frame (task 8-4, GDD §8).
+  // Grey out Fence/Wall buttons when the player cannot afford them.
+  refreshBuildButtons();
 
   requestAnimationFrame(renderLoop);
 }

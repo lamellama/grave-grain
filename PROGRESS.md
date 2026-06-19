@@ -8,8 +8,8 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 8 — Player building + fire-as-tool
-- **Status:** not started (Phase 7 complete & committed)
+- **Current phase:** Phase 9 — Worldgen, waves, win/lose, UI
+- **Status:** not started (Phase 8 complete & committed)
 - **Last passed Done-when:** Phase 7 — zombies wander in from one edge, lock onto survivors, a guard legs the front rank then headshots crawlers, and a mob claws through a wooden fence (pursuit-driven breach in 155 ticks; pressure scales 2.25×). Damage uses the GATE handoff (real cells, no HP). Planner-verified (1 retry: fixed a breach mis-aim where the body's overhanging arm probed past a short fence). Build + smoke + dev green.
 - **GATE:** cleared. Routing = normal policy.
 - **Phase 8 note:** breaching is generic over hasIntegrity — stone WALLS placed in Phase 8 (with integrity) will be breachable by the same code unchanged. Keep walls tall enough OR rely on the per-row breach probe (now robust to short structures).
@@ -36,6 +36,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 - [x] Phase 5 — Survivors: needs + autonomy + pathing
 - [x] Phase 6 — Roles, resources, wood-tier tools
 - [x] Phase 7 — Zombies, combat, breaching
+- [x] Phase 8 — Player building + fire-as-tool
 - [ ] Phase 1 — Falling-sand core
 - [ ] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 3 — Hybrid body locomotion **(GATE)**
@@ -122,6 +123,13 @@ Phase 7 · p7-t6 · cheap_coder(haiku) · 1/1 · pass · waves.ts one-edge escal
 Phase 7 · p7-t7 · expensive_coder(opus) · 1/1 · pass · main integration (step→updateZombie→updateSurvivor(zombies)→resolveBreaching→updateWaves), green-tint zombies, Shoot-hits-zombies, fence+guard scene; smoke test green.
 Phase 7 · VERIFY · planner · FAIL·retry (breach mis-aim) → fixed → PASS · all 5 clauses over real modules (wander→lock, leg+headshot, fence breach pursuit-driven, GATE damage, no-tunnel); MVP scope clean; Phases 3–6 not regressed.
 
+Phase 8 · 8-1 · expensive_coder(opus) · 1/1 · pass · WALL material (id14, integrity200, solid, non-flammable) + config (WALL/FENCE_INTEGRITY, costs, STARTING_STONE); raw STONE stays non-breachable.
+Phase 8 · 8-2 · expensive_coder(opus) · 1/1 · pass · building.ts placeStructure (atomic inBounds→spend→placeMaterial→markTerrainEdit), canPlace/structureCost; scarcity + navgrid-bump verified.
+Phase 8 · 8-3 · cheap_coder(haiku) · 1/1 · pass · toolbar Fence/Wall + input Build mode (single-cell drag = line); smoke test green.
+Phase 8 · 8-4 · cheap_coder(haiku) · 1/1 · pass · main seeds STARTING_STONE; refreshBuildButtons greys unaffordable each frame (stub-safe); smoke green.
+Phase 8 · 8-5 · cheap_coder(haiku) · 1/1 · pass · test/phase8-building.test.ts: scarcity, WALL chips vs raw STONE immune, fence breaches 3.14× faster than wall, fire spreads fence-to-fence. All 4 PASS.
+Phase 8 · VERIFY · planner · PASS · wall-off chokepoint (path→null), fire trap catches herd body-to-body (3 zombies @staggered ticks, 1 died to fire), fence catches/wall doesn't, scarcity enforced; MVP clean; Phases 4–7 not regressed.
+
 ---
 
 ## Blockers
@@ -141,4 +149,5 @@ Phase 5 — commit 9cc4ff2.
 Phase 6 t1–t4 + bootstrap fix — commit 6c1d980.
 Phase 6 (complete) — commit 611b814.
 Phase 7 t1–t7 WIP — commit 8767e9a.
-Phase 7 (complete) — see commit below.
+Phase 7 (complete) — commit 90f15c2.
+Phase 8 (complete) — see commit below.
