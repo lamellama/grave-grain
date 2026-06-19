@@ -9,7 +9,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 ## Current state
 
 - **Current phase:** Phase 7 — Zombies, combat, breaching
-- **Status:** not started (Phase 6 complete & committed)
+- **Status:** PAUSED (user requested ~45min for quota refresh). t1–t7 all IMPLEMENTED & individually verified; WIP checkpoint committed. REMAINING on resume: run planner whole-phase verification (the 5-clause Done-when), then mark phase done + final boundary commit. Build green, smoke test passing at pause.
 - **Last passed Done-when:** Phase 6 — assign a lumberjack → walks THROUGH trees, chops for wood, returns to pile, axe breaks @5 chops; assignment gated by tool/stockpile. Planner-verified PASS; Phase 3/4/5 regression intact. (Also fixed a runtime bootstrap init-order bug + added a DOM-stub smoke-test guard.)
 - **GATE:** cleared. Routing = normal policy. Phase 7 (zombie AI / combat / breaching) is core sim → expensive_coder.
 - **Lesson:** HTTP-200 ≠ the page runs. Runtime DOM bootstrap is now guarded by test/main-smoke.test.ts — keep it passing; have coders run it when they touch main.ts/renderer/input.

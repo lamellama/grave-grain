@@ -30,6 +30,8 @@ import type { Body } from './body';
 import { createBody } from './body';
 import { updateBody } from './locomotion';
 import { dissolveBody } from './damage';
+import type { Zombie } from './zombie';
+import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
 import { get, set } from '../engine/grid';
 import { FIRE, WATER, FOLIAGE, AIR, STONE, ORE } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
@@ -71,6 +73,8 @@ import {
   RESOURCE_SCAN_RADIUS,
   FLEE_FIRE_RADIUS,
   PATH_REPATH_COOLDOWN,
+  GUARD_ENGAGE_RADIUS,
+  ATTACK_COOLDOWN,
   WORLD_W,
   BODY_W,
   BODY_H,
@@ -134,6 +138,9 @@ export interface Survivor {
   consumeTicks: number;
   consumeKind: 'water' | 'food' | null;
   consumeCell: { x: number; y: number } | null;
+  // Ticks until the next melee strike is allowed (p7-t4, guard combat). Counts
+  // down each updateSurvivor tick; only the guard combat branch ever arms it.
+  attackCooldown: number;
 }
 
 /**
@@ -165,6 +172,7 @@ export function createSurvivor(x: number, y: number): Survivor {
     consumeTicks: 0,
     consumeKind: null,
     consumeCell: null,
+    attackCooldown: 0,
   };
 }
 
@@ -493,20 +501,95 @@ export function assignRole(s: Survivor, role: RoleName): boolean {
 }
 
 /**
+ * Nearest ALIVE zombie within `maxR` (Euclidean) of (cx, cy), or null. Cheap
+ * squared-distance scan over the zombies list (no sqrt) — the guard's target
+ * picker (GDD §7.2). Dead/dissolved zombies are skipped (their cells belong to
+ * the sim now).
+ */
+function nearestZombie(
+  cx: number,
+  cy: number,
+  zombies: Zombie[],
+  maxR: number,
+): Zombie | null {
+  const r2 = maxR * maxR;
+  let best: Zombie | null = null;
+  let bestD = Infinity;
+  for (const z of zombies) {
+    if (!z.body.alive) continue;
+    const dx = z.body.x - cx;
+    const dy = z.body.y - cy;
+    const d = dx * dx + dy * dy;
+    if (d <= r2 && d < bestD) {
+      bestD = d;
+      best = z;
+    }
+  }
+  return best;
+}
+
+/**
+ * Guard combat (p7-t4, GDD §7.2 / §6.2): an armed guard engages the nearest
+ * ALIVE zombie within GUARD_ENGAGE_RADIUS — close the distance, then strike on
+ * cooldown. The aim is the same emergent model both ways: LEG the front rank to
+ * SLOW it (intact target → 'leg'), and HEADSHOT crawlers to FINISH them (target
+ * already missing a leg → 'head'). No zombie in range → fall back to holding the
+ * stockpile point. Only called when the role is 'guard' and a weapon is held.
+ */
+function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
+  const body = s.body;
+  const bx = Math.round(body.x);
+  const by = Math.round(body.y);
+
+  const z = nearestZombie(bx, by, zombies, GUARD_ENGAGE_RADIUS);
+
+  // No target in range → hold the assigned point (the MVP guard default).
+  if (z === null) {
+    if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
+      body.moveDir = 0;
+    } else {
+      steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
+    }
+    return;
+  }
+
+  // In range but out of reach → close the distance toward the zombie's cell.
+  if (!bodiesAdjacent(body, z.body)) {
+    s.path = null; // chasing a moving target: don't reuse a stale resource route
+    steerToCell(s, Math.round(z.body.x), Math.round(z.body.y), Math.round(z.body.x));
+    return;
+  }
+
+  // Adjacent → hold position and strike on cooldown. LEG an intact zombie to
+  // slow the front rank; HEADSHOT a crawler (already lost a leg) to finish it.
+  body.moveDir = 0;
+  if (s.attackCooldown <= 0) {
+    const crawling = z.body.lLegLost || z.body.rLegLost;
+    const aim = crawling ? 'head' : 'leg';
+    const region = pickAttackRegion(z.body, aim);
+    if (region) meleeAttack(z.body, region);
+    s.attackCooldown = ATTACK_COOLDOWN;
+  }
+}
+
+/**
  * Run one tick of the role loop (GDD §6.2): find → path → work → deposit →
  * repeat. Only called when no need/fire override is active, role !== 'none' and
  * a tool is held. Sets body.moveDir (locomotion does the walk); harvests edit
  * the live grid + navgrid; tool durability decrements per work action and a
  * break drops the survivor to idle (role 'none', tool null).
  */
-function driveRole(s: Survivor): void {
+function driveRole(s: Survivor, zombies: Zombie[]): void {
   const body = s.body;
   const role = s.role;
 
-  // Guard (MVP): hold the stockpile point — no harvest, no deposit (GDD §6.2;
-  // combat lands in Phase 7). Path there, then idle on arrival.
+  // Guard (GDD §6.2 / §7.2): an armed guard engages the nearest zombie in range
+  // (LEG then HEADSHOT); with none in range it holds the stockpile point. Other
+  // survivors never reach this branch.
   if (role === 'guard') {
-    if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
+    if (s.tool !== null && s.tool.kind === 'weapon') {
+      driveGuardCombat(s, zombies);
+    } else if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
       body.moveDir = 0;
     } else {
       steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
@@ -549,7 +632,7 @@ function driveRole(s: Survivor): void {
       const t = s.workTarget;
       if (t === null || !cellWithinReach(body, t.x, t.y)) {
         s.roleState = 'toTarget';
-        driveRole(s);
+        driveRole(s, zombies);
         return;
       }
       if (s.workTicksLeft > 0) {
@@ -658,7 +741,7 @@ function selectBehaviour(s: Survivor): { x: number; y: number } | null {
  * resolve death (Phase-4 handoff) → pick a behaviour (sets moveDir) → step the
  * body. Call once per tick from main.
  */
-export function updateSurvivor(s: Survivor): void {
+export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   const body = s.body;
 
   // 1. Dead-survivor guard: a dissolved body's cells belong to the sim now.
@@ -666,6 +749,8 @@ export function updateSurvivor(s: Survivor): void {
     return;
   }
   s.tick++;
+  // Melee cadence clock (p7-t4): only the guard combat branch ever arms it.
+  if (s.attackCooldown > 0) s.attackCooldown--;
 
   // 2. Deplete needs (GDD §6.1). Exertion (moving) drains both faster; heat
   //    (FIRE nearby) drains thirst on top of that. "moving" reads the moveDir
@@ -712,7 +797,7 @@ export function updateSurvivor(s: Survivor): void {
       // GDD §6.2 role loop: with a role + tool and no active override, work the
       // job instead of idling. Otherwise (idle/unequipped) just wander.
       if (s.role !== 'none' && s.tool !== null) {
-        driveRole(s);
+        driveRole(s, zombies);
       } else {
         driveWander(s);
       }

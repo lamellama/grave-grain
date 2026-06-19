@@ -29,6 +29,30 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 /**
+ * Zombie green-tint (p7-t7, render-only). Blends a body pixel's authored colour
+ * toward a sickly green so zombies read as distinct from survivors WITHOUT
+ * touching the underlying body matter — a shed zombie limb still falls as normal
+ * FLESH/BONE/BLOOD cells (the CA illusion, GDD §14 gate point 5). Cached per
+ * source colour (bodies use a tiny fixed palette) so the hot render loop never
+ * re-parses the same hex.
+ */
+const ZOMBIE_TINT: [number, number, number] = [0x3a, 0x7a, 0x2a]; // sickly green
+const ZOMBIE_TINT_MIX = 0.55; // fraction pulled toward green
+const zombieTintCache = new Map<string, string>();
+function tintZombie(color: string): string {
+  const cached = zombieTintCache.get(color);
+  if (cached) return cached;
+  const [r, g, b] = hexToRgb(color);
+  const m = ZOMBIE_TINT_MIX;
+  const tr = Math.round(r * (1 - m) + ZOMBIE_TINT[0] * m);
+  const tg = Math.round(g * (1 - m) + ZOMBIE_TINT[1] * m);
+  const tb = Math.round(b * (1 - m) + ZOMBIE_TINT[2] * m);
+  const out = `rgb(${tr},${tg},${tb})`;
+  zombieTintCache.set(color, out);
+  return out;
+}
+
+/**
  * Renderer state: canvas, context, and internal buffers.
  */
 class Renderer {
@@ -47,6 +71,9 @@ class Renderer {
   // GDD §5.1 / §14 Milestone 0: all live hybrid bodies to overlay on the cell layer.
   // Widened from a single body to N bodies (p5-t5) so several survivors draw correctly.
   private bodies: Body[] = [];
+
+  // p7-t7: render-only zombie bodies, drawn with a green tint over the cell layer.
+  private zombieBodies: Body[] = [];
 
   constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     this.canvas = canvas;
@@ -80,6 +107,15 @@ class Renderer {
    */
   setBodies(bodies: Body[]): void {
     this.bodies = [...bodies];
+  }
+
+  /**
+   * Replace the render-only zombie body list (p7-t7). Tint is applied at draw
+   * time only — these Body objects are NOT mutated, so their released cells stay
+   * normal body matter (GDD §7.1 / §14 gate point 5).
+   */
+  setZombieBodies(bodies: Body[]): void {
+    this.zombieBodies = [...bodies];
   }
 
   /** Add one body to the draw list without clearing the rest. */
@@ -160,7 +196,9 @@ class Renderer {
     // Each body pixel fills exactly one CELL_SIZE×CELL_SIZE rect at the same
     // screen position the cell layer would use for that world cell — guaranteeing
     // pixel-perfect alignment with the CA grid (same formula: (wx - camera.x)*CELL_SIZE).
-    this.drawBody();
+    // Survivors draw with their authored colours; zombies (p7-t7) are tinted green.
+    this.drawBodyList(this.bodies, null);
+    this.drawBodyList(this.zombieBodies, tintZombie);
 
     // Draw FPS counter.
     this.drawFps();
@@ -177,12 +215,12 @@ class Renderer {
    * identical top-left as the ImageData loop above (same formula), so the bodies
    * sit exactly on the grid and stay locked to the world while panning.
    */
-  private drawBody(): void {
+  private drawBodyList(bodies: Body[], tint: ((color: string) => string) | null): void {
     const vw = this.viewportWidthPx;
     const vh = this.viewportHeightPx;
     const ctx = this.ctx;
 
-    for (const body of this.bodies) {
+    for (const body of bodies) {
       if (!body.alive) continue;
 
       const bx = Math.round(body.x);
@@ -204,7 +242,7 @@ class Renderer {
           if (sx0 + CELL_SIZE <= 0 || sx0 >= vw) continue;
           if (sy0 + CELL_SIZE <= 0 || sy0 >= vh) continue;
 
-          ctx.fillStyle = pixel.color;
+          ctx.fillStyle = tint ? tint(pixel.color) : pixel.color;
           ctx.fillRect(sx0, sy0, CELL_SIZE, CELL_SIZE);
         }
       }
@@ -265,6 +303,14 @@ export function getRenderer(): Renderer {
  */
 export function setBodies(bodies: Body[]): void {
   getRenderer().setBodies(bodies);
+}
+
+/**
+ * Replace the render-only zombie body list (p7-t7). Module-level wrapper; call
+ * after initRenderer(). Bodies are drawn green-tinted but never mutated.
+ */
+export function setZombieBodies(bodies: Body[]): void {
+  getRenderer().setZombieBodies(bodies);
 }
 
 /** Add one body to the renderer's draw list. Module-level wrapper. */

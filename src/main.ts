@@ -13,6 +13,7 @@
 import {
   SIM_HZ,
   CELL_SIZE,
+  BODY_H,
   WORLD_W,
   WORLD_H,
   BODY_SPAWN_X,
@@ -22,14 +23,19 @@ import {
   SURVIVOR_SPAWN_SPREAD,
   STARTING_WOOD,
 } from './config';
-import { initInput, setTargetBody, setSurvivors } from './input';
-import { initRenderer, getRenderer, setBodies } from './render/renderer';
+import { initInput, setTargetBody, setSurvivors, setZombies } from './input';
+import { initRenderer, getRenderer, setBodies, setZombieBodies } from './render/renderer';
 import { clampCamera } from './camera';
 import * as grid from './engine/grid';
 import * as simulation from './engine/simulation';
-import { AIR, STONE, WATER, FOLIAGE, ORE } from './engine/materials';
-import { createSurvivor, updateSurvivor } from './characters/survivor';
+import { AIR, STONE, WATER, FOLIAGE, ORE, WOOD } from './engine/materials';
+import { createSurvivor, updateSurvivor, assignRole } from './characters/survivor';
 import type { Survivor } from './characters/survivor';
+import { updateZombie } from './characters/zombie';
+import type { Zombie } from './characters/zombie';
+import { resolveBreaching } from './game/breaching';
+import { createWaveState, updateWaves } from './game/waves';
+import { makeTool } from './game/roles';
 import { rebuildNavgrid } from './engine/navgrid';
 import { addResource, setStockpilePoint, getStockpile } from './game/resources';
 
@@ -197,6 +203,28 @@ function seedPhase6Scene(): void {
 seedPhase6Scene();
 
 // ============================================================================
+// Phase-7 scene additions (p7-t7, GDD §7.1/§7.4)
+//
+// A WOOD fence at a chokepoint between the zombie spawn edge (left, x≈1) and the
+// survivor colony (x≈176–224). Placed with grid.placeMaterial so the cells are
+// seeded to WOOD_INTEGRITY — zombies must gnaw through it (breaching, §7.4)
+// rather than walking past. A few cells tall so bodies can't step over it
+// (STEP_UP_MAX = 1). rebuildNavgrid() runs after this (below) so the router sees
+// the wall from tick 0.
+// ============================================================================
+
+const P7_FENCE_X = 120;          // chokepoint column, left of the colony
+const P7_FENCE_HEIGHT = 4;       // cells of WOOD above the floor (un-steppable)
+
+function seedPhase7Scene(): void {
+  for (let y = P3_GROUND_Y - P7_FENCE_HEIGHT; y < P3_GROUND_Y; y++) {
+    grid.placeMaterial(P7_FENCE_X, y, WOOD); // seeds integrity to WOOD_INTEGRITY
+  }
+}
+
+seedPhase7Scene();
+
+// ============================================================================
 // Build the coarse navgrid AFTER terrain is seeded, BEFORE the loop starts
 // (GDD §13: survivors path on it from tick 0).
 // ============================================================================
@@ -234,6 +262,29 @@ setTargetBody(survivors[0].body);
 // Expose survivors to the Assign tool (p6-t5, GDD §6.2).
 setSurvivors(survivors);
 
+// ============================================================================
+// Phase-7 colony defence (p7-t7, GDD §7.2/§6.2): arm survivors[0] as a GUARD so
+// it engages the horde (LEG the front rank, HEADSHOT crawlers) near the colony.
+// We hand it a weapon directly (no stockpile spend) then assign the role —
+// assignRole keeps a matching held tool. survivors[0] spawns near the colony /
+// stockpile point, which is the guard's default hold position.
+// ============================================================================
+
+survivors[0].tool = makeTool('weapon');
+assignRole(survivors[0], 'guard');
+
+// ============================================================================
+// Phase-7 zombies & waves (p7-t7, GDD §7.1). `zombies` is the live array; the
+// renderer and the Shoot tool hold the SAME reference so it stays current as we
+// push spawns / splice the dead in place (never reassigned).
+// ============================================================================
+
+const zombies: Zombie[] = [];
+const waveState = createWaveState();
+
+setZombies(zombies);          // Shoot tool can headshot zombies (p7-t7)
+setZombieBodies([]);          // renderer's green-tinted zombie layer (empty at start)
+
 // Cache the stockpile readout element for efficient per-frame update (p6-t5, GDD §8).
 const stockpileReadoutEl = document.getElementById('stockpile-readout') as HTMLElement | null;
 
@@ -264,11 +315,20 @@ let lastFrameTime = performance.now();
  *      AI can immediately re-override on the next tick if needed.
  * All steps happen in lockstep so every body reads fresh CA state.
  */
+let tickCount = 0;
+
 function simulationTick(): void {
   // Phase 1/2: advance the falling-sand cellular update one tick (GDD §5.2).
   simulation.step();
 
-  // p5-t5: update every survivor (owns its body drive — GDD §6.1).
+  // p7-t7: drive zombies FIRST (sets moveDir + lands melee strikes through THE
+  // GATE), so survivor combat and breaching this tick read fresh zombie state.
+  for (const z of zombies) {
+    updateZombie(z, survivors);
+  }
+
+  // p5-t5 / p7-t4: update every survivor (owns its body drive — GDD §6.1). The
+  // zombie list is passed so an armed guard engages the horde (GDD §7.2).
   for (let i = 0; i < survivors.length; i++) {
     const s = survivors[i];
     // Optional arrow-key dev nudge on survivors[0] (does not break the AI:
@@ -280,8 +340,32 @@ function simulationTick(): void {
         s.body.moveDir = 1;
       }
     }
-    updateSurvivor(s);
+    updateSurvivor(s, zombies);
   }
+
+  // p7-t7: zombies gnaw through structures they're pressing (GDD §7.4). Runs
+  // AFTER updateZombie so moveDir/facing reflect this tick's intent.
+  resolveBreaching(zombies);
+
+  // p7-t7: escalating waves (GDD §7.1). updateWaves trickles new zombies in from
+  // the spawn edge; append them to the live array.
+  const aliveCount = zombies.filter((z) => z.body.alive).length;
+  const fresh = updateWaves(waveState, aliveCount);
+  for (const f of fresh) zombies.push(f);
+
+  // p7-t7: prune fully-dead zombies (all bones shed into the sim already) every
+  // so often so the array can't grow unbounded. Splice IN PLACE — the renderer
+  // and Shoot tool hold this same array reference. Their cells stay in the sim.
+  tickCount++;
+  if (tickCount % 120 === 0) {
+    for (let i = zombies.length - 1; i >= 0; i--) {
+      if (!zombies[i].body.alive) zombies.splice(i, 1);
+    }
+  }
+
+  // Register the (possibly changed) zombie bodies with the renderer (render-only
+  // green tint; bodies themselves are never mutated by the renderer).
+  setZombieBodies(zombies.map((z) => z.body));
 }
 
 /**

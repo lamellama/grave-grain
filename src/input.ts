@@ -18,6 +18,7 @@ import { pickBone } from './characters/pick';
 import { applyDamage } from './characters/damage';
 import type { Survivor } from './characters/survivor';
 import { assignRole } from './characters/survivor';
+import type { Zombie } from './characters/zombie';
 import type { RoleName } from './game/roles';
 import { canAssign } from './game/roles';
 
@@ -62,6 +63,44 @@ let survivorList: Survivor[] = [];
 /** Register the survivor array so the Assign tool can pick from it. */
 export function setSurvivors(list: Survivor[]): void {
   survivorList = list;
+}
+
+/**
+ * Zombie list for the Shoot tool (p7-t7, GDD §7.2). Set by main.ts with the live
+ * array reference so the player can manually headshot zombies, not just
+ * survivors. Mirrors setSurvivors.
+ */
+let zombieList: Zombie[] = [];
+
+/** Register the zombie array so the Shoot tool can target zombies too. */
+export function setZombies(list: Zombie[]): void {
+  zombieList = list;
+}
+
+/**
+ * Find the nearest ALIVE body (survivor OR zombie) to world cell (wx, wy) by
+ * squared anchor distance (p7-t7). Used by the Shoot tool so a click damages
+ * whatever body is closest — a player headshot routes through the same GATE
+ * (applyDamage) as combat. Returns null if no live body exists.
+ */
+function nearestBodyTo(wx: number, wy: number): Body | null {
+  let best: Body | null = null;
+  let bestD = Infinity;
+  const consider = (b: Body): void => {
+    if (!b.alive) return;
+    const dx = b.x - wx;
+    const dy = b.y - wy;
+    const d = dx * dx + dy * dy;
+    if (d < bestD) {
+      bestD = d;
+      best = b;
+    }
+  };
+  for (const s of survivorList) consider(s.body);
+  for (const z of zombieList) consider(z.body);
+  // Back-compat: the explicitly-registered target body (e.g. survivors[0]).
+  if (targetBody) consider(targetBody);
+  return best;
 }
 
 /** Currently-selected survivor waiting for a role-menu choice; null = none. */
@@ -205,16 +244,18 @@ function onPointerDown(event: PointerEvent): void {
     igniteDisc(worldCoords.x, worldCoords.y);
   } else if (toolState.mode === 'Shoot') {
     // Shoot on DOWN only (a click = a single hit; drags don't repeat-fire).
-    // Pick the body region under the cursor and route it through THE GATE
-    // (GDD §14 hand-test, §7.2 emergent damage). No-op if no live body.
-    if (targetBody && targetBody.alive) {
-      const canvasCoords = getCanvasRelativeCoords(event, canvas);
-      const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
-      const cellX = Math.floor(worldCoords.x);
-      const cellY = Math.floor(worldCoords.y);
-      const name = pickBone(targetBody, cellX, cellY);
+    // Pick the nearest live body (survivor OR zombie — p7-t7) to the clicked
+    // cell, then the bone region under the cursor, and route it through THE GATE
+    // (GDD §14 hand-test, §7.2 emergent damage). No-op if no live body / no bone.
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    const cellX = Math.floor(worldCoords.x);
+    const cellY = Math.floor(worldCoords.y);
+    const targetBodyHit = nearestBodyTo(cellX, cellY);
+    if (targetBodyHit) {
+      const name = pickBone(targetBodyHit, cellX, cellY);
       if (name) {
-        applyDamage(targetBody, name);
+        applyDamage(targetBodyHit, name);
       }
     }
   } else if (toolState.mode === 'Assign') {

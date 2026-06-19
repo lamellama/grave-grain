@@ -311,3 +311,83 @@ export const ASSIGN_PICK_RADIUS = 10;
 
 // Starting wood given to the colony at spawn so the first tool can be crafted.
 export const STARTING_WOOD = 6;
+
+// ---------------------------------------------------------------------------
+// Phase 7 — zombies & combat (GDD §7)
+// ---------------------------------------------------------------------------
+
+// §7.1 — Zombie detection range: how close a survivor must be (cells, Chebyshev)
+// before an idle zombie switches to pursuit mode.
+export const SENSE_RADIUS = 60;
+
+// §7.1 — Idle meander speed (cells/tick). Matches CRAWL_SPEED so an
+// undirected zombie drifts slowly without telegraphing its threat.
+export const ZOMBIE_IDLE_SPEED = 0.12;   // ~CRAWL_SPEED
+
+// §7.1 — Pursuit speed (cells/tick) once a zombie has detected a survivor.
+// "slightly faster than WALK_SPEED (0.3)" — provides pressure without
+// making the threat impossible to outrun while sprinting.
+export const ZOMBIE_ATTACK_SPEED = 0.34;
+
+// §7.1 — Idle retarget interval (ticks). When meandering, the zombie picks
+// a new random wander goal after a random delay in this range, producing
+// non-robotic, unpredictable movement.
+export const ZOMBIE_IDLE_RETARGET_MIN = 60;
+export const ZOMBIE_IDLE_RETARGET_MAX = 180;
+
+// §7.1 — Idle meander radius (cells). The random idle goal column is chosen
+// within this many cells of the zombie's CURRENT x, so an undirected zombie
+// drifts locally rather than running off across the map. Kept small — the
+// meander should read as aimless shuffling, not travel.
+export const ZOMBIE_IDLE_RADIUS = 12;
+
+// §7.2 — Melee adjacency reach (cells). Both zombie and survivor bodies can
+// strike targets within this many cells of their anchor point.
+export const ATTACK_REACH = 2;
+
+// §7.2 — Ticks between successive melee strikes for any body (zombie or
+// survivor). Prevents the same attacker landing hits every tick.
+export const ATTACK_COOLDOWN = 45;
+
+// §7.2 — Radius (cells) from a guard's assigned hold point within which it
+// will leave position to engage a zombie. Beyond this radius it returns home.
+export const GUARD_ENGAGE_RADIUS = 40;
+
+// NOTE — ATTACK_DAMAGE: the damage model is fully emergent (GDD §7.2).
+// A successful strike releases body-region cells (flesh/bone/blood) into the
+// sim — there is NO HP subtraction and NO HP bar. This constant is therefore
+// intentionally absent; any per-hit output is determined by the
+// damage→cells handoff logic (GDD §5.1 / §7.2, see expensive_coder scope).
+
+// §7.4 — Breaching: per-tick probability that a single zombie blocked by
+// a WOOD barrier chips 1 point of its integrity. Kept sub-0.2 so a lone
+// zombie breaks through only after sustained contact (GDD §7.4).
+export const BREACH_CHANCE = 0.18;
+
+// §7.4 — Extra integrity-chip weight per ADDITIONAL zombie on the same cell
+// (beyond the first). Represents crowd pressure: more bodies = faster breach.
+export const BREACH_PRESSURE_MULT = 0.6;
+
+// §7.1 — Single spawn edge for MVP (GDD §14 — dual-edge and herd dynamics
+// are vertical-slice). Typed as a literal union so consumers get a
+// narrowed string literal, not a plain string.
+export const ZOMBIE_SPAWN_EDGE: 'left' | 'right' = 'left';
+
+// §7.1 — Y cell row at which zombies appear, just above the main floor so
+// they land immediately and begin walking without a long drop.
+export const ZOMBIE_SPAWN_Y = P3_GROUND_Y - 1;
+
+// §13 — Hard cap on simultaneously-active zombie entities (performance).
+export const MAX_ZOMBIES = 24;
+
+// Wave sizing (GDD §7.1 / §13). Wave N (0-indexed) sends
+//   WAVE_SIZE_START + WAVE_SIZE_GROWTH × N  zombies total.
+export const WAVE_SIZE_START = 3;
+export const WAVE_SIZE_GROWTH = 2;
+
+// §7.1 — Ticks between successive waves.
+export const WAVE_INTERVAL = 1200;
+
+// §7.1 — Ticks between individual zombie spawns within the same wave,
+// so they trickle onto the map rather than teleporting in as a block.
+export const ZOMBIE_SPAWN_STAGGER = 30;
