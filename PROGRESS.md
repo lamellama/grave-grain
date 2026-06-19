@@ -9,7 +9,8 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 ## Current state
 
 - **Current phase:** Phase 9 — Worldgen, waves, win/lose, UI
-- **Status:** not started (Phase 8 complete & committed)
+- **Status:** PAUSED (user). Done & verified: 9-1 config, 9-2 worldgen (deterministic, layered, spawn-zone guarantees), 9-3 wave curve (5 waves 3→11, intervals 1200→800 + allWavesCleared), 9-4 state.ts (win/lose latch + death watcher), 9-5 ui.ts (needs bars, toasts, end screen, speed toggle). WIP checkpoint committed. REMAINING on resume: 9-6 off-screen awareness (edge arrows, minimap, camera.jumpCameraTo), 9-7 integration (main.ts uses generateWorld + state + UI; expensive). Build + smoke green at pause.
+- **9-7 integration risks to brief:** (1) call rebuildNavgrid() AFTER generateWorld (worldgen writes grid directly, no markTerrainEdit); (2) survivors' nearestMaterial may target a SEALED deep water pool over the reachable open spawn pond — verify survivors actually drink/survive in the generated world; (3) keep renderer/input init BEFORE first resizeCanvas (smoke guard).
 - **Last passed Done-when:** Phase 7 — zombies wander in from one edge, lock onto survivors, a guard legs the front rank then headshots crawlers, and a mob claws through a wooden fence (pursuit-driven breach in 155 ticks; pressure scales 2.25×). Damage uses the GATE handoff (real cells, no HP). Planner-verified (1 retry: fixed a breach mis-aim where the body's overhanging arm probed past a short fence). Build + smoke + dev green.
 - **GATE:** cleared. Routing = normal policy.
 - **Phase 8 note:** breaching is generic over hasIntegrity — stone WALLS placed in Phase 8 (with integrity) will be breachable by the same code unchanged. Keep walls tall enough OR rely on the per-row breach probe (now robust to short structures).

@@ -416,3 +416,89 @@ export const WALL_COST: Partial<Record<ResourceKind, number>> = { stone: 1 };
 // §8 — Starting stone stockpile so a wall is buildable on load (used by main
 // in task 8-4).
 export const STARTING_STONE = 40;
+
+// ---------------------------------------------------------------------------
+// Phase 9 — worldgen, waves, win/lose, UI (GDD §5.3/§11/§12)
+// ---------------------------------------------------------------------------
+
+// §11 — Number of fully-cleared waves the survivors must endure to reach the
+// win screen. Every zombie in the wave must die before the counter increments.
+export const WIN_WAVES = 5;
+
+// §7.1 — Floor for the wave interval (ticks) as difficulty ramps up.
+// The interval never drops below this regardless of wave number.
+export const WAVE_INTERVAL_MIN = 600;
+
+// §7.1 — Each wave shortens the pre-wave pause by this many ticks:
+//   effectiveInterval = max(WAVE_INTERVAL - WAVE_INTERVAL_DECAY*(waveNumber-1), WAVE_INTERVAL_MIN)
+export const WAVE_INTERVAL_DECAY = 100;
+
+// §12.2 — Simulation ticks advanced per rendered frame for each speed-toggle
+// step. Index 0 = normal (1×), 1 = fast (2×), 2 = faster (3×).
+export const SIM_SPEEDS = [1, 2, 3] as const;
+
+// -- Worldgen (deterministic) — GDD §5.3 ------------------------------------
+
+// Seed used by the deterministic worldgen RNG so every run produces the same
+// map (useful for testing; a future version may expose this to players).
+export const WORLDGEN_SEED = 1337;
+
+// Mean Y row of the surface (cells, increases downward). Matches the Phase-3
+// test floor P3_GROUND_Y — worldgen keeps the same horizon.
+export const SURFACE_BASE_Y = 140;
+
+// Half-amplitude of the sinusoidal surface variation (± rows). Produces gentle
+// rolling hills without extreme cliffs.
+export const SURFACE_AMPLITUDE = 6;
+
+// Thickness (rows) of the grass/soil DIRT band at the very surface.
+export const SURFACE_SOIL_DEPTH = 4;
+
+// Thickness (rows) of the DIRT band below the soil layer, before stone begins.
+export const DIRT_DEPTH = 18;
+
+// Per-column probability that a sand pocket is started in the dirt/stone zone.
+export const SAND_POCKET_CHANCE = 0.04;
+
+// Maximum radius (cells) of a generated sand pocket.
+export const SAND_POCKET_MAX = 8;
+
+// Per-cell probability that a stone cell seeds an ore vein during worldgen.
+export const ORE_VEIN_DENSITY = 0.02;
+
+// Length (cells) of each ore vein walk.
+export const ORE_VEIN_LEN = 6;
+
+// Depth below the local surface (rows) where water pools can form.
+export const WATER_TABLE_DEPTH = 30;
+
+// Per-column probability that a water pool is started at the water-table depth.
+export const WATER_POOL_CHANCE = 0.012;
+
+// Maximum half-width (cells) of a generated water pool.
+export const WATER_POOL_MAX = 14;
+
+// Number of woodland clusters scattered across the surface.
+export const WOODLAND_CLUSTERS = 10;
+
+// Width (cells) of each woodland cluster footprint.
+export const WOODLAND_CLUSTER_W = 24;
+
+// Height (cells) of tree foliage above the surface in a woodland cluster.
+export const FOLIAGE_HEIGHT = 6;
+
+// -- Spawn-zone guarantees — GDD §5.3 ---------------------------------------
+// Survivors always start in a safe zone away from the zombie edge, with
+// accessible wood and water within RESOURCE_SCAN_RADIUS.
+
+// Minimum horizontal distance (cells) from the zombie spawn edge to the
+// survivor starting area, keeping them out of the immediate danger zone.
+export const SPAWN_ZONE_MARGIN = 360;
+
+// Number of WOOD cells that must exist within RESOURCE_SCAN_RADIUS of the
+// spawn zone; worldgen ensures this by seeding extra woodland if needed.
+export const SPAWN_GUARANTEE_WOOD_CELLS = 60;
+
+// Whether worldgen must guarantee at least one WATER cell reachable from the
+// spawn zone (places a small pool if none exists within RESOURCE_SCAN_RADIUS).
+export const SPAWN_GUARANTEE_WATER = true;

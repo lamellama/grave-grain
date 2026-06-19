@@ -8,6 +8,7 @@
  */
 
 import { camera, panCamera, clampCamera, screenToWorld } from './camera';
+import { cycleSimSpeed, getSimSpeed } from './game/ui';
 import { getRenderer } from './render/renderer';
 import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
@@ -469,6 +470,16 @@ export function initInput(canvas: HTMLCanvasElement): void {
       closeRoleMenu();
     });
   });
+
+  // Wire speed toggle button (GDD §12.2 sim-speed controls, task 9-5).
+  // Guard for missing element so this is safe under the headless DOM stub.
+  const speedBtn = document.getElementById('speed-btn') as HTMLButtonElement | null;
+  if (speedBtn) {
+    speedBtn.addEventListener('click', () => {
+      const newSpeed = cycleSimSpeed();
+      speedBtn.textContent = newSpeed + '\u00d7';
+    });
+  }
 
   // Set initial toolbar state
   updateToolbarUI();

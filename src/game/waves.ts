@@ -26,10 +26,13 @@ import { createZombie } from '../characters/zombie';
 import type { Zombie } from '../characters/zombie';
 import {
   WAVE_INTERVAL,
+  WAVE_INTERVAL_MIN,
+  WAVE_INTERVAL_DECAY,
   WAVE_SIZE_START,
   WAVE_SIZE_GROWTH,
   ZOMBIE_SPAWN_STAGGER,
   MAX_ZOMBIES,
+  WIN_WAVES,
   ZOMBIE_SPAWN_EDGE,
   ZOMBIE_SPAWN_Y,
   WORLD_W,
@@ -85,13 +88,20 @@ export function updateWaves(state: WaveState, aliveZombieCount: number): Zombie[
 
   if (state.pendingThisWave === 0) {
     // ---- Between waves: count down to the next wave trigger. ----
+    // Once WIN_WAVES have been launched, stop scheduling further waves.
+    if (state.waveNumber >= WIN_WAVES) return spawned;
+
     state.ticksToNextWave--;
     if (state.ticksToNextWave <= 0) {
       // Launch a new wave.
       state.waveNumber++;
       state.pendingThisWave =
         WAVE_SIZE_START + WAVE_SIZE_GROWTH * (state.waveNumber - 1);
-      state.ticksToNextWave = WAVE_INTERVAL;
+      // Frequency escalation: interval shrinks each wave, floored at MIN.
+      state.ticksToNextWave = Math.max(
+        WAVE_INTERVAL_MIN,
+        WAVE_INTERVAL - WAVE_INTERVAL_DECAY * (state.waveNumber - 1),
+      );
       // First zombie spawns immediately (ticksToNextSpawn starts at 0 so it
       // fires on the very first tick we enter the pendingThisWave > 0 branch).
       state.ticksToNextSpawn = 0;
@@ -117,4 +127,25 @@ export function updateWaves(state: WaveState, aliveZombieCount: number): Zombie[
   }
 
   return spawned;
+}
+
+/**
+ * Returns true once every wave has been launched AND all spawned zombies have
+ * been killed. The caller (state.ts / game loop) uses this to trigger the win
+ * screen. This function does NOT own the win — it only exposes the signal.
+ *
+ * Conditions:
+ *  - waveNumber has reached WIN_WAVES (all waves launched).
+ *  - pendingThisWave === 0 (the last wave's entire roster has been spawned).
+ *  - aliveZombieCount === 0 (every zombie on the map is dead).
+ */
+export function allWavesCleared(
+  state: WaveState,
+  aliveZombieCount: number,
+): boolean {
+  return (
+    state.waveNumber >= WIN_WAVES &&
+    state.pendingThisWave === 0 &&
+    aliveZombieCount === 0
+  );
 }
