@@ -63,15 +63,17 @@ function resizeCanvas(): void {
   renderer.onResize();
 }
 
-resizeCanvas();
-window.addEventListener('resize', resizeCanvas);
-
 // ============================================================================
-// Initialize renderer and input
+// Initialize renderer and input FIRST — resizeCanvas() calls getRenderer(),
+// so the renderer singleton must exist before the initial sizing pass and
+// before the resize listener can fire. (Init-order matters here.)
 // ============================================================================
 
 const renderer = initRenderer(canvas, ctx);
 initInput(canvas);
+
+resizeCanvas();
+window.addEventListener('resize', resizeCanvas);
 
 // ============================================================================
 // Phase-5 test terrain (p5-t5)
@@ -91,8 +93,10 @@ initInput(canvas);
 //
 //   Foliage bush A — x 380–400, height 3 cells above the floor.
 //   Foliage bush B — x 440–460, height 3 cells above the floor.
-//   Foliage is permeableToBodies so the body can stand inside it; survivors
-//   eat the adjacent cell (resourceWithinReach in survivor.ts).
+//   Foliage is permeableToBodies (GDD §5.2/§9): bodies pass THROUGH the bush
+//   (collision-only — you can't stand ON foliage, only on the floor beneath it).
+//   It is still a harvest target reached by adjacency/reach, NOT by overlap;
+//   survivors eat the adjacent cell (resourceWithinReach in survivor.ts).
 //
 // All resources are within RESOURCE_SCAN_RADIUS (200 cells) of spawn (x≈200).
 // ============================================================================

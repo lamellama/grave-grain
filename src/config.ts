@@ -270,3 +270,33 @@ export const SURVIVOR_SPAWN_SPREAD = 12;
 // Minimum ticks that must elapse between forced path recomputes for a survivor
 // (GDD §13 navgrid — avoids repathing every tick on mutable terrain).
 export const PATH_REPATH_COOLDOWN = 30;
+
+// ---------------------------------------------------------------------------
+// Phase 6 — Roles, resources & tools (GDD §6.2, §6.3, §9)
+// ---------------------------------------------------------------------------
+
+// Work durations in ticks — how long a survivor stands and works a target
+// before it yields output (GDD §6.2 timed chop/mine/gather). At SIM_HZ=60 these
+// are ~1.5 s / 2 s / 0.75 s — mining is slowest, gathering the quickest.
+export const CHOP_TICKS = 90;
+export const MINE_TICKS = 120;
+export const GATHER_TICKS = 45;
+
+// Wood-tier tool durability (GDD §6.3: wood is brittle). Number of work actions
+// a fresh tool survives before it breaks and is discarded. MVP = wood tier only;
+// iron/stone tiers and the upgrade path are vertical-slice (GDD §14).
+export const WOOD_TOOL_DURABILITY = 5;
+
+// Yield per completed work action (GDD §6.2 outputs → stockpile §8).
+export const WOOD_PER_CHOP = 1;   // lumberjack: FOLIAGE → wood
+export const STONE_PER_MINE = 1;  // miner: exposed STONE → stone
+export const ORE_PER_MINE = 1;    // miner: exposed ORE → ore
+export const FOOD_PER_GATHER = 1; // forager: FOLIAGE → food
+
+// Auto-craft costs (GDD §6.2–6.3: a role is assignable only if its required
+// wood-tier tool exists or can be crafted from the stockpile). Wood only — no
+// workstation in MVP. Weapons are tools too (§6.3).
+export const AXE_WOOD_COST = 2;
+export const PICKAXE_WOOD_COST = 2;
+export const WEAPON_WOOD_COST = 2;
+export const BASKET_WOOD_COST = 1;

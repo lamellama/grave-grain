@@ -9,7 +9,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 ## Current state
 
 - **Current phase:** Phase 6 — Roles, resources, wood-tier tools
-- **Status:** not started (Phase 5 complete & committed)
+- **Status:** IN PROGRESS — t1–t4 done & verified; t5 (assignment UI + wiring) pending. Interim checkpoint committed (incl. a user-reported runtime bootstrap fix).
 - **Last passed Done-when:** Phase 5 — autonomous survivors wander, drink/eat at need thresholds (path adjacent to water/foliage, never into them), die via Phase-4 dissolve when no resource; A* on coarse navgrid + local-only path invalidation; no tunnelling. Planner-verified PASS. (Fixed a latent locomotion infinite-loop: horizontal flush now whole-cell threshold 1.)
 - **GATE:** cleared (Phases 0–4). Routing = normal policy.
 - **Phase 6 note:** wire FOLIAGE permeableToBodies (bodies walk THROUGH foliage; chopping is a separate harvest) — and fix the now-stale 'foliage is permeable' comment in main.ts/survivor.ts that currently contradicts the collide-and-path-adjacent behaviour.
@@ -95,6 +95,13 @@ Phase 5 · p5-t3 · expensive_coder(opus) · 1/1 · pass · survivor.ts needs de
 Phase 5 · p5-t4 · expensive_coder(opus) · 1/1 · pass · auto-override: fleeFire>seekWater>seekFood>wander; A* path adjacent to resource + local steering; restore on arrival (eat consumes foliage+markTerrainEdit); repaths on isPathStale. 5/5 incl. no-foliage-overlap, no-resource death, repath-on-edit.
 Phase 5 · p5-t5 · cheap_coder(haiku) · 1/1 · pass · multi-body renderer (setBodies); main spawns 4 survivors, rebuildNavgrid at startup, updateSurvivor each; pacer retired. 4 survivors recover needs independently, no tunnel.
 Phase 5 · VERIFY · planner · PASS · 17/17 end-to-end (wander/drink/eat/die + path locality + no-tunnel + dev no-hang); MVP scope clean; flagged stale foliage-permeable comment for Phase 6.
+
+Phase 6 · p6-t1 · expensive_coder(opus) · 1/1 · pass · isSolidForBody honours permeableToBodies (bodies walk THROUGH foliage; fall through foliage-only columns); full Phase 2–5 suite regression green; fixed stale comments.
+Phase 6 · p6-t2 · cheap_coder(haiku) · 1/1 · pass · resources.ts global stockpile {wood,stone,food,ore} add/canAfford/spend(atomic)/stockpilePoint; 24 assertions.
+Phase 6 · p6-t3 · expensive_coder(opus) · 1/1 · pass · roles.ts: 4 roles, wood tools+durability(5)/break, canAssign/craftToolFor gating, findTarget (miner picks EXPOSED rock, skips buried); config seeds.
+Phase 6 · p6-t4 · expensive_coder(opus) · 1/1 · pass · survivor.ts role loop find→path→work→deposit→repeat; needs override preempts then resumes; tool break→idle; lumberjack deposits wood, axe breaks @5 chops, miner mines stone; no-tunnel.
+FIX · orchestrator · main.ts bootstrap init-order bug (user-reported blank screen + dead buttons + 'Renderer not initialized'): resizeCanvas()/getRenderer() ran before initRenderer()/initInput(). Reordered init before first resize. Added test/main-smoke.test.ts (DOM-stub) as a permanent runtime-bootstrap regression guard — catches the class of error HTTP-200/headless-module checks miss. Build+dev(HTTP 200) verified.
+Phase 6 · p6-t5 · PENDING (assignment UI + main/world wiring).
 
 ---
 

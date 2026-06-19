@@ -281,14 +281,20 @@ export function isFlammable(id: number): boolean {
 /**
  * Helper: does a material BLOCK a living body? (locomotion collision — GDD §5.1)
  * Solid for everything EXCEPT the cells a body passes/falls through: AIR, WATER,
- * FIRE, SMOKE. So SAND/STONE/DIRT/ORE/WOOD/FOLIAGE/ASH all block movement.
+ * FIRE, SMOKE, BLOOD, plus any material flagged `permeableToBodies`.
  *
- * Phase 6: honour permeableToBodies for foliage (foliage collides until then).
+ * GDD §5.2 / §9: FOLIAGE is the one solid material bodies IGNORE for collision —
+ * survivors and zombies walk straight through woodland (foliage still blocks
+ * fluids and acts as fire fuel; harvest is by reach/adjacency, not overlap).
+ * That is expressed by its `permeableToBodies` flag, so we honour it here rather
+ * than hard-coding FOLIAGE: SAND/STONE/DIRT/ORE/WOOD/ASH/FLESH/BONE stay solid.
  * Out-of-range ids are treated as solid (fail safe — never tunnel).
  *
  * BLOOD (Phase 4) joins the non-solid set: it is a thin fluid, so a body must
  * not stand on a blood smear (loose FLESH/BONE piles still bury & support).
  */
 export function isSolidForBody(id: number): boolean {
+  if (id < 0 || id >= MATERIALS.length) return true; // out-of-range → solid (fail safe)
+  if (MATERIALS[id].permeableToBodies) return false; // foliage et al. — walk through
   return !(id === AIR || id === WATER || id === FIRE || id === SMOKE || id === BLOOD);
 }

@@ -31,12 +31,27 @@ import { createBody } from './body';
 import { updateBody } from './locomotion';
 import { dissolveBody } from './damage';
 import { get, set } from '../engine/grid';
-import { FIRE, WATER, FOLIAGE, AIR } from '../engine/materials';
+import { FIRE, WATER, FOLIAGE, AIR, STONE, ORE } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
+import type { RoleName, Tool, ToolKind } from '../game/roles';
+import {
+  ROLES,
+  findTarget,
+  useTool,
+  mineOutput,
+  canAssign,
+  craftToolFor,
+} from '../game/roles';
+import type { ResourceKind } from '../game/resources';
+import { addResource, stockpilePoint } from '../game/resources';
 import {
   NEED_MAX,
+  WOOD_PER_CHOP,
+  STONE_PER_MINE,
+  ORE_PER_MINE,
+  FOOD_PER_GATHER,
   HUNGER_RATE,
   THIRST_RATE,
   EXERTION_RATE_MULT,
@@ -76,14 +91,28 @@ export type Behaviour =
 /**
  * A survivor: a hybrid Body plus the needs/autonomy state that drives it.
  * `home` is the anchor the wander stays near; `path` holds the active navgrid
- * route (p5-t4); `role` is reserved for Phase 6 and is inert in this MVP.
+ * route (p5-t4).
+ *
+ * ROLE LOOP (p6-t4, GDD §6.2): an assigned `role` plus its `tool` drives a
+ * find → path → work → deposit → repeat cycle (`roleState`) whenever no
+ * need/fire auto-override is active. `workTarget` is the cell being harvested,
+ * `workTicksLeft` counts down the timed work, and `carrying`/`carryKind` hold
+ * the unit(s) headed for the stockpile. Tool durability decrements per work
+ * action; a break drops the survivor back to idle (role 'none', tool null).
  */
 export interface Survivor {
   body: Body;
   needs: { hunger: number; thirst: number };
   home: { x: number; y: number };
-  role: 'none';
+  role: RoleName;
   behaviour: Behaviour;
+  // Role-loop state (p6-t4). `tool` is the held wood-tier tool (null = idle).
+  tool: Tool | null;
+  carrying: number;
+  carryKind: ResourceKind | null;
+  roleState: 'toTarget' | 'working' | 'toStockpile';
+  workTarget: { x: number; y: number } | null;
+  workTicksLeft: number;
   // Active navgrid route for a seek behaviour (null = none/blocked). Waypoints
   // are followed by local steering; `waypointIndex` is the next one to reach.
   path: Path | null;
@@ -118,6 +147,12 @@ export function createSurvivor(x: number, y: number): Survivor {
     home: { x, y },
     role: 'none',
     behaviour: 'wander',
+    tool: null,
+    carrying: 0,
+    carryKind: null,
+    roleState: 'toTarget',
+    workTarget: null,
+    workTicksLeft: 0,
     path: null,
     waypointIndex: 0,
     deathCause: null,
@@ -255,9 +290,9 @@ function nearestMaterial(
  * Is a cell of material `mat` within arm's reach of the body? Scans a small box
  * around the body footprint (±CONSUME_REACH horizontally, head-to-feet+1
  * vertically) and returns the nearest such cell, or null. This is the ARRIVAL
- * test: the survivor consumes a resource it can touch without overlapping it
- * (bodies collide with FOLIAGE / can't stand in WATER, so reach — never overlap
- * — is the correct contact rule).
+ * test: the survivor consumes a resource it can touch without overlapping it.
+ * Bodies pass THROUGH foliage (permeable — GDD §5.2/§9) and can't stand in WATER,
+ * so reach/adjacency — never overlap — is the correct contact rule for harvest.
  */
 function resourceWithinReach(
   body: Body,
@@ -281,6 +316,58 @@ function resourceWithinReach(
     }
   }
   return best;
+}
+
+/**
+ * Is the specific cell (tx, ty) inside the body's reach box (same footprint as
+ * resourceWithinReach: ±CONSUME_REACH horizontally, head-to-feet+1 vertically)?
+ * The role loop uses this for arrival at a KNOWN target cell (the foliage/rock
+ * to harvest, or the stockpile point) rather than scanning for a material.
+ */
+function cellWithinReach(body: Body, tx: number, ty: number): boolean {
+  const dx = tx - Math.round(body.x);
+  const dy = ty - Math.round(body.y);
+  return dx >= -CONSUME_REACH && dx <= CONSUME_REACH && dy >= -BODY_H && dy <= 1;
+}
+
+/**
+ * Local steering toward a goal cell (p5-t4 pattern, shared by seek + role loop):
+ * (re)plan a navgrid route when missing or LOCALLY stale (throttled by
+ * PATH_REPATH_COOLDOWN), then set body.moveDir toward the next waypoint's x,
+ * advancing waypoints within ~1 cell. With no usable path, steer straight at
+ * `fallbackX` as a best-effort. The caller decides the goal (a STANDABLE cell
+ * adjacent to a resource, or the stockpile point) — we never path into a target.
+ */
+function steerToCell(
+  s: Survivor,
+  goalX: number,
+  goalY: number,
+  fallbackX: number,
+): void {
+  const body = s.body;
+  const bx = Math.round(body.x);
+  const by = Math.round(body.y);
+  const needPath = s.path === null || isPathStale(s.path);
+  if (needPath && s.tick - s.lastRepath >= PATH_REPATH_COOLDOWN) {
+    s.lastRepath = s.tick;
+    s.path = findPath(bx, by, goalX, goalY);
+    s.waypointIndex = 0;
+  }
+  if (s.path && s.path.waypoints.length > 0) {
+    while (
+      s.waypointIndex < s.path.waypoints.length &&
+      Math.abs(bx - s.path.waypoints[s.waypointIndex].x) <= 1
+    ) {
+      s.waypointIndex++;
+    }
+    const target =
+      s.waypointIndex < s.path.waypoints.length
+        ? s.path.waypoints[s.waypointIndex].x
+        : fallbackX;
+    body.moveDir = target > bx ? 1 : target < bx ? -1 : 0;
+  } else {
+    body.moveDir = fallbackX > bx ? 1 : fallbackX < bx ? -1 : 0;
+  }
 }
 
 /**
@@ -324,35 +411,10 @@ function driveSeek(
     return;
   }
 
-  // 3. Path to a STANDABLE cell on the body's side of the resource (one column
-  //    in from it) so the route ends beside, never inside, the resource.
+  // 3+4. Path to a STANDABLE cell on the body's side of the resource (one column
+  //      in from it) so the route ends beside, never inside, it; then steer.
   const side = bx <= res.x ? -1 : 1;
-  const goalX = res.x + side;
-  const goalY = res.y;
-  const needPath = s.path === null || isPathStale(s.path);
-  if (needPath && s.tick - s.lastRepath >= PATH_REPATH_COOLDOWN) {
-    s.lastRepath = s.tick;
-    s.path = findPath(bx, by, goalX, goalY);
-    s.waypointIndex = 0;
-  }
-
-  // 4. Local steering toward the next waypoint; on path-end (or no path) steer
-  //    straight at the resource column as a fallback.
-  if (s.path && s.path.waypoints.length > 0) {
-    while (
-      s.waypointIndex < s.path.waypoints.length &&
-      Math.abs(bx - s.path.waypoints[s.waypointIndex].x) <= 1
-    ) {
-      s.waypointIndex++;
-    }
-    const target =
-      s.waypointIndex < s.path.waypoints.length
-        ? s.path.waypoints[s.waypointIndex].x
-        : res.x;
-    body.moveDir = target > bx ? 1 : target < bx ? -1 : 0;
-  } else {
-    body.moveDir = res.x > bx ? 1 : res.x < bx ? -1 : 0;
-  }
+  steerToCell(s, res.x + side, res.y, res.x);
 }
 
 /**
@@ -395,8 +457,175 @@ function driveConsume(s: Survivor): void {
 }
 
 /**
- * Pick this tick's behaviour by priority (GDD §6.1 auto-override):
- *   fleeFire > seekWater(thirst) > seekFood(hunger) > wander.
+ * Assign (or clear) a survivor's role with tool gating (GDD §6.2). Returns true
+ * on success, false if the role can't be afforded/crafted.
+ *   - role 'none' → always succeeds; keeps any held tool and resets the loop.
+ *   - otherwise canAssign() gates on owned tool / craftable cost. If the
+ *     survivor already holds the required tool kind we keep it; else we
+ *     craftToolFor() (spends the stockpile). A failed craft → false (unchanged).
+ * On success the role/tool are set and the loop restarts at 'toTarget'.
+ */
+export function assignRole(s: Survivor, role: RoleName): boolean {
+  if (role === 'none') {
+    s.role = 'none';
+    s.roleState = 'toTarget';
+    s.workTarget = null;
+    s.workTicksLeft = 0;
+    s.path = null;
+    return true;
+  }
+  const owned: ToolKind[] = s.tool ? [s.tool.kind] : [];
+  if (!canAssign(role, owned)) return false;
+  const required = ROLES[role].requiredTool;
+  // Keep a matching held tool; otherwise auto-craft from the stockpile.
+  let tool = s.tool;
+  if (required !== null && (tool === null || tool.kind !== required)) {
+    tool = craftToolFor(role);
+    if (tool === null) return false; // canAssign said yes but spend failed
+  }
+  s.role = role;
+  s.tool = tool;
+  s.roleState = 'toTarget';
+  s.workTarget = null;
+  s.workTicksLeft = 0;
+  s.path = null;
+  return true;
+}
+
+/**
+ * Run one tick of the role loop (GDD §6.2): find → path → work → deposit →
+ * repeat. Only called when no need/fire override is active, role !== 'none' and
+ * a tool is held. Sets body.moveDir (locomotion does the walk); harvests edit
+ * the live grid + navgrid; tool durability decrements per work action and a
+ * break drops the survivor to idle (role 'none', tool null).
+ */
+function driveRole(s: Survivor): void {
+  const body = s.body;
+  const role = s.role;
+
+  // Guard (MVP): hold the stockpile point — no harvest, no deposit (GDD §6.2;
+  // combat lands in Phase 7). Path there, then idle on arrival.
+  if (role === 'guard') {
+    if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
+      body.moveDir = 0;
+    } else {
+      steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
+    }
+    return;
+  }
+
+  switch (s.roleState) {
+    // 1. TO TARGET: acquire a work target, path to a cell ADJACENT to it, and
+    //    enter 'working' once it's within reach (bodies pass through foliage but
+    //    we still stop beside the cell, never inside, as the harvest contact).
+    case 'toTarget': {
+      if (s.workTarget === null) {
+        const t = findTarget(role, Math.round(body.x), Math.round(body.y));
+        if (t === null) {
+          driveWander(s); // nothing in range → idle drift this tick
+          return;
+        }
+        s.workTarget = t;
+        s.path = null; // fresh route to the new target
+      }
+      const t = s.workTarget;
+      if (cellWithinReach(body, t.x, t.y)) {
+        s.roleState = 'working';
+        s.workTicksLeft = ROLES[role].workTicks;
+        s.path = null;
+        body.moveDir = 0;
+        return;
+      }
+      const side = Math.round(body.x) <= t.x ? -1 : 1;
+      steerToCell(s, t.x + side, t.y, t.x);
+      return;
+    }
+
+    // 2. WORKING: stand still and count down. If an override (e.g. drinking)
+    //    pulled us off the target, revert to 'toTarget' to walk back. On reaching
+    //    0, harvest the cell, spend one tool use, and head for the stockpile.
+    case 'working': {
+      body.moveDir = 0;
+      const t = s.workTarget;
+      if (t === null || !cellWithinReach(body, t.x, t.y)) {
+        s.roleState = 'toTarget';
+        driveRole(s);
+        return;
+      }
+      if (s.workTicksLeft > 0) {
+        s.workTicksLeft--;
+        return;
+      }
+      const m = get(t.x, t.y);
+      let harvested = false;
+      if (role === 'lumberjack' && m === FOLIAGE) {
+        set(t.x, t.y, AIR); // GDD §9: chop the tree → AIR
+        markTerrainEdit(t.x, t.y);
+        s.carrying += WOOD_PER_CHOP;
+        s.carryKind = 'wood';
+        harvested = true;
+      } else if (role === 'forager' && m === FOLIAGE) {
+        set(t.x, t.y, AIR); // GDD §9: gather the bush → AIR
+        markTerrainEdit(t.x, t.y);
+        s.carrying += FOOD_PER_GATHER;
+        s.carryKind = 'food';
+        harvested = true;
+      } else if (role === 'miner') {
+        const out = mineOutput(m); // STONE→stone, ORE→ore (GDD §6.2)
+        if (out !== null) {
+          set(t.x, t.y, AIR);
+          markTerrainEdit(t.x, t.y);
+          s.carrying += out === 'ore' ? ORE_PER_MINE : STONE_PER_MINE;
+          s.carryKind = out;
+          harvested = true;
+        }
+      }
+      s.workTarget = null;
+      s.path = null;
+      if (!harvested) {
+        // Target changed under us (burned/edited) — don't waste durability; re-find.
+        s.roleState = 'toTarget';
+        return;
+      }
+      // GDD §6.3: the breaking use STILL did its work above — then discard.
+      if (useTool(s.tool!)) {
+        console.log(`Tool broke: ${role} axe/tool — returning to idle`);
+        s.tool = null;
+        s.role = 'none';
+        s.roleState = 'toTarget';
+        // Still carrying the just-harvested unit; deposit on a later assignment.
+        return;
+      }
+      s.roleState = 'toStockpile';
+      return;
+    }
+
+    // 3. TO STOCKPILE: path to the deposit point; on arrival drop the carry into
+    //    the global stockpile (GDD §8) and loop back to find the next target.
+    case 'toStockpile': {
+      if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
+        if (s.carryKind !== null && s.carrying > 0) {
+          addResource(s.carryKind, s.carrying);
+        }
+        s.carrying = 0;
+        s.carryKind = null;
+        s.roleState = 'toTarget';
+        s.path = null;
+        body.moveDir = 0;
+        return;
+      }
+      steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
+      return;
+    }
+  }
+}
+
+/**
+ * Pick this tick's behaviour by priority (GDD §6.1 auto-override). Full priority
+ * including the Phase-6 role loop is:
+ *   fleeFire > seekWater(thirst) > seekFood(hunger) > role-loop > wander.
+ * This picker resolves the need/fire layer; when it lands on 'wander',
+ * updateSurvivor substitutes the role loop if a role + tool are present.
  * Fire interrupts ANYTHING (incl. consuming); otherwise an in-progress consume
  * runs to completion. Switching to a NEW behaviour drops any stale route so the
  * next seek replans fresh. Returns the nearest fire (for the flee driver) when
@@ -480,7 +709,13 @@ export function updateSurvivor(s: Survivor): void {
       break;
     case 'wander':
     default:
-      driveWander(s);
+      // GDD §6.2 role loop: with a role + tool and no active override, work the
+      // job instead of idling. Otherwise (idle/unequipped) just wander.
+      if (s.role !== 'none' && s.tool !== null) {
+        driveRole(s);
+      } else {
+        driveWander(s);
+      }
       break;
   }
 
