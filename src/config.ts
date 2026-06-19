@@ -188,3 +188,85 @@ export const P3_PACE_RIGHT = 340;
 
 // Ticks without horizontal progress before the pacer flips direction.
 export const P3_STALL_TICKS = 20;
+
+// ---------------------------------------------------------------------------
+// Phase 5 — survivors: needs, autonomy, pathfinding (GDD §6.1, §13)
+// ---------------------------------------------------------------------------
+
+// Full scale for every need bar (Hunger, Thirst).
+export const NEED_MAX = 100;
+
+// Hunger depletion per simulation tick (GDD §6.1).
+export const HUNGER_RATE = 0.01;
+
+// Thirst depletion per simulation tick — slightly faster than hunger (GDD §6.1).
+export const THIRST_RATE = 0.015;
+
+// Multiplier applied to both depletion rates while the survivor is moving
+// (moveDir !== 0) — exertion drains needs faster (GDD §6.1).
+export const EXERTION_RATE_MULT = 2.0;
+
+// Additional thirst multiplier when any body cell is adjacent to FIRE (GDD §6.1).
+export const HEAT_THIRST_MULT = 3.0;
+
+// Hunger level below which the autonomy AI auto-overrides to seek food (GDD §6.1).
+export const HUNGER_THRESHOLD = 35;
+
+// Thirst level below which the autonomy AI auto-overrides to seek water (GDD §6.1).
+export const THIRST_THRESHOLD = 35;
+
+// Idle wander bound: max cell distance from the survivor's home point
+// that the random wander goal may be placed (GDD §6.1).
+export const WANDER_RADIUS = 40;
+
+// Wander tuning (p5-t3, GDD §6.1 idle/wander). A wandering survivor steers its
+// body toward a random goal column within WANDER_RADIUS of home, pausing on
+// arrival before picking the next, so it drifts but stays near base.
+//   WANDER_ARRIVE_DIST: |body.x - goal.x| (cells) at which the goal is reached.
+//   WANDER_PAUSE_MIN/MAX: ticks the survivor idles (moveDir 0) on arrival before
+//     choosing a new goal (randomised in this range for a less robotic gait).
+//   WANDER_MAX_PURSUE_TICKS: give up on a goal it cannot reach (e.g. blocked by
+//     terrain) after this many ticks, then pause and repick — keeps it bounded.
+export const WANDER_ARRIVE_DIST = 2;
+export const WANDER_PAUSE_MIN = 30;
+export const WANDER_PAUSE_MAX = 120;
+export const WANDER_MAX_PURSUE_TICKS = 240;
+
+// Coarse navgrid cell size in world cells (GDD §13).
+export const NAV_CELL = 4;
+
+// Hunger restored by a single eat action (clamped to NEED_MAX).
+export const EAT_RESTORE = 100;
+
+// Thirst restored by a single drink action.
+export const DRINK_RESTORE = 100;
+
+// Duration of an eat action in ticks (survivor stands still while consuming).
+export const EAT_TICKS = 60;
+
+// Duration of a drink action in ticks.
+export const DRINK_TICKS = 60;
+
+// Distance in cells at which a nearby FIRE cell triggers the flee-fire behaviour.
+export const FLEE_FIRE_RADIUS = 8;
+
+// Reach (cells from the body anchor) at which a survivor can consume a resource
+// it is standing beside (GDD §6.1). Tuned so the body drinks/eats from the bank
+// or beside the bush WITHOUT overlapping it (body half-width ~3 + a little slop).
+export const CONSUME_REACH = 4;
+
+// Max distance (cells, Chebyshev) the autonomy AI scans outward from the body
+// for the nearest WATER/FOLIAGE when self-preserving (GDD §6.1/§13). Bounded so
+// a survivor with no resource in range gives up to wandering (and may die).
+export const RESOURCE_SCAN_RADIUS = 200;
+
+// Number of survivors spawned at the start of a game.
+export const SURVIVOR_COUNT = 4;
+
+// Spread radius (cells) around the home point used when positioning each
+// survivor at spawn so they don't all stack on the same cell.
+export const SURVIVOR_SPAWN_SPREAD = 12;
+
+// Minimum ticks that must elapse between forced path recomputes for a survivor
+// (GDD §13 navgrid — avoids repathing every tick on mutable terrain).
+export const PATH_REPATH_COOLDOWN = 30;

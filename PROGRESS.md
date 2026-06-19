@@ -8,10 +8,11 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 5 — Survivors: needs + autonomy + pathing
-- **Status:** not started (Phase 4 complete & committed)
-- **Last passed Done-when:** Phase 4 — THE GATE 5-point test PASSED. Leg→crawl (0.40 ratio, no-tunnel), headshot→52/52 indistinguishable mound, flesh burns like wood, drown@tick179 + sand-pin, illusion has zero seam (shed cell = live pixel's address/material/colour/CELL_SIZE), perf 1.41ms/tick (8.5% of 60Hz budget). Planner-verified PASS.
-- **✅ THE GATE IS CLEARED.** The hybrid-body architecture is proven. Phase 5+ is now UNLOCKED. Routing returns to normal policy (sim/AI/pathfinding → expensive_coder; UI/glue → cheap_coder).
+- **Current phase:** Phase 6 — Roles, resources, wood-tier tools
+- **Status:** not started (Phase 5 complete & committed)
+- **Last passed Done-when:** Phase 5 — autonomous survivors wander, drink/eat at need thresholds (path adjacent to water/foliage, never into them), die via Phase-4 dissolve when no resource; A* on coarse navgrid + local-only path invalidation; no tunnelling. Planner-verified PASS. (Fixed a latent locomotion infinite-loop: horizontal flush now whole-cell threshold 1.)
+- **GATE:** cleared (Phases 0–4). Routing = normal policy.
+- **Phase 6 note:** wire FOLIAGE permeableToBodies (bodies walk THROUGH foliage; chopping is a separate harvest) — and fix the now-stale 'foliage is permeable' comment in main.ts/survivor.ts that currently contradicts the collide-and-path-adjacent behaviour.
 - **Carry-forward (Phase 10):** renderer builds a CSS-px ImageData while main.ts does ctx.scale(dpr); putImageData ignores the transform, so on dpr>1 the world draws into a corner. Fix in Phase 10 (devicePixelRatio render path).
 - **THE GATE:** not reached (locked — Phases 0–4 must pass before any Phase 5+ work)
 - **Run mode:** unattended / set-and-forget
@@ -25,6 +26,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 - [x] Phase 2 — Materials, fire, interactions, integrity
 - [x] Phase 3 — Hybrid body locomotion **(GATE part 1)**
 - [x] Phase 4 — Damage→cells handoff **(GATE CLEARED ✅)**
+- [x] Phase 5 — Survivors: needs + autonomy + pathing
 - [ ] Phase 1 — Falling-sand core
 - [ ] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 3 — Hybrid body locomotion **(GATE)**
@@ -87,6 +89,13 @@ Phase 4 · p4-t6 · expensive_coder(opus) · attempt1 no-op (interrupted), attem
 Phase 4 · p4-t7 · expensive_coder(opus) · 1/1 · pass · Shoot tool + pick.ts pickBone (DOM-free, unit-tested); setTargetBody; gate hand-runnable.
 Phase 4 · VERIFY (THE GATE) · planner · PASS · all 5 points over real modules; zero illusion seam; 1.41ms/tick worst-case. ARCHITECTURE PROVEN — Phase 5 unlocked.
 
+Phase 5 · p5-t1 · cheap_coder(haiku) · 1/1 · pass · 17 config seeds (needs/wander/nav).
+Phase 5 · p5-t2 · expensive_coder(opus) · 1/1 · pass · navgrid.ts + pathfinding.ts: coarse A*, walkability w/ headroom, local-only isPathStale (on-path edit→stale, far edit→not).
+Phase 5 · p5-t3 · expensive_coder(opus) · 1/1 · pass · survivor.ts needs deplete (exertion/heat) + bounded wander + death via dissolveBody. (Agent result lost on cleanup; orchestrator headless-verified: idle drop 6/9, wander maxDist 30, dies thirst@~6667.) ORCHESTRATOR FIX: diagnosed+fixed locomotion.ts horizontal-flush infinite loop (threshold 0.5 + whole-unit decrement oscillated at ±0.5 → changed to whole-cell threshold 1); Phase 3/4 regression re-run clean.
+Phase 5 · p5-t4 · expensive_coder(opus) · 1/1 · pass · auto-override: fleeFire>seekWater>seekFood>wander; A* path adjacent to resource + local steering; restore on arrival (eat consumes foliage+markTerrainEdit); repaths on isPathStale. 5/5 incl. no-foliage-overlap, no-resource death, repath-on-edit.
+Phase 5 · p5-t5 · cheap_coder(haiku) · 1/1 · pass · multi-body renderer (setBodies); main spawns 4 survivors, rebuildNavgrid at startup, updateSurvivor each; pacer retired. 4 survivors recover needs independently, no tunnel.
+Phase 5 · VERIFY · planner · PASS · 17/17 end-to-end (wander/drink/eat/die + path locality + no-tunnel + dev no-hang); MVP scope clean; flagged stale foliage-permeable comment for Phase 6.
+
 ---
 
 ## Blockers
@@ -101,4 +110,5 @@ Phase 0 — commit 8972036.
 Phase 1 — commit de42b5c (includes toolchain recovery: pnpm + TOOLING.md).
 Phase 2 — commit aca1595.
 Phase 3 — commit fc9cd1e.
-Phase 4 (THE GATE) — see commit below.
+Phase 4 (THE GATE) — commit b798001.
+Phase 5 — see commit below.

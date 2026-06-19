@@ -44,8 +44,9 @@ class Renderer {
   lastFpsTime = 0;
   currentFps = 0;
 
-  // GDD §5.1 / §14 Milestone 0: the active hybrid body to overlay on the cell layer.
-  private body: Body | null = null;
+  // GDD §5.1 / §14 Milestone 0: all live hybrid bodies to overlay on the cell layer.
+  // Widened from a single body to N bodies (p5-t5) so several survivors draw correctly.
+  private bodies: Body[] = [];
 
   constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     this.canvas = canvas;
@@ -74,12 +75,30 @@ class Renderer {
   }
 
   /**
-   * Register (or clear) the Body that will be drawn over the cell layer.
-   * Called from main.ts once a body is created (p3-t5 wiring).
+   * Replace the rendered bodies list (p5-t5 N-body widening).
+   * Pass an array of all live Survivor bodies; they are drawn in order.
+   */
+  setBodies(bodies: Body[]): void {
+    this.bodies = [...bodies];
+  }
+
+  /** Add one body to the draw list without clearing the rest. */
+  addBody(body: Body): void {
+    this.bodies.push(body);
+  }
+
+  /** Remove all bodies from the draw list. */
+  clearBodies(): void {
+    this.bodies = [];
+  }
+
+  /**
+   * Single-body shim — keeps existing callers (pre-p5-t5) compiling.
+   * Replaces the whole list with just this body (or clears if null).
    * GDD §5.1: the body is authored at cell resolution so it sits flush with the grid.
    */
   setBody(body: Body | null): void {
-    this.body = body;
+    this.bodies = body ? [body] : [];
   }
 
   /**
@@ -151,40 +170,43 @@ class Renderer {
   }
 
   /**
-   * Draw the hybrid body's bone pixels over the cell layer.
+   * Draw all registered hybrid bodies' bone pixels over the cell layer.
+   * Widened from a single body to N bodies (p5-t5). Each non-dead body's
+   * non-destroyed bones are drawn in order; dead bodies are skipped.
    * GDD §5.1: body pixels are at cell resolution → worldToScreen gives the
-   * identical top-left as the ImageData loop above (same formula), so the body
-   * sits exactly on the grid and stays locked to the world while panning.
-   * Skips destroyed bones and off-screen pixels.
+   * identical top-left as the ImageData loop above (same formula), so the bodies
+   * sit exactly on the grid and stay locked to the world while panning.
    */
   private drawBody(): void {
-    const body = this.body;
-    if (!body || !body.alive) return;
-
     const vw = this.viewportWidthPx;
     const vh = this.viewportHeightPx;
     const ctx = this.ctx;
-    const bx = Math.round(body.x);
-    const by = Math.round(body.y);
 
-    for (const bone of body.rig) {
-      if (bone.destroyed) continue;
-      for (const pixel of bone.pixels) {
-        // World cell this pixel occupies (GDD §5.1 pixel formula).
-        const wx = bx + bone.offset.dx + pixel.dx;
-        const wy = by + bone.offset.dy + pixel.dy;
+    for (const body of this.bodies) {
+      if (!body.alive) continue;
 
-        // Screen top-left — identical math to the ImageData cell loop above.
-        const { x: sx, y: sy } = worldToScreen(wx, wy);
-        const sx0 = Math.floor(sx);
-        const sy0 = Math.floor(sy);
+      const bx = Math.round(body.x);
+      const by = Math.round(body.y);
 
-        // Skip if the rect is fully outside the viewport.
-        if (sx0 + CELL_SIZE <= 0 || sx0 >= vw) continue;
-        if (sy0 + CELL_SIZE <= 0 || sy0 >= vh) continue;
+      for (const bone of body.rig) {
+        if (bone.destroyed) continue;
+        for (const pixel of bone.pixels) {
+          // World cell this pixel occupies (GDD §5.1 pixel formula).
+          const wx = bx + bone.offset.dx + pixel.dx;
+          const wy = by + bone.offset.dy + pixel.dy;
 
-        ctx.fillStyle = pixel.color;
-        ctx.fillRect(sx0, sy0, CELL_SIZE, CELL_SIZE);
+          // Screen top-left — identical math to the ImageData cell loop above.
+          const { x: sx, y: sy } = worldToScreen(wx, wy);
+          const sx0 = Math.floor(sx);
+          const sy0 = Math.floor(sy);
+
+          // Skip if the rect is fully outside the viewport.
+          if (sx0 + CELL_SIZE <= 0 || sx0 >= vw) continue;
+          if (sy0 + CELL_SIZE <= 0 || sy0 >= vh) continue;
+
+          ctx.fillStyle = pixel.color;
+          ctx.fillRect(sx0, sy0, CELL_SIZE, CELL_SIZE);
+        }
       }
     }
   }
@@ -238,7 +260,25 @@ export function getRenderer(): Renderer {
 }
 
 /**
- * Register (or clear) the body drawn by the renderer.
+ * Replace the rendered bodies list (p5-t5 N-body widening).
+ * Module-level convenience wrapper — call after initRenderer().
+ */
+export function setBodies(bodies: Body[]): void {
+  getRenderer().setBodies(bodies);
+}
+
+/** Add one body to the renderer's draw list. Module-level wrapper. */
+export function addBody(body: Body): void {
+  getRenderer().addBody(body);
+}
+
+/** Clear all bodies from the renderer's draw list. Module-level wrapper. */
+export function clearBodies(): void {
+  getRenderer().clearBodies();
+}
+
+/**
+ * Single-body shim — keeps existing callers (pre-p5-t5) compiling.
  * Module-level convenience wrapper — mirrors the getRenderer() export pattern.
  * Call after initRenderer() has been called.
  * GDD §5.1 / §14 Milestone 0.

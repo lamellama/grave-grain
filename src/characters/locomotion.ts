@@ -259,10 +259,15 @@ export function updateBody(body: Body): void {
     const speed =
       body.lLegLost || body.rLegLost ? CRAWL_SPEED : WALK_SPEED;
     body.xRemainder += body.moveDir * speed;
-    // Flush whole-cell crossings (rounded column changes when |frac| >= 0.5).
+    // Flush whole-cell crossings: move one cell per FULL unit of accumulated
+    // intent and subtract that whole unit, so xRemainder stays in (-1, 1).
+    // NOTE: the threshold MUST be 1 (a whole cell), not 0.5. With a 0.5
+    // threshold and a `-= step` (whole-unit) decrement, an xRemainder landing
+    // exactly on +/-0.5 flips sign (-0.5 -> +0.5 -> -0.5 ...) and, since a step
+    // on open ground always succeeds, the loop never terminates (infinite spin).
     // WALK_SPEED < 1 so this is at most one step/tick, but loop for safety.
-    while (Math.abs(body.xRemainder) >= 0.5) {
-      const step: 1 | -1 = body.xRemainder >= 0.5 ? 1 : -1;
+    while (Math.abs(body.xRemainder) >= 1) {
+      const step: 1 | -1 = body.xRemainder >= 1 ? 1 : -1;
       if (tryHorizontalStep(body, step)) {
         body.xRemainder -= step;
       } else {
