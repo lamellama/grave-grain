@@ -12,21 +12,26 @@ import { getRenderer } from './render/renderer';
 import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
 import { ignite } from './engine/simulation';
-import { BRUSH_RADIUS } from './config';
+import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
 import { applyDamage } from './characters/damage';
+import type { Survivor } from './characters/survivor';
+import { assignRole } from './characters/survivor';
+import type { RoleName } from './game/roles';
+import { canAssign } from './game/roles';
 
 // Re-export the pure picking query so callers can reach it via the input module
 // while it stays defined in a DOM-free helper (GDD §14 hand-test, p4-t7).
 export { pickBone } from './characters/pick';
 
 /**
- * Tool mode state: 'Pan' (drag scrolls camera), 'Paint' (drag paints), or
- * 'Ignite' (drag ignites flammable cells — GDD §8 ignite verb).
+ * Tool mode state: 'Pan' (drag scrolls camera), 'Paint' (drag paints),
+ * 'Ignite' (drag ignites flammable cells — GDD §8 ignite verb), or
+ * 'Assign' (tap a survivor to open role menu — GDD §6.2, p6-t5).
  * GDD §12.3: the currently selected tool defines what a drag does.
  */
-type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot';
+type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Assign';
 
 const toolState = {
   mode: 'Pan' as ToolMode,
@@ -46,6 +51,54 @@ let targetBody: Body | null = null;
  */
 export function setTargetBody(body: Body | null): void {
   targetBody = body;
+}
+
+/**
+ * Survivor list for the Assign tool (p6-t5, GDD §6.2). Set by main.ts once
+ * survivors are created; Assign mode picks the nearest one to the pointer.
+ */
+let survivorList: Survivor[] = [];
+
+/** Register the survivor array so the Assign tool can pick from it. */
+export function setSurvivors(list: Survivor[]): void {
+  survivorList = list;
+}
+
+/** Currently-selected survivor waiting for a role-menu choice; null = none. */
+let selectedSurvivor: Survivor | null = null;
+
+/**
+ * Show the role-menu overlay for survivor `s` (p6-t5, GDD §6.2). Refresh button
+ * greyed/disabled state based on canAssign (tool-gated and stockpile-gated), then
+ * make the overlay visible. Only updates DOM — never touches the grid.
+ */
+function showRoleMenu(s: Survivor): void {
+  selectedSurvivor = s;
+  const menu = document.getElementById('role-menu') as HTMLElement | null;
+  if (!menu) return;
+  const ownedTools = s.tool ? [s.tool.kind] : [];
+  // Refresh disabled/enabled state for each role button.
+  const btns = menu.querySelectorAll('[data-role]') as NodeListOf<HTMLButtonElement>;
+  btns.forEach((btn) => {
+    const role = btn.getAttribute('data-role') as RoleName;
+    if (role === 'none') {
+      // Unassign is always available.
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    } else {
+      const affordable = canAssign(role, ownedTools);
+      btn.disabled = !affordable;
+      btn.style.opacity = affordable ? '1' : '0.4';
+    }
+  });
+  menu.style.display = 'block';
+}
+
+/** Hide the role-menu overlay and clear the selected survivor. */
+function closeRoleMenu(): void {
+  selectedSurvivor = null;
+  const menu = document.getElementById('role-menu') as HTMLElement | null;
+  if (menu) menu.style.display = 'none';
 }
 
 /**
@@ -164,6 +217,31 @@ function onPointerDown(event: PointerEvent): void {
         applyDamage(targetBody, name);
       }
     }
+  } else if (toolState.mode === 'Assign') {
+    // Assign mode (p6-t5, GDD §6.2): tap a survivor to open the role menu.
+    // Find the nearest ALIVE survivor within ASSIGN_PICK_RADIUS cells of the click.
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    const wx = worldCoords.x;
+    const wy = worldCoords.y;
+    const radiusSq = ASSIGN_PICK_RADIUS * ASSIGN_PICK_RADIUS;
+    let nearest: Survivor | null = null;
+    let nearestDist = radiusSq + 1; // one beyond threshold
+    for (const s of survivorList) {
+      if (!s.body.alive) continue;
+      const dx = s.body.x - wx;
+      const dy = s.body.y - wy;
+      const d2 = dx * dx + dy * dy;
+      if (d2 <= radiusSq && d2 < nearestDist) {
+        nearestDist = d2;
+        nearest = s;
+      }
+    }
+    if (nearest) {
+      showRoleMenu(nearest);
+    } else {
+      closeRoleMenu();
+    }
   }
 }
 
@@ -216,6 +294,7 @@ export function setToolMode(mode: 'Pan'): void;
 export function setToolMode(mode: 'Paint', materialId: number): void;
 export function setToolMode(mode: 'Ignite'): void;
 export function setToolMode(mode: 'Shoot'): void;
+export function setToolMode(mode: 'Assign'): void;
 export function setToolMode(mode: ToolMode, materialId?: number): void {
   toolState.mode = mode;
   if (mode === 'Paint' && materialId !== undefined) {
@@ -243,6 +322,8 @@ function updateToolbarUI(): void {
       isActive = toolState.mode === 'Ignite';
     } else if (btnMode === 'shoot') {
       isActive = toolState.mode === 'Shoot';
+    } else if (btnMode === 'assign') {
+      isActive = toolState.mode === 'Assign';
     }
 
     btn.classList.toggle('active', isActive);
@@ -277,7 +358,26 @@ export function initInput(canvas: HTMLCanvasElement): void {
         setToolMode('Ignite');
       } else if (mode === 'shoot') {
         setToolMode('Shoot');
+      } else if (mode === 'assign') {
+        setToolMode('Assign');
+        // Close any open role menu when switching to Assign tool.
+        closeRoleMenu();
       }
+    });
+  });
+
+  // Wire role-menu buttons (p6-t5, GDD §6.2): each data-role button calls
+  // assignRole on the selected survivor, refreshes greyed state, then closes.
+  const roleMenuBtns = document.querySelectorAll('[data-role]');
+  roleMenuBtns.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      if (!selectedSurvivor) {
+        closeRoleMenu();
+        return;
+      }
+      const roleAttr = (btn as HTMLElement).getAttribute('data-role') as RoleName;
+      assignRole(selectedSurvivor, roleAttr);
+      closeRoleMenu();
     });
   });
 

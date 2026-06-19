@@ -300,3 +300,14 @@ export const AXE_WOOD_COST = 2;
 export const PICKAXE_WOOD_COST = 2;
 export const WEAPON_WOOD_COST = 2;
 export const BASKET_WOOD_COST = 1;
+
+// ---------------------------------------------------------------------------
+// Phase 6 UI — Assign tool & colony seed (GDD §6.2, p6-t5)
+// ---------------------------------------------------------------------------
+
+// Max distance (cells, Euclidean) from a pointer click to a survivor body
+// anchor for the Assign tool to select that survivor.
+export const ASSIGN_PICK_RADIUS = 10;
+
+// Starting wood given to the colony at spawn so the first tool can be crafted.
+export const STARTING_WOOD = 6;

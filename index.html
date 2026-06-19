@@ -67,6 +67,62 @@
       border-color: #00ff00;
       box-shadow: 0 0 8px rgba(0, 255, 0, 0.5);
     }
+
+    /* Role-assign menu overlay (shown when a survivor is tapped in Assign mode) */
+    #role-menu {
+      display: none;
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(10, 10, 20, 0.92);
+      border: 2px solid #666;
+      border-radius: 8px;
+      padding: 1rem;
+      z-index: 200;
+      min-width: 12rem;
+      touch-action: none;
+    }
+    #role-menu-title {
+      color: #ccc;
+      font-weight: bold;
+      font-size: 0.95rem;
+      margin-bottom: 0.6rem;
+      text-align: center;
+      font-family: monospace;
+    }
+    #role-menu-buttons {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+    .role-menu-btn {
+      width: 100%;
+    }
+    .role-menu-btn:disabled {
+      opacity: 0.38;
+      cursor: not-allowed;
+      background: #222;
+      border-color: #444;
+      color: #777;
+    }
+
+    /* Stockpile readout (top-centre HUD) */
+    #stockpile-readout {
+      position: fixed;
+      top: 0.4rem;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0, 0, 0, 0.72);
+      color: #ccc;
+      padding: 0.3rem 0.8rem;
+      border-radius: 4px;
+      font-size: 0.85rem;
+      font-family: monospace;
+      z-index: 100;
+      pointer-events: none;
+      white-space: nowrap;
+    }
   </style>
 </head>
 <body>
@@ -84,8 +140,24 @@
     <button class="tool-btn" data-tool="paint" data-material="7" title="Paint foliage">Foliage</button>
     <button class="tool-btn" data-tool="ignite" title="Ignite flammable cells (wood/foliage only)">Ignite</button>
     <button class="tool-btn" data-tool="shoot" title="Shoot a body region">Shoot</button>
+    <button class="tool-btn" data-tool="assign" title="Assign a role to a survivor (tap them in Assign mode)">Assign</button>
     <button class="tool-btn" data-tool="paint" data-material="0" title="Erase (paint air)">Erase</button>
   </div>
+
+  <!-- Role-assignment overlay (p6-t5, GDD §6.2). Shown when a survivor is tapped in Assign mode. -->
+  <div id="role-menu">
+    <div id="role-menu-title">Assign Role</div>
+    <div id="role-menu-buttons">
+      <button class="tool-btn role-menu-btn" data-role="lumberjack">Lumberjack</button>
+      <button class="tool-btn role-menu-btn" data-role="miner">Miner</button>
+      <button class="tool-btn role-menu-btn" data-role="forager">Forager</button>
+      <button class="tool-btn role-menu-btn" data-role="guard">Guard</button>
+      <button class="tool-btn role-menu-btn" data-role="none">Unassign</button>
+    </div>
+  </div>
+
+  <!-- Stockpile readout HUD (p6-t5, GDD §8). Updated every render frame by main.ts. -->
+  <div id="stockpile-readout">Wood 0  Stone 0  Food 0  Ore 0</div>
 
   <script type="module" src="/src/main.ts"></script>
 </body>

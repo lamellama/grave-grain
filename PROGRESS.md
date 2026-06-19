@@ -8,8 +8,11 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 6 — Roles, resources, wood-tier tools
-- **Status:** IN PROGRESS — t1–t4 done & verified; t5 (assignment UI + wiring) pending. Interim checkpoint committed (incl. a user-reported runtime bootstrap fix).
+- **Current phase:** Phase 7 — Zombies, combat, breaching
+- **Status:** not started (Phase 6 complete & committed)
+- **Last passed Done-when:** Phase 6 — assign a lumberjack → walks THROUGH trees, chops for wood, returns to pile, axe breaks @5 chops; assignment gated by tool/stockpile. Planner-verified PASS; Phase 3/4/5 regression intact. (Also fixed a runtime bootstrap init-order bug + added a DOM-stub smoke-test guard.)
+- **GATE:** cleared. Routing = normal policy. Phase 7 (zombie AI / combat / breaching) is core sim → expensive_coder.
+- **Lesson:** HTTP-200 ≠ the page runs. Runtime DOM bootstrap is now guarded by test/main-smoke.test.ts — keep it passing; have coders run it when they touch main.ts/renderer/input.
 - **Last passed Done-when:** Phase 5 — autonomous survivors wander, drink/eat at need thresholds (path adjacent to water/foliage, never into them), die via Phase-4 dissolve when no resource; A* on coarse navgrid + local-only path invalidation; no tunnelling. Planner-verified PASS. (Fixed a latent locomotion infinite-loop: horizontal flush now whole-cell threshold 1.)
 - **GATE:** cleared (Phases 0–4). Routing = normal policy.
 - **Phase 6 note:** wire FOLIAGE permeableToBodies (bodies walk THROUGH foliage; chopping is a separate harvest) — and fix the now-stale 'foliage is permeable' comment in main.ts/survivor.ts that currently contradicts the collide-and-path-adjacent behaviour.
@@ -27,6 +30,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 - [x] Phase 3 — Hybrid body locomotion **(GATE part 1)**
 - [x] Phase 4 — Damage→cells handoff **(GATE CLEARED ✅)**
 - [x] Phase 5 — Survivors: needs + autonomy + pathing
+- [x] Phase 6 — Roles, resources, wood-tier tools
 - [ ] Phase 1 — Falling-sand core
 - [ ] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 3 — Hybrid body locomotion **(GATE)**
@@ -101,7 +105,8 @@ Phase 6 · p6-t2 · cheap_coder(haiku) · 1/1 · pass · resources.ts global sto
 Phase 6 · p6-t3 · expensive_coder(opus) · 1/1 · pass · roles.ts: 4 roles, wood tools+durability(5)/break, canAssign/craftToolFor gating, findTarget (miner picks EXPOSED rock, skips buried); config seeds.
 Phase 6 · p6-t4 · expensive_coder(opus) · 1/1 · pass · survivor.ts role loop find→path→work→deposit→repeat; needs override preempts then resumes; tool break→idle; lumberjack deposits wood, axe breaks @5 chops, miner mines stone; no-tunnel.
 FIX · orchestrator · main.ts bootstrap init-order bug (user-reported blank screen + dead buttons + 'Renderer not initialized'): resizeCanvas()/getRenderer() ran before initRenderer()/initInput(). Reordered init before first resize. Added test/main-smoke.test.ts (DOM-stub) as a permanent runtime-bootstrap regression guard — catches the class of error HTTP-200/headless-module checks miss. Build+dev(HTTP 200) verified.
-Phase 6 · p6-t5 · PENDING (assignment UI + main/world wiring).
+Phase 6 · p6-t5 · cheap_coder(haiku) · 1/1 · pass · Assign tool: tap survivor→role menu (greyed via canAssign), assignRole; stockpile HUD; main seeds forest + exposed stone/ORE + STARTING_WOOD + setStockpilePoint/setSurvivors. Smoke test still passes (init order intact).
+Phase 6 · VERIFY · planner · PASS · end-to-end over real modules: gating both ways, walk-through-foliage (no STONE tunnel), chop→deposit (first @tick229), axe breaks @5 chops→idle; MVP scope clean; Phase 3/4/5 regression intact.
 
 ---
 
@@ -118,4 +123,6 @@ Phase 1 — commit de42b5c (includes toolchain recovery: pnpm + TOOLING.md).
 Phase 2 — commit aca1595.
 Phase 3 — commit fc9cd1e.
 Phase 4 (THE GATE) — commit b798001.
-Phase 5 — see commit below.
+Phase 5 — commit 9cc4ff2.
+Phase 6 t1–t4 + bootstrap fix — commit 6c1d980.
+Phase 6 (complete) — see commit below.

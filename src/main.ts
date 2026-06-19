@@ -20,16 +20,18 @@ import {
   P3_GROUND_Y,
   SURVIVOR_COUNT,
   SURVIVOR_SPAWN_SPREAD,
+  STARTING_WOOD,
 } from './config';
-import { initInput, setTargetBody } from './input';
+import { initInput, setTargetBody, setSurvivors } from './input';
 import { initRenderer, getRenderer, setBodies } from './render/renderer';
 import { clampCamera } from './camera';
 import * as grid from './engine/grid';
 import * as simulation from './engine/simulation';
-import { AIR, STONE, WATER, FOLIAGE } from './engine/materials';
+import { AIR, STONE, WATER, FOLIAGE, ORE } from './engine/materials';
 import { createSurvivor, updateSurvivor } from './characters/survivor';
 import type { Survivor } from './characters/survivor';
 import { rebuildNavgrid } from './engine/navgrid';
+import { addResource, setStockpilePoint, getStockpile } from './game/resources';
 
 // ============================================================================
 // Bootstrap: grab canvas and 2D context
@@ -143,6 +145,58 @@ function seedPhase5Scene(): void {
 seedPhase5Scene();
 
 // ============================================================================
+// Phase-6 scene additions (p6-t5, GDD §6.2/§9)
+//
+// Three additions on top of the Phase-5 terrain:
+//
+//  1. DENSE FOLIAGE FOREST (x 230–268) — a band of trees between the survivor
+//     spawn zone (x~200) and the water pool (x 270). Foliage is permeable, so
+//     bodies walk THROUGH it; the Lumberjack chops it for wood (GDD §9).
+//
+//  2. STONE/ORE OUTCROP (x 335–360) — a stone pillar above the floor just right
+//     of the pool (x 270–330). The left face (x=335) is adjacent to AIR so it
+//     is EXPOSED and findTarget('miner') can see it. ORE cells sit on that same
+//     exposed left face (isExposedRock checks orthogonal AIR neighbours, GDD §6.2).
+//
+//  3. STOCKPILE POINT — placed at the spawn-zone floor so hauling survivors
+//     deposit there (GDD §8 deposit loc). Starting wood is added so the first
+//     tool can be crafted immediately (GDD §6.2 tool-gating).
+// ============================================================================
+
+function seedPhase6Scene(): void {
+  // 1. Dense foliage forest: x 230–268, 6 cells tall above the floor.
+  //    Right of spawn (200), left of the pool (270). Survivors walk through it.
+  for (let x = 230; x <= 268; x++) {
+    for (let y = P3_GROUND_Y - 6; y < P3_GROUND_Y; y++) {
+      grid.set(x, y, FOLIAGE);
+    }
+  }
+
+  // 2. Stone/ore outcrop: x 335–360, 8 cells tall above the floor.
+  //    Sits just right of the pool. All left-edge cells (x=335) are adjacent to
+  //    AIR at x=334, so isExposedRock returns true for them — miner can target.
+  for (let x = 335; x <= 360; x++) {
+    for (let y = P3_GROUND_Y - 8; y < P3_GROUND_Y; y++) {
+      grid.set(x, y, STONE);
+    }
+  }
+  // ORE on the left face of the outcrop (x=335, AIR at x=334 → exposed).
+  for (let y = P3_GROUND_Y - 6; y <= P3_GROUND_Y - 3; y++) {
+    grid.set(335, y, ORE);
+  }
+
+  // 3. Stockpile point: on the floor just left of the spawn zone (GDD §8).
+  //    BODY_SPAWN_X = 200; place the deposit one step left so survivors don't
+  //    stack on the exact spawn pixel.
+  setStockpilePoint(BODY_SPAWN_X - 10, P3_GROUND_Y - 1);
+
+  // Starting resources: enough wood to craft one axe immediately (GDD §6.2).
+  addResource('wood', STARTING_WOOD);
+}
+
+seedPhase6Scene();
+
+// ============================================================================
 // Build the coarse navgrid AFTER terrain is seeded, BEFORE the loop starts
 // (GDD §13: survivors path on it from tick 0).
 // ============================================================================
@@ -176,6 +230,12 @@ setBodies(survivors.map((s) => s.body));
 
 // Wire the Shoot tool to survivors[0] (keeps the Phase-4 hand-test functional).
 setTargetBody(survivors[0].body);
+
+// Expose survivors to the Assign tool (p6-t5, GDD §6.2).
+setSurvivors(survivors);
+
+// Cache the stockpile readout element for efficient per-frame update (p6-t5, GDD §8).
+const stockpileReadoutEl = document.getElementById('stockpile-readout') as HTMLElement | null;
 
 // ============================================================================
 // Optional arrow-key dev nudge for survivors[0] (does NOT conflict with
@@ -282,6 +342,14 @@ function renderLoop(): void {
   }
 
   renderer.render();
+
+  // Update stockpile HUD readout every frame (p6-t5, GDD §8).
+  if (stockpileReadoutEl) {
+    const sp = getStockpile();
+    stockpileReadoutEl.textContent =
+      `Wood ${sp.wood}  Stone ${sp.stone}  Food ${sp.food}  Ore ${sp.ore}`;
+  }
+
   requestAnimationFrame(renderLoop);
 }
 
