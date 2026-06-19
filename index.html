@@ -138,14 +138,13 @@
   <!-- GDD §12.3: persistent, thumb-reachable toolbar. GDD §12.4: big, no hover dependence -->
   <div id="toolbar">
     <button class="tool-btn" data-tool="pan" title="Pan mode: drag to scroll">Pan</button>
-    <button class="tool-btn" data-tool="paint" data-material="1" title="Paint sand">Sand</button>
-    <button class="tool-btn" data-tool="paint" data-material="2" title="Paint stone">Stone</button>
-    <button class="tool-btn" data-tool="paint" data-material="3" title="Paint water">Water</button>
-    <button class="tool-btn" data-tool="paint" data-material="4" title="Paint dirt">Dirt</button>
-    <button class="tool-btn" data-tool="paint" data-material="6" title="Paint wood">Wood</button>
-    <button class="tool-btn" data-tool="paint" data-material="7" title="Paint foliage">Foliage</button>
-    <button class="tool-btn" data-tool="build" data-structure="fence" title="Place wood fence (costs 1 wood/cell)">Fence</button>
-    <button class="tool-btn" data-tool="build" data-structure="wall" title="Place stone wall (costs 1 stone/cell)">Wall</button>
+    <button class="tool-btn" data-tool="paint" data-material="1" title="Paint sand (free terraforming)">Sand</button>
+    <button class="tool-btn" data-tool="paint" data-material="3" title="Paint water (free terraforming)">Water</button>
+    <button class="tool-btn" data-tool="paint" data-material="4" title="Paint dirt (free terraforming)">Dirt</button>
+    <button class="tool-btn" data-tool="paint" data-material="7" title="Paint foliage (free)">Foliage</button>
+    <!-- Wood/Stone are NOT free paints: place them as costed, breachable structures (playtest #6/#7). -->
+    <button class="tool-btn" data-tool="build" data-structure="fence" title="Build wood fence (costs 1 wood/cell; flammable, zombies breach it fast)">Fence</button>
+    <button class="tool-btn" data-tool="build" data-structure="wall" title="Build stone wall (costs 1 stone/cell; zombies breach it slowly)">Wall</button>
     <button class="tool-btn" data-tool="ignite" title="Ignite flammable cells (wood/foliage only)">Ignite</button>
     <button class="tool-btn" data-tool="shoot" title="Shoot a body region">Shoot</button>
     <button class="tool-btn" data-tool="assign" title="Assign a role to a survivor (tap them in Assign mode)">Assign</button>

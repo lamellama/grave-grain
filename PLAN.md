@@ -314,6 +314,24 @@ A phased, vibe-codeable plan for the MVP defined in `GraveGrain_GDD.md`. Each ph
 
 ---
 
+## Playtest fixes — v0.4 testing (fold into Phase 9 + cross-cutting)
+
+Live playtest of the Phase-8 build surfaced these. Most are the *unwired* Phase-9 worldgen/UI (land them in **9-7 integration**); a few are genuine bugs/design gaps. Each fixed before Phase 9 closes.
+
+| # | Symptom (playtester) | Root cause | Fix / where |
+|---|---|---|---|
+| 1 | **Not obvious why survivors die** (e.g. of thirst) | death-cause only `console.log`'d; no needs bars on the live build | **9-7**: wire `ui.drawNeedsBars` + `drawToasts` (from 9-5) + `state.deathLog` each frame so every death shows an on-screen cause; needs bars make depletion visible. Add a brief low-need warning tint/icon when a survivor crosses its threshold. |
+| 2 | **Survivors/zombies can't pass the tiniest bump; should climb a little** | `STEP_UP_MAX = 1` is too low; rolling-hill worldgen (amplitude 6) has >1-cell surface deltas → they get stuck | **Config + locomotion:** raise `STEP_UP_MAX` to **2–3** (locomotion already loops `h∈[1..STEP_UP_MAX]`, so it just works). Re-verify no-tunnel + the Phase-3/4 step/wall/pit tests. Tune so a gentle slope is climbable but a real wall still stops them. |
+| 3 | **Survivors forage only player-placed foliage, not existing/natural foliage** | suspected: seek-food/forager `findTarget` picks the nearest FOLIAGE but the *standable adjacent cell* of a natural bush may be unreachable on the navgrid, or the bush is outside scan radius / the nearest-pick beats a reachable one | **9-7 (verify+fix):** confirm foragers + auto-eat target worldgen/seeded foliage; make resource targeting prefer a **reachable** adjacent cell (skip targets with no walkable neighbour / no path) rather than blindly nearest. Headless test: a survivor eats a worldgen bush. |
+| 4 | **Worldgen is a single flat line; looks like stone, not dirt** | `main.ts` still hand-seeds the flat Phase-5/6/7 scene; `worldgen.ts` (9-2) isn't wired in; surface should be a DIRT/grass band | **9-7:** replace the hand-seeded scenes with `generateWorld()` (layered surface DIRT → dirt → stone w/ ore veins, water table, woodland, rolling surface) + `rebuildNavgrid()` after. Surface reads as dirt/grass, not a stone line. |
+| 5 | **No ore encountered** | ore veins are at depth in stone (must be mined to); current flat scene has only a tiny outcrop | **9-7 (worldgen):** ore veins exist at depth (9-2). Ensure at least some **shallow/exposed** ore near the spawn zone so a Miner can reach it without deep digging; confirm Miner `findTarget` reaches it. |
+| 6 | **Placing stone/wood doesn't deplete gathered resources; it should** | the free raw-material **Paint** tool places WOOD/STONE unlimited & free (a Phase-1 sandbox toy); only Fence/Wall (Build) draw from the stockpile | **Gate placement to the stockpile (GDD §8/§15-Q4 scarcity):** remove (or debug-flag) the free **Wood** and **Stone** paint buttons — the player places those via **Fence (wood)** and **Wall (stone)** which already cost. Keep Sand/Water/Dirt/Erase as free terraforming (no resource backs them) for emergent traps. |
+| 7 | **Stone wall is impassable → game too easy; zombies should break stone & wood** | player placed **raw STONE** (id 2, *no integrity* → not breachable) via free Paint, instead of a **WALL** (id 14, integrity, breachable) | Same root as #6. Once raw wood/stone aren't free-placeable, the player's barriers are **WALL/WOOD** which `resolveBreaching` already chips → a mob breaks through (slowly for stone, fast for wood). Re-verify a mob breaches a player-placed WALL in-game. Optionally also let **fire** weaken structures. |
+
+**Routing:** #2 (locomotion/config) and #3 (autonomy targeting) and #6/#7 (placement gating + sim consequence) are correctness → **expensive_coder** or careful orchestrator fixes; #1/#4/#5 land inside the **9-7** integration (expensive). Add a **9-8 “playtest fixes”** pass if cleaner than overloading 9-7. **Re-run the Phase 3/4 locomotion + Phase 5/6/7 regression suites** after #2 and #3.
+
+---
+
 ## How to vibe this
 
 1. Paste **one phase** at a time into your coding agent, plus the **GDD sections it names**. Smaller, targeted context = better output.

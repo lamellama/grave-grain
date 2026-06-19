@@ -127,7 +127,7 @@ export const WALK_SPEED = 0.3;
 // "much slower"). Used by locomotion when lLegLost || rLegLost. ~0.4× WALK_SPEED.
 export const CRAWL_SPEED = 0.12;
 // Max height (cells) the body can step up in one move (gentle-slope climbing).
-export const STEP_UP_MAX = 1;
+export const STEP_UP_MAX = 2; // cells a body steps up in one move (climb gentle bumps; <4 so fences/walls still block) — GDD §5.1, playtest #2
 // Downward acceleration applied to the body each tick when not grounded.
 export const BODY_GRAVITY = 0.4;
 // Terminal fall speed (cells/tick) so a falling body never tunnels terrain.
