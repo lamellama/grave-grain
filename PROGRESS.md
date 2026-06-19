@@ -8,9 +8,11 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 9 — Worldgen, waves, win/lose, UI
-- **Status:** PAUSED (user). Done & verified: 9-1 config, 9-2 worldgen (deterministic, layered, spawn-zone guarantees), 9-3 wave curve (5 waves 3→11, intervals 1200→800 + allWavesCleared), 9-4 state.ts (win/lose latch + death watcher), 9-5 ui.ts (needs bars, toasts, end screen, speed toggle). WIP checkpoint committed. REMAINING on resume: 9-6 off-screen awareness (edge arrows, minimap, camera.jumpCameraTo), 9-7 integration (main.ts uses generateWorld + state + UI; expensive). Build + smoke green at pause.
-- **9-7 integration risks to brief:** (1) call rebuildNavgrid() AFTER generateWorld (worldgen writes grid directly, no markTerrainEdit); (2) survivors' nearestMaterial may target a SEALED deep water pool over the reachable open spawn pond — verify survivors actually drink/survive in the generated world; (3) keep renderer/input init BEFORE first resizeCanvas (smoke guard).
+- **Current phase:** Phase 10 — Mobile & touch polish
+- **Status:** not started (Phase 9 complete & committed)
+- **Last passed Done-when:** Phase 9 — fresh seed plays the full loop on a layered procedural world; survivors forage/drink natural resources; escalating waves from one edge; win (survive 5 waves) / lose (all dead) with end screen; off-screen awareness (death-cause toasts w/ ←→, edge arrows, minimap, speed toggle). Planner-verified PASS, incl. all 7 v0.4 playtest fixes. Phases 3–8 not regressed.
+- **GATE:** cleared. **Phase 10 carry-forwards / balance:** (a) dpr `putImageData` render path — on dpr>1 the world draws into a corner (THE Phase-10 fix). (b) Balance: zombie spawn edge is ~920 cells from the colony → sparse early combat; consider closer margin or faster pursuit. (c) miner targets any exposed STONE/WALL — fine in worldgen (DIRT surface) but a player wall at surface could be mined; revisit if it bites.
+- **Playtest v0.4 fixes (all landed in Phase 9):** #1 death toasts+needs bars, #2 STEP_UP_MAX=2, #3 nearest-REACHABLE resource targeting, #4 generateWorld wired, #5 reachable ore, #6/#7 removed free Wood/Stone paint (build via costed/breachable Fence/Wall).
 - **Last passed Done-when:** Phase 7 — zombies wander in from one edge, lock onto survivors, a guard legs the front rank then headshots crawlers, and a mob claws through a wooden fence (pursuit-driven breach in 155 ticks; pressure scales 2.25×). Damage uses the GATE handoff (real cells, no HP). Planner-verified (1 retry: fixed a breach mis-aim where the body's overhanging arm probed past a short fence). Build + smoke + dev green.
 - **GATE:** cleared. Routing = normal policy.
 - **Phase 8 note:** breaching is generic over hasIntegrity — stone WALLS placed in Phase 8 (with integrity) will be breachable by the same code unchanged. Keep walls tall enough OR rely on the per-row breach probe (now robust to short structures).
@@ -38,6 +40,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 - [x] Phase 6 — Roles, resources, wood-tier tools
 - [x] Phase 7 — Zombies, combat, breaching
 - [x] Phase 8 — Player building + fire-as-tool
+- [x] Phase 9 — Worldgen, waves, win/lose, UI
 - [ ] Phase 1 — Falling-sand core
 - [ ] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 3 — Hybrid body locomotion **(GATE)**
@@ -131,6 +134,17 @@ Phase 8 · 8-4 · cheap_coder(haiku) · 1/1 · pass · main seeds STARTING_STONE
 Phase 8 · 8-5 · cheap_coder(haiku) · 1/1 · pass · test/phase8-building.test.ts: scarcity, WALL chips vs raw STONE immune, fence breaches 3.14× faster than wall, fire spreads fence-to-fence. All 4 PASS.
 Phase 8 · VERIFY · planner · PASS · wall-off chokepoint (path→null), fire trap catches herd body-to-body (3 zombies @staggered ticks, 1 died to fire), fence catches/wall doesn't, scarcity enforced; MVP clean; Phases 4–7 not regressed.
 
+Phase 9 · 9-1 · cheap(haiku) · pass · 22 config seeds (worldgen/wave/win/speed).
+Phase 9 · 9-2 · expensive(opus) · pass · worldgen.ts deterministic layered map + spawn-zone guarantees (mulberry32; foliage418/water234 near spawn, 920 from edge).
+Phase 9 · 9-3 · cheap(haiku) · pass · waves curve (5 waves, sizes 3→11, intervals 1200→800) + allWavesCleared.
+Phase 9 · 9-4 · cheap(haiku) · pass · state.ts win/lose latch + per-death cause watcher.
+Phase 9 · 9-5 · cheap(haiku) · pass · ui.ts needs bars, death toasts, end screen, 1×/2×/3× speed.
+Phase 9 · 9-6 · cheap(haiku) · pass · ui edge arrows + minimap + camera.jumpCameraTo + minimap-click jump (round-trip+clamp verified).
+Phase 9 · PLAYTEST · orchestrator direct · #2 STEP_UP_MAX 1→2 (regressions pass); #6/#7 removed free Wood/Stone paint buttons (smoke green).
+Phase 9 · 9-8 · expensive(opus) · pass · #3/#5 nearest-REACHABLE targeting (forage worldgen bush @65t, drink reachable pond not sealed, miner reaches ore); p5-t4/p6 regressions pass.
+Phase 9 · 9-7 · expensive(opus) · pass · main integration: generateWorld+rebuildNavgrid, gameState loop (freeze on end), UI overlays, speed loop, direction death toasts; 4 survivors live 3000t, loss state reached; smoke+dev green.
+Phase 9 · VERIFY · planner · PASS · full-loop win/lose + off-screen awareness + all 7 playtest fixes over real modules (layered world, forage/drink reachable, miner ore, climb-2/stop-4, WALL breached vs raw STONE immune, no free wood/stone paint); MVP clean; Phases 3–8 intact.
+
 ---
 
 ## Blockers
@@ -151,4 +165,6 @@ Phase 6 t1–t4 + bootstrap fix — commit 6c1d980.
 Phase 6 (complete) — commit 611b814.
 Phase 7 t1–t7 WIP — commit 8767e9a.
 Phase 7 (complete) — commit 90f15c2.
-Phase 8 (complete) — see commit below.
+Phase 8 (complete) — commit 1631561.
+Phase 9 WIP — commit a0ae3ba; playtest #2/#6/#7 + PLAN — commit 644e32e.
+Phase 9 (complete) — see commit below.

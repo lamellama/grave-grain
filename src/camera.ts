@@ -70,3 +70,17 @@ export function worldToScreen(worldX: number, worldY: number): { x: number; y: n
 export function panCamera(deltaPixels: number): void {
   camera.x += deltaPixels / CELL_SIZE;
 }
+
+/**
+ * Jump the camera so that `worldXCell` is centred horizontally in the viewport.
+ * y stays pinned to 0. Clamps to valid bounds.
+ * GDD §12.1: off-screen awareness — minimap tap jumps camera.
+ */
+export function jumpCameraTo(
+  worldXCell: number,
+  viewportWidthPx: number,
+  viewportHeightPx: number,
+): void {
+  camera.x = worldXCell - (viewportWidthPx / CELL_SIZE) / 2;
+  clampCamera(viewportWidthPx, viewportHeightPx);
+}

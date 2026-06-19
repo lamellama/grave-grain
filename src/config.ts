@@ -262,6 +262,14 @@ export const CONSUME_REACH = 4;
 // a survivor with no resource in range gives up to wandering (and may die).
 export const RESOURCE_SCAN_RADIUS = 200;
 
+// Max A* path attempts per nearest-REACHABLE-resource scan (playtest #3/#5,
+// GDD §13). The scan tests resource candidates nearest-first, cheaply filtering
+// those with NO standable neighbour (sealed deep pools / buried ore) BEFORE any
+// pathfind; this caps how many of the survivors that DO have a standable bank
+// we actually A* to before giving up this scan (re-tried next cooldown). Keeps
+// reachable-target selection O(scan) + O(K·A*), never O(R²·A*) per tick.
+export const REACH_MAX_PATH_ATTEMPTS = 24;
+
 // Number of survivors spawned at the start of a game.
 export const SURVIVOR_COUNT = 4;
 

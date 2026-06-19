@@ -7,8 +7,8 @@
  * Currently selected tool defines what a drag does.
  */
 
-import { camera, panCamera, clampCamera, screenToWorld } from './camera';
-import { cycleSimSpeed, getSimSpeed } from './game/ui';
+import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo } from './camera';
+import { cycleSimSpeed, getSimSpeed, minimapXToWorld, MINIMAP_HEIGHT_PX, MINIMAP_AT_TOP } from './game/ui';
 import { getRenderer } from './render/renderer';
 import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
@@ -229,6 +229,25 @@ function getCanvasRelativeCoords(
 function onPointerDown(event: PointerEvent): void {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   if (!canvas) return;
+
+  // -----------------------------------------------------------------------
+  // Minimap strip hit-test (GDD §12.1 off-screen awareness, task 9-6).
+  // If the pointer lands inside the minimap band, treat it as a camera-jump
+  // and consume the event so it doesn’t fall through to normal tool actions.
+  // -----------------------------------------------------------------------
+  {
+    const rect = canvas.getBoundingClientRect();
+    const canvasY = event.clientY - rect.top;
+    const canvasH = rect.height;
+    const stripY = MINIMAP_AT_TOP ? 0 : canvasH - MINIMAP_HEIGHT_PX;
+    if (canvasY >= stripY && canvasY < stripY + MINIMAP_HEIGHT_PX) {
+      const renderer = getRenderer();
+      const canvasX = event.clientX - rect.left;
+      const worldX = minimapXToWorld(canvasX, rect.width);
+      jumpCameraTo(worldX, renderer.viewportWidthPx, renderer.viewportHeightPx);
+      return; // consumed — do NOT fall through to paint/pan/etc.
+    }
+  }
 
   inputState.isPointerDown = true;
   inputState.pointerStartX = event.clientX;

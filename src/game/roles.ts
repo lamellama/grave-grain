@@ -174,7 +174,7 @@ function nearestMaterial(
  * miner can't reach fully-buried rock). This adjacency test is the subtle part:
  * a buried block has solid neighbours on all four sides and is skipped.
  */
-function isExposedRock(x: number, y: number): boolean {
+export function isExposedRock(x: number, y: number): boolean {
   const m = get(x, y);
   if (m !== STONE && m !== ORE) return false;
   return (

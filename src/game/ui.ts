@@ -16,8 +16,10 @@
  */
 
 import type { Survivor } from '../characters/survivor';
+import type { Zombie } from '../characters/zombie';
 import type { GameState } from './state';
 import { worldToScreen } from '../camera';
+import { stockpilePoint } from './resources';
 import {
   NEED_MAX,
   HUNGER_THRESHOLD,
@@ -25,7 +27,18 @@ import {
   SIM_SPEEDS,
   CELL_SIZE,
   BODY_W,
+  WORLD_W,
 } from '../config';
+
+// ---------------------------------------------------------------------------
+// Minimap / edge-arrow layout constants (GDD §12.1 off-screen awareness)
+// ---------------------------------------------------------------------------
+
+/** Height (px) of the minimap strip, drawn along the top of the canvas. */
+export const MINIMAP_HEIGHT_PX = 16;
+
+/** True = strip sits at the top of the canvas; false = bottom. */
+export const MINIMAP_AT_TOP = true;
 
 // ---------------------------------------------------------------------------
 // Sim-speed toggle (GDD §12.2 pause + speed controls)
@@ -227,6 +240,196 @@ export function drawNeedsBars(
     );
   }
 
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Minimap strip (GDD §12.1 off-screen awareness)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a canvas client-x (pixels) within the minimap strip to the
+ * corresponding world column (cells). Pure and unit-testable.
+ * Strip spans the full canvas width (canvasWidthCss pixels) mapping to
+ * world columns [0, WORLD_W].
+ */
+export function minimapXToWorld(clientX: number, canvasWidthCss: number): number {
+  if (canvasWidthCss <= 0) return 0;
+  const frac = Math.max(0, Math.min(1, clientX / canvasWidthCss));
+  return Math.round(frac * WORLD_W);
+}
+
+/**
+ * Given a world column, return the strip x (pixels) within a strip of
+ * canvasWidthCss pixels. Inverse of minimapXToWorld (within integer rounding).
+ */
+function worldToStripX(worldX: number, canvasWidthCss: number): number {
+  return (worldX / WORLD_W) * canvasWidthCss;
+}
+
+/**
+ * Draw a thin minimap strip (full-width, MINIMAP_HEIGHT_PX tall) at the top
+ * (or bottom) of the canvas. Plots survivors (cyan), alive zombies (red),
+ * the stockpile point (yellow diamond) and the current camera window (white
+ * outline). Guard-safe for zero-sized or stub canvas.
+ * GDD §12.1 off-screen awareness.
+ */
+export function drawMinimap(
+  ctx: CanvasRenderingContext2D,
+  opts: {
+    survivors: Survivor[];
+    zombies: Zombie[];
+    camera: { x: number; y: number };
+    viewportWpx: number;
+    viewportHpx: number;
+  },
+): void {
+  const canvas = ctx.canvas;
+  if (!canvas) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  if (cw === 0 || ch === 0) return;
+
+  const stripY = MINIMAP_AT_TOP ? 0 : ch - MINIMAP_HEIGHT_PX;
+
+  ctx.save();
+
+  // Strip background.
+  ctx.fillStyle = 'rgba(0,0,0,0.7)';
+  ctx.fillRect(0, stripY, cw, MINIMAP_HEIGHT_PX);
+
+  // Helper: draw a 2×2 dot.
+  const dot = (worldX: number, color: string): void => {
+    const sx = worldToStripX(worldX, cw);
+    ctx.fillStyle = color;
+    ctx.fillRect(Math.round(sx) - 1, stripY + MINIMAP_HEIGHT_PX / 2 - 1, 2, 2);
+  };
+
+  // Stockpile marker (yellow, 3×3).
+  if (stockpilePoint.x !== 0 || stockpilePoint.y !== 0) {
+    const sx = worldToStripX(stockpilePoint.x, cw);
+    ctx.fillStyle = '#ffdd00';
+    ctx.fillRect(Math.round(sx) - 1, stripY + 1, 3, MINIMAP_HEIGHT_PX - 2);
+  }
+
+  // Alive zombies (red).
+  for (const z of opts.zombies) {
+    if (z.body.alive) dot(z.body.x, '#ff4444');
+  }
+
+  // Alive survivors (cyan).
+  for (const s of opts.survivors) {
+    if (s.body.alive) dot(s.body.x, '#44ffff');
+  }
+
+  // Camera window (white outline).
+  const camLeft = worldToStripX(opts.camera.x, cw);
+  const camRight = worldToStripX(
+    opts.camera.x + opts.viewportWpx / CELL_SIZE,
+    cw,
+  );
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(
+    Math.round(camLeft),
+    stripY + 1,
+    Math.max(2, Math.round(camRight - camLeft)),
+    MINIMAP_HEIGHT_PX - 2,
+  );
+
+  ctx.restore();
+}
+
+/**
+ * Determine which direction (if any) a world column is relative to the current
+ * camera window. Returns '' when the column is on-screen.
+ * GDD §12.1 off-screen alert arrows.
+ */
+export function directionToWorldX(
+  worldX: number,
+  cam: { x: number },
+  viewportWpx: number,
+): '\u2190' | '\u2192' | '' {
+  const visLeft = cam.x;
+  const visRight = cam.x + viewportWpx / CELL_SIZE;
+  if (worldX < visLeft) return '\u2190'; // ←
+  if (worldX >= visRight) return '\u2192'; // →
+  return '';
+}
+
+/**
+ * Draw directional edge arrows for off-screen zombie clusters.
+ * Left arrow at the left screen edge when zombies exist left of camera;
+ * right arrow at the right edge when zombies exist right of camera.
+ * Arrow size and opacity scale with the count of off-screen zombies on that
+ * side. Guard-safe for zero-sized canvas.
+ * GDD §12.1 off-screen awareness.
+ */
+export function drawEdgeArrows(
+  ctx: CanvasRenderingContext2D,
+  zombies: Zombie[],
+  cam: { x: number; y: number },
+  viewportWpx: number,
+  viewportHpx: number,
+): void {
+  const canvas = ctx.canvas;
+  if (!canvas) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  if (cw === 0 || ch === 0) return;
+
+  const visLeft = cam.x;
+  const visRight = cam.x + viewportWpx / CELL_SIZE;
+
+  let leftCount = 0;
+  let rightCount = 0;
+  for (const z of zombies) {
+    if (!z.body.alive) continue;
+    if (z.body.x < visLeft) leftCount++;
+    else if (z.body.x >= visRight) rightCount++;
+  }
+
+  if (leftCount === 0 && rightCount === 0) return;
+
+  ctx.save();
+
+  // Vertical centre (accounting for minimap strip).
+  const midY = MINIMAP_AT_TOP
+    ? MINIMAP_HEIGHT_PX + (ch - MINIMAP_HEIGHT_PX) / 2
+    : ch / 2;
+
+  const drawArrow = (
+    count: number,
+    side: 'left' | 'right',
+  ): void => {
+    if (count === 0) return;
+    const opacity = Math.min(1, 0.4 + count * 0.12);
+    const size = Math.min(32, 16 + count * 2); // px, capped at 32
+    ctx.globalAlpha = opacity;
+    ctx.font = `bold ${size}px monospace`;
+    ctx.textAlign = side === 'left' ? 'left' : 'right';
+    ctx.textBaseline = 'middle';
+
+    // Drop shadow.
+    ctx.fillStyle = '#000';
+    if (side === 'left') {
+      ctx.fillText('\u25c4', 3, midY + 1); // ◄
+    } else {
+      ctx.fillText('\u25ba', cw - 3, midY + 1); // ►
+    }
+    // Arrow (red-orange for threat).
+    ctx.fillStyle = '#ff6622';
+    if (side === 'left') {
+      ctx.fillText('\u25c4', 2, midY); // ◄
+    } else {
+      ctx.fillText('\u25ba', cw - 4, midY); // ►
+    }
+  };
+
+  drawArrow(leftCount, 'left');
+  drawArrow(rightCount, 'right');
+
+  ctx.globalAlpha = 1;
   ctx.restore();
 }
 

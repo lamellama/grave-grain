@@ -33,14 +33,14 @@ import { dissolveBody } from './damage';
 import type { Zombie } from './zombie';
 import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
 import { get, set } from '../engine/grid';
-import { FIRE, WATER, FOLIAGE, AIR, STONE, ORE } from '../engine/materials';
+import { FIRE, WATER, FOLIAGE, AIR, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
 import type { RoleName, Tool, ToolKind } from '../game/roles';
 import {
   ROLES,
-  findTarget,
+  isExposedRock,
   useTool,
   mineOutput,
   canAssign,
@@ -71,6 +71,7 @@ import {
   DRINK_TICKS,
   CONSUME_REACH,
   RESOURCE_SCAN_RADIUS,
+  REACH_MAX_PATH_ATTEMPTS,
   FLEE_FIRE_RADIUS,
   PATH_REPATH_COOLDOWN,
   GUARD_ENGAGE_RADIUS,
@@ -116,6 +117,10 @@ export interface Survivor {
   carryKind: ResourceKind | null;
   roleState: 'toTarget' | 'working' | 'toStockpile';
   workTarget: { x: number; y: number } | null;
+  // Standable cell the role loop walks to to harvest `workTarget` (within reach
+  // of it). Acquired together with a REACHABLE target so the miner/forager never
+  // fixate on an unreachable face/bush (playtest #3/#5).
+  workStand: { x: number; y: number } | null;
   workTicksLeft: number;
   // Active navgrid route for a seek behaviour (null = none/blocked). Waypoints
   // are followed by local steering; `waypointIndex` is the next one to reach.
@@ -138,6 +143,10 @@ export interface Survivor {
   consumeTicks: number;
   consumeKind: 'water' | 'food' | null;
   consumeCell: { x: number; y: number } | null;
+  // The nearest-REACHABLE resource the active seekWater/seekFood is heading for
+  // (resource cell + standable bank + route). Cached so the bounded reachable
+  // scan + A* only runs on (re)acquire, not every tick (playtest #3, GDD §13).
+  seekTarget: ReachTarget | null;
   // Ticks until the next melee strike is allowed (p7-t4, guard combat). Counts
   // down each updateSurvivor tick; only the guard combat branch ever arms it.
   attackCooldown: number;
@@ -159,6 +168,7 @@ export function createSurvivor(x: number, y: number): Survivor {
     carryKind: null,
     roleState: 'toTarget',
     workTarget: null,
+    workStand: null,
     workTicksLeft: 0,
     path: null,
     waypointIndex: 0,
@@ -172,6 +182,7 @@ export function createSurvivor(x: number, y: number): Survivor {
     consumeTicks: 0,
     consumeKind: null,
     consumeCell: null,
+    seekTarget: null,
     attackCooldown: 0,
   };
 }
@@ -339,6 +350,139 @@ function cellWithinReach(body: Body, tx: number, ty: number): boolean {
 }
 
 /**
+ * A resource the survivor can ACTUALLY use (playtest #3/#5, GDD §6.1/§13): the
+ * resource `cell`, a `standCell` (feet position) on solid ground within reach of
+ * it, and a `path` there. The nearest-REACHABLE selection returns this triple
+ * instead of the geometrically-nearest cell, so survivors skip resources with NO
+ * standable neighbour (sealed deep-water pools, fully-buried ore) or NO route and
+ * use the reachable spawn pond / surface foliage / exposed face instead.
+ */
+interface ReachTarget {
+  cell: { x: number; y: number };
+  standCell: { x: number; y: number };
+  path: Path;
+}
+
+/**
+ * Would a body whose feet rest at (fx, fy) have (rx, ry) inside its reach box?
+ * Same footprint as resourceWithinReach/cellWithinReach (±CONSUME_REACH wide,
+ * head-to-feet+1 tall) — the consume/harvest contact test, evaluated for a
+ * CANDIDATE stand cell rather than the live body.
+ */
+function reachBoxContains(fx: number, fy: number, rx: number, ry: number): boolean {
+  const dx = rx - fx;
+  const dy = ry - fy;
+  return dx >= -CONSUME_REACH && dx <= CONSUME_REACH && dy >= -BODY_H && dy <= 1;
+}
+
+/**
+ * Can a body stand with its feet at (x, fy)? The feet cell must be passable AND
+ * non-fluid (never stand in water/blood), the cell directly below must be solid
+ * ground, and the BODY_H cells above must be clear (headroom). This mirrors the
+ * navgrid's standability but is evaluated at the FEET row, so a pass here lines
+ * up with where the router/locomotion actually delivers the body. FOLIAGE is
+ * permeable (non-solid), so a bush column is a valid place to stand.
+ */
+function isStandableFeet(x: number, fy: number): boolean {
+  const here = get(x, fy);
+  if (isSolidForBody(here)) return false; // feet space blocked by solid
+  if (isFluid(here)) return false; // never stand in water/blood
+  if (!isSolidForBody(get(x, fy + 1))) return false; // need a floor under the feet
+  for (let h = 1; h < BODY_H; h++) {
+    if (isSolidForBody(get(x, fy - h))) return false; // headroom for the figure
+  }
+  return true;
+}
+
+/**
+ * Nearest cell a body can stand on to consume/harvest the resource at (rx, ry),
+ * within reach of it — or null if it has NO standable neighbour (the sealed-pool
+ * / buried-ore case the reachable selection must skip). Searches the reach box
+ * around the resource, preferring the closest stand cell and, as a tiebreak, the
+ * one on the body's side (bx) so the route is short. Cheap: a bounded box scan,
+ * no pathfinding.
+ */
+function findStandCell(
+  rx: number,
+  ry: number,
+  bx: number,
+): { x: number; y: number } | null {
+  let best: { x: number; y: number } | null = null;
+  let bestScore = Infinity;
+  const bodyDir = Math.sign(bx - rx);
+  for (let fx = rx - CONSUME_REACH; fx <= rx + CONSUME_REACH; fx++) {
+    for (let fy = ry - 1; fy <= ry + BODY_H; fy++) {
+      if (!reachBoxContains(fx, fy, rx, ry)) continue;
+      if (!isStandableFeet(fx, fy)) continue;
+      const ddx = fx - rx;
+      const ddy = fy - ry;
+      const sideBias = Math.sign(ddx) === bodyDir ? 0 : 1;
+      const score = ddx * ddx + ddy * ddy + sideBias;
+      if (score < bestScore) {
+        bestScore = score;
+        best = { x: fx, y: fy };
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * Nearest REACHABLE resource matching `match`, scanning rings outward from the
+ * body anchor (nearest-first) and returning the first candidate that has BOTH a
+ * standable neighbour AND a path to it (playtest #3/#5, GDD §6.1/§13). The cheap
+ * findStandCell filter runs first so we only A* to candidates with a real bank —
+ * sealed pools / buried ore cost no pathfind. A* calls are capped at
+ * REACH_MAX_PATH_ATTEMPTS per scan (the rest retried next cooldown) so this is
+ * O(scan) + O(K·A*), never O(R²·A*). Returns null when nothing reachable is in
+ * range (graceful degradation — the survivor wanders and may still die).
+ */
+function nearestReachable(
+  s: Survivor,
+  match: (x: number, y: number) => boolean,
+): ReachTarget | null {
+  const bx = Math.round(s.body.x);
+  const by = Math.round(s.body.y);
+  let attempts = 0;
+  for (let r = 1; r <= RESOURCE_SCAN_RADIUS; r++) {
+    // Collect this ring's matching cells, then test them nearest-first.
+    const ring: Array<{ x: number; y: number; d: number }> = [];
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // perimeter only
+        const x = bx + dx;
+        const y = by + dy;
+        if (match(x, y)) ring.push({ x, y, d: dx * dx + dy * dy });
+      }
+    }
+    if (ring.length === 0) continue;
+    ring.sort((a, b) => a.d - b.d);
+    for (const c of ring) {
+      const stand = findStandCell(c.x, c.y, bx);
+      if (!stand) continue; // no standable bank → skip (sealed pool / buried)
+      if (attempts >= REACH_MAX_PATH_ATTEMPTS) return null; // give up this scan
+      attempts++;
+      const path = findPath(bx, by, stand.x, stand.y);
+      if (path) return { cell: { x: c.x, y: c.y }, standCell: stand, path };
+    }
+  }
+  return null;
+}
+
+/**
+ * Nearest REACHABLE work target for a harvest role (playtest #3/#5): exposed
+ * STONE/ORE for the miner, FOLIAGE for the lumberjack/forager — each filtered to
+ * one with a standable bank and a route, so the survivor walks to and works a
+ * reachable face/bush instead of fixating on an unreachable nearest one.
+ */
+function reachableWorkTarget(s: Survivor, role: RoleName): ReachTarget | null {
+  if (role === 'miner') {
+    return nearestReachable(s, (x, y) => isExposedRock(x, y));
+  }
+  return nearestReachable(s, (x, y) => get(x, y) === FOLIAGE);
+}
+
+/**
  * Local steering toward a goal cell (p5-t4 pattern, shared by seek + role loop):
  * (re)plan a navgrid route when missing or LOCALLY stale (throttled by
  * PATH_REPATH_COOLDOWN), then set body.moveDir toward the next waypoint's x,
@@ -397,8 +541,6 @@ function driveSeek(
   kind: 'water' | 'food',
 ): void {
   const body = s.body;
-  const bx = Math.round(body.x);
-  const by = Math.round(body.y);
 
   // 1. Arrival → consume in place.
   const reach = resourceWithinReach(body, mat);
@@ -408,21 +550,44 @@ function driveSeek(
     s.consumeKind = kind;
     s.consumeCell = kind === 'food' ? reach : null;
     s.path = null;
+    s.seekTarget = null;
     body.moveDir = 0;
     return;
   }
 
-  // 2. Target scan. Nothing in range → wander (and keep depleting → may die).
-  const res = nearestMaterial(bx, by, mat, RESOURCE_SCAN_RADIUS);
-  if (!res) {
+  // 2. (Re)acquire a nearest-REACHABLE target when we have none, it was consumed
+  //    out from under us, or its route went locally stale. Throttled by the
+  //    repath cooldown so the bounded reachable scan + A* never runs every tick
+  //    (playtest #3, GDD §13). Skips sealed pools / unreachable bushes — picks
+  //    the nearest resource with a standable bank we can actually path to.
+  const t = s.seekTarget;
+  const valid =
+    t !== null &&
+    get(t.cell.x, t.cell.y) === mat &&
+    s.path !== null &&
+    !isPathStale(s.path);
+  if (!valid && s.tick - s.lastRepath >= PATH_REPATH_COOLDOWN) {
+    s.lastRepath = s.tick;
+    const next = nearestReachable(s, (x, y) => get(x, y) === mat);
+    s.seekTarget = next;
+    if (next) {
+      s.path = next.path;
+      s.waypointIndex = 0;
+    } else {
+      s.path = null;
+    }
+  }
+
+  // 3. Nothing reachable in range → wander (and keep depleting → may die). This
+  //    is the intended failure state (no reachable water/food → death).
+  if (s.seekTarget === null) {
     driveWander(s);
     return;
   }
 
-  // 3+4. Path to a STANDABLE cell on the body's side of the resource (one column
-  //      in from it) so the route ends beside, never inside, it; then steer.
-  const side = bx <= res.x ? -1 : 1;
-  steerToCell(s, res.x + side, res.y, res.x);
+  // 4. Steer toward the STANDABLE bank beside the resource (never into it).
+  const tgt = s.seekTarget;
+  steerToCell(s, tgt.standCell.x, tgt.standCell.y, tgt.cell.x);
 }
 
 /**
@@ -478,6 +643,7 @@ export function assignRole(s: Survivor, role: RoleName): boolean {
     s.role = 'none';
     s.roleState = 'toTarget';
     s.workTarget = null;
+    s.workStand = null;
     s.workTicksLeft = 0;
     s.path = null;
     return true;
@@ -495,6 +661,7 @@ export function assignRole(s: Survivor, role: RoleName): boolean {
   s.tool = tool;
   s.roleState = 'toTarget';
   s.workTarget = null;
+  s.workStand = null;
   s.workTicksLeft = 0;
   s.path = null;
   return true;
@@ -603,13 +770,18 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
     //    we still stop beside the cell, never inside, as the harvest contact).
     case 'toTarget': {
       if (s.workTarget === null) {
-        const t = findTarget(role, Math.round(body.x), Math.round(body.y));
-        if (t === null) {
-          driveWander(s); // nothing in range → idle drift this tick
+        // Acquire a nearest-REACHABLE target (standable bank + route), so the
+        // miner/forager never fixate on an unreachable face/bush (playtest
+        // #3/#5). Reuse the path the reachable scan already computed.
+        const rt = reachableWorkTarget(s, role);
+        if (rt === null) {
+          driveWander(s); // nothing reachable in range → idle drift this tick
           return;
         }
-        s.workTarget = t;
-        s.path = null; // fresh route to the new target
+        s.workTarget = rt.cell;
+        s.workStand = rt.standCell;
+        s.path = rt.path;
+        s.waypointIndex = 0;
       }
       const t = s.workTarget;
       if (cellWithinReach(body, t.x, t.y)) {
@@ -619,8 +791,14 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
         body.moveDir = 0;
         return;
       }
-      const side = Math.round(body.x) <= t.x ? -1 : 1;
-      steerToCell(s, t.x + side, t.y, t.x);
+      // Steer to the standable bank beside the target (within reach of it).
+      const stand = s.workStand;
+      if (stand) {
+        steerToCell(s, stand.x, stand.y, t.x);
+      } else {
+        const side = Math.round(body.x) <= t.x ? -1 : 1;
+        steerToCell(s, t.x + side, t.y, t.x);
+      }
       return;
     }
 
@@ -664,6 +842,7 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
         }
       }
       s.workTarget = null;
+      s.workStand = null;
       s.path = null;
       if (!harvested) {
         // Target changed under us (burned/edited) — don't waste durability; re-find.
@@ -732,6 +911,7 @@ function selectBehaviour(s: Survivor): { x: number; y: number } | null {
     s.behaviour = next;
     s.path = null;
     s.waypointIndex = 0;
+    s.seekTarget = null; // a new behaviour re-acquires its own reachable target
   }
   return fire;
 }
