@@ -33,16 +33,20 @@ import { BREACH_CHANCE, BREACH_PRESSURE_MULT } from '../config';
  * blocked by, or null if nothing chippable is directly ahead (GDD §7.4 "the cell
  * in front of it").
  *
- * The body only ever occupies whole cells; its LEADING-EDGE column in `dir` is
- * the extreme live-pixel column (derived from the rig so it survives limb loss),
- * and the cell it presses sits ONE column beyond that edge — exactly where a
- * blocked body stops. (We derive the edge from the live rig rather than a fixed
- * BODY_W/2 half-width because the authored figure is asymmetric and may have
- * shed pixels, so a fixed offset would mis-aim by a cell.) We scan that column
- * over the body's full vertical pixel span (top→bottom) and return the FIRST
- * cell that is solid-to-a-body AND has integrity AND has integrity > 0 — i.e. a
- * breachable structure. A blocking cell with no integrity (raw STONE) is not
- * chippable and is skipped.
+ * The body only ever occupies whole cells. We compute its leading-edge column
+ * PER ROW (not one global edge for the whole rig): the authored figure is
+ * ASYMMETRIC — an arm pixel overhangs one column further out than the torso/
+ * legs, and may sit ABOVE a short structure. A single global edge (the extreme
+ * pixel column across the WHOLE rig) would be that arm column and would probe
+ * the air PAST a low fence, missing it entirely (the cell the body is actually
+ * blocked by is at the torso/leg rows). So for EACH row `y` in the body's
+ * vertical pixel span we find that row's leading-edge column (the rightmost live
+ * pixel for dir>0 / leftmost for dir<0, derived from the live rig so it survives
+ * limb loss), probe the cell ONE column beyond it `(rowEdge + dir, y)`, and
+ * return the FIRST cell that is solid-to-a-body AND has integrity AND has
+ * integrity > 0 — i.e. a breachable structure. A blocking cell with no integrity
+ * (raw STONE) is not chippable and is skipped. We return null only if NO row has
+ * a breachable cell directly ahead.
  */
 export function findBlockingStructureCell(
   body: Body,
@@ -51,8 +55,9 @@ export function findBlockingStructureCell(
   const rx = Math.round(body.x);
   const ry = Math.round(body.y);
 
-  // Leading-edge column + vertical span across the live (non-destroyed) rig.
-  let edge: number | null = null;
+  // Per-row leading-edge column across the live (non-destroyed) rig: for each
+  // world row the body occupies, the extreme live-pixel column in `dir`.
+  const rowEdge = new Map<number, number>();
   let top = Infinity;
   let bottom = -Infinity;
   for (const bone of body.rig) {
@@ -60,15 +65,23 @@ export function findBlockingStructureCell(
     for (const p of bone.pixels) {
       const wx = rx + bone.offset.dx + p.dx;
       const wy = ry + bone.offset.dy + p.dy;
-      if (edge === null || (dir > 0 ? wx > edge : wx < edge)) edge = wx;
+      const cur = rowEdge.get(wy);
+      if (cur === undefined || (dir > 0 ? wx > cur : wx < cur)) {
+        rowEdge.set(wy, wx);
+      }
       if (wy < top) top = wy;
       if (wy > bottom) bottom = wy;
     }
   }
-  if (edge === null) return null; // fully dissolved rig — nothing presses
+  if (rowEdge.size === 0) return null; // fully dissolved rig — nothing presses
 
-  const x = edge + dir; // the cell directly ahead of the leading edge
+  // Probe each row's own leading edge; return the first breachable hit. This
+  // finds the fence at the rows where the body is actually blocked (torso/legs)
+  // and ignores an overhanging arm row that clears a short structure.
   for (let y = top; y <= bottom; y++) {
+    const edge = rowEdge.get(y);
+    if (edge === undefined) continue; // no live pixel on this row
+    const x = edge + dir; // the cell directly ahead of this row's edge
     const m = get(x, y);
     if (
       isSolidForBody(m) &&
