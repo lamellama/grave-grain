@@ -1,10 +1,24 @@
 /**
- * input.ts — Pointer-first drag-to-pan and paint input handler
+ * input.ts — Pointer-first input handler: multi-pointer registry + gesture classification.
  * GDD §12.3–12.4: one unified path for mouse + touch via Pointer Events API.
- * GDD §12.3: pan-vs-act tension resolved via tool-mode system:
- * - Pan mode: drag scrolls camera
- * - Paint mode: drag paints materials (sand, stone, water, erase)
- * Currently selected tool defines what a drag does.
+ * GDD §12.3: pan-vs-act tension resolved via tool-mode system.
+ *
+ * Task 10-4: replaces the single inputState with a per-pointer Map so that
+ * pinch (10-5) and long-press context menu / tap-cycle (10-6) can be wired in
+ * without rearchitecting.
+ *
+ * Gesture classification:
+ *   drag      — pointer moved > TAP_MAX_MOVE_PX (GDD §12.3 pan-vs-act)
+ *   longpress — held ≥ LONG_PRESS_MS without moving past TAP_MAX_MOVE_PX
+ *   tap       — released before LONG_PRESS_MS and within TAP_MAX_MOVE_PX
+ *
+ * Tool behaviours:
+ *   Pan        — single-pointer drag scrolls camera.x (incremental, 1:1)
+ *   Paint      — drag-paint: acts on every pointermove while pressed
+ *   Ignite     — drag-ignite: acts on every pointermove while pressed
+ *   Build      — drag-build: acts on every pointermove while pressed
+ *   Shoot      — fires on TAP (not on raw pointerdown, so dragging doesn't shoot)
+ *   Assign     — fires on TAP (opens role menu for nearest survivor)
  */
 
 import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo } from './camera';
@@ -14,7 +28,7 @@ import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
 import { ignite } from './engine/simulation';
 import { placeStructure, canPlace, type StructureKind } from './game/building';
-import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS } from './config';
+import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
 import { applyDamage } from './characters/damage';
@@ -41,6 +55,75 @@ const toolState = {
   paintMaterialId: SAND, // which material to paint when in Paint mode
   buildStructure: 'fence' as StructureKind, // which structure to place in Build mode (task 8-3)
 };
+
+// ---------------------------------------------------------------------------
+// Multi-pointer registry (task 10-4, GDD §12.3 pinch/long-press setup)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-pointer tracking state.
+ *   startX/Y    — client coords at pointerdown (used for total-delta classification)
+ *   lastX/Y     — client coords at last move (used for incremental pan delta)
+ *   startTime   — performance.now() at pointerdown
+ *   moved       — true once total movement exceeds TAP_MAX_MOVE_PX
+ *   cameraStartX — camera.x at pointerdown (available for pinch in task 10-5)
+ *   timerId     — handle for the long-press setTimeout, null when not pending
+ */
+interface PointerInfo {
+  startX: number;
+  startY: number;
+  lastX: number;
+  lastY: number;
+  startTime: number;
+  moved: boolean;
+  cameraStartX: number;
+  timerId: number | null;
+}
+
+/** Active pointer registry: pointerId → PointerInfo. */
+const pointers = new Map<number, PointerInfo>();
+
+// ---------------------------------------------------------------------------
+// Pure gesture classifier (exported for headless unit tests, task 10-4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Classify a completed pointer gesture.
+ *   drag      — total movement (Euclidean) exceeded TAP_MAX_MOVE_PX
+ *   longpress — held ≥ LONG_PRESS_MS without moving past TAP_MAX_MOVE_PX
+ *   tap       — quick release within movement threshold
+ *
+ * Pure function (no DOM, no side effects). GDD §12.3: pan-vs-act boundary.
+ *
+ * @param dx      total horizontal displacement in screen pixels
+ * @param dy      total vertical displacement in screen pixels
+ * @param heldMs  duration the pointer was held in milliseconds
+ */
+export function classifyGesture(dx: number, dy: number, heldMs: number): 'tap' | 'drag' | 'longpress' {
+  if (Math.hypot(dx, dy) > TAP_MAX_MOVE_PX) return 'drag';
+  if (heldMs >= LONG_PRESS_MS) return 'longpress';
+  return 'tap';
+}
+
+// ---------------------------------------------------------------------------
+// Long-press stub — task 10-6 fills this with the context/role menu
+// ---------------------------------------------------------------------------
+
+/**
+ * Called when a single pointer is held still for ≥ LONG_PRESS_MS (GDD §12.3).
+ * No-op stub: task 10-6 wires this to the contextual role menu.
+ *
+ * @param _worldX  world cell X under the held pointer
+ * @param _worldY  world cell Y under the held pointer
+ */
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function onLongPress(_worldX: number, _worldY: number): void {
+  // No-op stub — task 10-6 implements the role context menu here.
+}
+
+// ---------------------------------------------------------------------------
+// Target body / survivor / zombie registration (unchanged from pre-10-4)
+// ---------------------------------------------------------------------------
 
 /**
  * The live body the Shoot tool targets (p4-t7). Module-level reference mirroring
@@ -143,15 +226,9 @@ function closeRoleMenu(): void {
   if (menu) menu.style.display = 'none';
 }
 
-/**
- * Input state for drag tracking.
- */
-const inputState = {
-  isPointerDown: false,
-  pointerStartX: 0,
-  pointerStartY: 0,
-  cameraStartX: 0,
-};
+// ---------------------------------------------------------------------------
+// Disc brush helpers (unchanged)
+// ---------------------------------------------------------------------------
 
 /**
  * Iterate all cells in a BRUSH_RADIUS disc centred on (centerX, centerY),
@@ -208,6 +285,10 @@ function igniteDisc(centerWorldX: number, centerWorldY: number): void {
   forEachDiscCell(centerX, centerY, tryIgnite);
 }
 
+// ---------------------------------------------------------------------------
+// Coordinate helpers (unchanged)
+// ---------------------------------------------------------------------------
+
 /**
  * Get the canvas bounding rect and convert client coordinates to canvas-relative pixels.
  * GDD §12.4: account for pointer coordinate conversion for touch/mobile.
@@ -223,8 +304,33 @@ function getCanvasRelativeCoords(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Pointer event handlers (task 10-4 refactor)
+// ---------------------------------------------------------------------------
+
 /**
- * Handle pointer down: start tracking drag. In Paint mode, immediately paint at the position.
+ * Fire the long-press action for a given pointer (task 10-4, GDD §12.3).
+ * Checks single-pointer constraint and `moved` guard before calling onLongPress.
+ */
+function fireLongPress(pointerId: number): void {
+  const p = pointers.get(pointerId);
+  if (!p || p.moved) return;
+  // Long-press requires exactly one active pointer (not a two-finger gesture).
+  if (pointers.size !== 1) return;
+  // Compute world position from the (still) pointer position.
+  const canvas = document.getElementById('game') as HTMLCanvasElement | null;
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  const cx = p.lastX - rect.left;
+  const cy = p.lastY - rect.top;
+  const world = screenToWorld(cx, cy);
+  onLongPress(world.x, world.y);
+}
+
+/**
+ * Handle pointerdown: add pointer to registry, start long-press timer,
+ * and immediately act for drag-paint tools (Paint/Ignite/Build).
+ * Shoot/Assign no longer act on down — they wait for a TAP on pointerup.
  */
 function onPointerDown(event: PointerEvent): void {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
@@ -233,7 +339,7 @@ function onPointerDown(event: PointerEvent): void {
   // -----------------------------------------------------------------------
   // Minimap strip hit-test (GDD §12.1 off-screen awareness, task 9-6).
   // If the pointer lands inside the minimap band, treat it as a camera-jump
-  // and consume the event so it doesn’t fall through to normal tool actions.
+  // and consume the event so it doesn't fall through to normal tool actions.
   // -----------------------------------------------------------------------
   {
     const rect = canvas.getBoundingClientRect();
@@ -249,33 +355,106 @@ function onPointerDown(event: PointerEvent): void {
     }
   }
 
-  inputState.isPointerDown = true;
-  inputState.pointerStartX = event.clientX;
-  inputState.pointerStartY = event.clientY;
-  inputState.cameraStartX = camera.x;
+  // Register the pointer.
+  const now = performance.now();
+  const info: PointerInfo = {
+    startX: event.clientX,
+    startY: event.clientY,
+    lastX: event.clientX,
+    lastY: event.clientY,
+    startTime: now,
+    moved: false,
+    cameraStartX: camera.x,
+    timerId: null,
+  };
+  pointers.set(event.pointerId, info);
 
+  // Arm long-press timer (GDD §12.3, task 10-4).
+  info.timerId = window.setTimeout(() => {
+    fireLongPress(event.pointerId);
+  }, LONG_PRESS_MS);
+
+  // Drag-paint tools: act immediately on down (continuous-paint feel).
   if (toolState.mode === 'Paint') {
-    // Paint at current position (GDD §8 direct placement)
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     paintDisc(worldCoords.x, worldCoords.y, toolState.paintMaterialId);
   } else if (toolState.mode === 'Build') {
-    // Build mode: place one structure cell at the pointer cell (GDD §8 structures, task 8-3)
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     const cellX = Math.floor(worldCoords.x);
     const cellY = Math.floor(worldCoords.y);
     placeStructure(cellX, cellY, toolState.buildStructure);
   } else if (toolState.mode === 'Ignite') {
-    // Ignite at current position — only flammable cells (GDD §8 ignite verb)
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     igniteDisc(worldCoords.x, worldCoords.y);
-  } else if (toolState.mode === 'Shoot') {
-    // Shoot on DOWN only (a click = a single hit; drags don't repeat-fire).
-    // Pick the nearest live body (survivor OR zombie — p7-t7) to the clicked
-    // cell, then the bone region under the cursor, and route it through THE GATE
-    // (GDD §14 hand-test, §7.2 emergent damage). No-op if no live body / no bone.
+  }
+  // Shoot / Assign: deferred to pointerup tap classification (task 10-4).
+  // Pan: handled in pointermove.
+}
+
+/**
+ * Handle pointermove: update per-pointer state, act on drag-paint tools,
+ * and pan the camera in Pan mode (all using incremental per-pointer deltas).
+ */
+function onPointerMove(event: PointerEvent): void {
+  const info = pointers.get(event.pointerId);
+  if (!info) return;
+
+  const canvas = document.getElementById('game') as HTMLCanvasElement;
+  if (!canvas) return;
+
+  // Total displacement from start (for moved flag / long-press guard).
+  const totalDx = event.clientX - info.startX;
+  const totalDy = event.clientY - info.startY;
+
+  if (!info.moved && Math.hypot(totalDx, totalDy) > TAP_MAX_MOVE_PX) {
+    info.moved = true;
+    // Cancel long-press timer — pointer has drifted past the tap threshold.
+    if (info.timerId !== null) {
+      clearTimeout(info.timerId);
+      info.timerId = null;
+    }
+  }
+
+  // Drag-paint tools: continue acting on every move while the pointer is down.
+  if (toolState.mode === 'Paint') {
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    paintDisc(worldCoords.x, worldCoords.y, toolState.paintMaterialId);
+  } else if (toolState.mode === 'Build') {
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    const cellX = Math.floor(worldCoords.x);
+    const cellY = Math.floor(worldCoords.y);
+    placeStructure(cellX, cellY, toolState.buildStructure);
+  } else if (toolState.mode === 'Ignite') {
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    igniteDisc(worldCoords.x, worldCoords.y);
+  } else if (toolState.mode === 'Pan') {
+    // Pan: incremental delta from the last recorded position (tracks 1:1).
+    // Reset anchor each move so panning tracks the pointer without accumulation.
+    const deltaX = event.clientX - info.lastX;
+    panCamera(-deltaX);
+    const renderer = getRenderer();
+    clampCamera(renderer.viewportWidthPx, renderer.viewportHeightPx);
+  }
+
+  // Advance anchor for the next incremental delta.
+  info.lastX = event.clientX;
+  info.lastY = event.clientY;
+}
+
+/**
+ * Perform the tap-classified action for Shoot / Assign modes.
+ * Called from onPointerUp when the gesture classifies as a tap.
+ */
+function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
+  if (toolState.mode === 'Shoot') {
+    // Shoot on TAP: a quick tap shoots; a drag does NOT (task 10-4 key change).
+    // Routes through THE GATE (GDD §14 hand-test, §7.2 emergent damage).
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     const cellX = Math.floor(worldCoords.x);
@@ -288,8 +467,7 @@ function onPointerDown(event: PointerEvent): void {
       }
     }
   } else if (toolState.mode === 'Assign') {
-    // Assign mode (p6-t5, GDD §6.2): tap a survivor to open the role menu.
-    // Find the nearest ALIVE survivor within ASSIGN_PICK_RADIUS cells of the click.
+    // Assign on TAP: open role menu for nearest alive survivor (p6-t5, GDD §6.2).
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
     const wx = worldCoords.x;
@@ -316,52 +494,48 @@ function onPointerDown(event: PointerEvent): void {
 }
 
 /**
- * Handle pointer move: either pan or paint depending on current tool mode.
+ * Handle pointerup: classify gesture, execute tap actions, remove pointer.
  */
-function onPointerMove(event: PointerEvent): void {
-  if (!inputState.isPointerDown) return;
+function onPointerUp(event: PointerEvent): void {
+  const info = pointers.get(event.pointerId);
+  if (!info) return;
 
-  const canvas = document.getElementById('game') as HTMLCanvasElement;
-  if (!canvas) return;
-
-  if (toolState.mode === 'Paint') {
-    // Paint mode: drag paints continuously (GDD §8 direct placement, continuous painting while dragging)
-    const canvasCoords = getCanvasRelativeCoords(event, canvas);
-    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
-    paintDisc(worldCoords.x, worldCoords.y, toolState.paintMaterialId);
-  } else if (toolState.mode === 'Build') {
-    // Build mode: drag places one structure cell per pointer cell (GDD §8 structures, task 8-3)
-    const canvasCoords = getCanvasRelativeCoords(event, canvas);
-    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
-    const cellX = Math.floor(worldCoords.x);
-    const cellY = Math.floor(worldCoords.y);
-    placeStructure(cellX, cellY, toolState.buildStructure);
-  } else if (toolState.mode === 'Ignite') {
-    // Ignite mode: drag ignites flammable cells continuously (GDD §8 ignite verb)
-    const canvasCoords = getCanvasRelativeCoords(event, canvas);
-    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
-    igniteDisc(worldCoords.x, worldCoords.y);
-  } else {
-    // Pan mode: drag scrolls camera (existing behaviour)
-    // Incremental delta since the last move event. Reset the anchor each move
-    // so panning tracks the pointer 1:1 instead of accumulating from the start.
-    const deltaX = event.clientX - inputState.pointerStartX;
-    inputState.pointerStartX = event.clientX;
-    inputState.pointerStartY = event.clientY;
-    // Pan: negative delta (drag left) = pan right (increase camera.x).
-    panCamera(-deltaX);
-
-    const renderer = getRenderer();
-    clampCamera(renderer.viewportWidthPx, renderer.viewportHeightPx);
+  // Cancel long-press timer (pointer lifted before it fired).
+  if (info.timerId !== null) {
+    clearTimeout(info.timerId);
+    info.timerId = null;
   }
+
+  const heldMs = performance.now() - info.startTime;
+  const dx = event.clientX - info.startX;
+  const dy = event.clientY - info.startY;
+  const gesture = classifyGesture(dx, dy, heldMs);
+
+  // Tap action: Shoot and Assign now fire on tap (not on raw pointerdown).
+  if (gesture === 'tap') {
+    const canvas = document.getElementById('game') as HTMLCanvasElement | null;
+    if (canvas) {
+      handleTapAction(event, canvas);
+    }
+  }
+
+  pointers.delete(event.pointerId);
 }
 
 /**
- * Handle pointer up: stop tracking drag.
+ * Handle pointercancel: clean up registry and timer (e.g. system interrupts).
  */
-function onPointerUp(_event: PointerEvent): void {
-  inputState.isPointerDown = false;
+function onPointerCancel(event: PointerEvent): void {
+  const info = pointers.get(event.pointerId);
+  if (info?.timerId !== null && info) {
+    clearTimeout(info.timerId!);
+  }
+  pointers.delete(event.pointerId);
 }
+
+// ---------------------------------------------------------------------------
+// Tool mode management (unchanged API)
+// ---------------------------------------------------------------------------
 
 /**
  * Set the tool mode. Mode 'Pan' disables painting; mode 'Paint' with a materialId enables painting.
@@ -434,6 +608,10 @@ export function refreshBuildButtons(): void {
   });
 }
 
+// ---------------------------------------------------------------------------
+// Initialisation (kept; adds pointercancel listener for task 10-4)
+// ---------------------------------------------------------------------------
+
 /**
  * Initialize pointer event listeners on the canvas and wire up the toolbar.
  * Also sets touch-action: none to prevent browser default touch scroll/zoom (GDD §12.3).
@@ -442,6 +620,8 @@ export function initInput(canvas: HTMLCanvasElement): void {
   canvas.addEventListener('pointerdown', onPointerDown);
   document.addEventListener('pointermove', onPointerMove);
   document.addEventListener('pointerup', onPointerUp);
+  // pointercancel fires on system interrupts (task 10-4): clean up registry.
+  document.addEventListener('pointercancel', onPointerCancel);
 
   // Prevent browser default touch actions (scrolling, zooming, etc.)
   canvas.style.touchAction = 'none';

@@ -22,6 +22,12 @@ export const SIM_HZ = 60;
 // Adjust to feel responsive but not twitchy.
 export const PAN_SPEED = 1.0;
 
+// Phase 10 — Gesture classification constants (task 10-4, GDD §12.3).
+// TAP_MAX_MOVE_PX: pointer must stay within this radius (screen px) to be a tap.
+// LONG_PRESS_MS: held ≥ this duration without moving = long-press.
+export const TAP_MAX_MOVE_PX = 10;
+export const LONG_PRESS_MS = 450;
+
 // Phase 10 — Camera zoom (task 10-3, GDD §12.3/§12.4). Zoom multiplies the
 // effective cell size (how many screen px a world cell occupies). It is NOT a
 // ctx transform and NOT a devicePixelRatio multiply — the renderer keeps the
