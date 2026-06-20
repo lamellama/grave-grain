@@ -117,6 +117,11 @@ initInput(canvas);
 
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
+// GDD §12.4: re-frame + re-clamp when the device rotates (orientation change
+// fires on mobile before/instead of resize in some browsers). Calls the same
+// resizeCanvas so the canvas backing store, renderer viewport, and camera clamp
+// all stay consistent — ImageData == backing store invariant is preserved.
+window.addEventListener('orientationchange', resizeCanvas);
 
 // ============================================================================
 // World generation (task 9-7, GDD §5.3)
