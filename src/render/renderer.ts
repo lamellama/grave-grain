@@ -4,11 +4,12 @@
  * Honour devicePixelRatio; keep cells chunky.
  */
 
-import { WORLD_W, WORLD_H } from '../config';
+import { WORLD_W, WORLD_H, BREACH_DARKEN_MAX, CHIP_FLASH_TICKS } from '../config';
 import { camera, clampCamera, effectiveCellPx } from '../camera';
 import * as grid from '../engine/grid';
 import { MATERIALS } from '../engine/materials';
 import { type Body } from '../characters/body';
+import { recentChips, getBreachTick } from '../game/breaching';
 
 /**
  * Pre-parsed material colours: RGB[material_id] = [r, g, b] tuple.
@@ -26,6 +27,36 @@ function hexToRgb(hex: string): [number, number, number] {
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);
   return [r, g, b];
+}
+
+/**
+ * Pure helper: darken an RGB triple in proportion to integrity lost (task 11-4).
+ * GDD §7.4 / §12 UX readability — a structure cell visually "cracks" as it's
+ * chipped, darkening by up to BREACH_DARKEN_MAX when integrity is near zero.
+ *
+ * factor = 1 - BREACH_DARKEN_MAX * (1 - ratio),  ratio = integrity / baseIntegrity
+ *   ratio 1 (full)  → factor 1.0  → unchanged colour
+ *   ratio 0 (near)  → factor ≈ 1 - BREACH_DARKEN_MAX  → maximally dark
+ *
+ * Returns the original rgb unchanged when baseIntegrity is 0 (non-integrity
+ * material) so it is safe to call for any cell.
+ *
+ * Exported so `test/p11-breach-vis.test.ts` can test it in isolation without
+ * spinning up the renderer. Keep it PURE (no side-effects, no globals read).
+ */
+export function breachDarken(
+  rgb: [number, number, number],
+  integrity: number,
+  baseIntegrity: number,
+): [number, number, number] {
+  if (baseIntegrity <= 0) return rgb; // non-integrity material — unchanged
+  const ratio = Math.max(0, Math.min(1, integrity / baseIntegrity));
+  const factor = 1 - BREACH_DARKEN_MAX * (1 - ratio);
+  return [
+    Math.round(rgb[0] * factor),
+    Math.round(rgb[1] * factor),
+    Math.round(rgb[2] * factor),
+  ];
 }
 
 /**
@@ -185,7 +216,34 @@ class Renderer {
       for (let cellX = startX; cellX < endX; cellX++) {
         // Get the material at this cell.
         const material = grid.get(cellX, cellY);
-        const [r, g, b] = RGB_PALETTE[material] || RGB_PALETTE[0];
+        let [r, g, b] = RGB_PALETTE[material] || RGB_PALETTE[0];
+
+        // task 11-4 — Integrity darkening + chip-flash (GDD §7.4 / §12).
+        // Only hasIntegrity cells (WOOD, FOLIAGE, WALL) pay the cost; AIR, sand,
+        // stone, fluid cells skip both lookups. ImageData == backing-store +
+        // zoom invariants are untouched: we only change the r/g/b locals before
+        // they are written into `data[]` below.
+        const mat = MATERIALS[material];
+        if (mat !== undefined && mat.hasIntegrity && mat.baseIntegrity > 0) {
+          const integ = grid.getIntegrity(cellX, cellY);
+          // Darken proportionally to integrity lost.
+          if (integ < mat.baseIntegrity) {
+            const darkened = breachDarken([r, g, b], integ, mat.baseIntegrity);
+            r = darkened[0]; g = darkened[1]; b = darkened[2];
+          }
+          // Chip-flash: briefly brighten a freshly-chipped cell.
+          const cellKey = grid.idx(cellX, cellY);
+          const chipTick = recentChips.get(cellKey);
+          if (chipTick !== undefined) {
+            const age = getBreachTick() - chipTick;
+            if (age < CHIP_FLASH_TICKS) {
+              const flash = Math.round(80 * (1 - age / CHIP_FLASH_TICKS));
+              r = Math.min(255, r + flash);
+              g = Math.min(255, g + flash);
+              b = Math.min(255, b + flash);
+            }
+          }
+        }
 
         const sx0 = Math.floor((cellX - camera.x) * effCell);
         const sx1 = Math.floor((cellX + 1 - camera.x) * effCell);

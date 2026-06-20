@@ -20,6 +20,7 @@ import type { Zombie } from '../characters/zombie';
 import type { GameState } from './state';
 import { worldToScreen, effectiveCellPx } from '../camera';
 import { stockpilePoint } from './resources';
+import { recentChips, getBreachTick } from './breaching';
 import {
   NEED_MAX,
   HUNGER_THRESHOLD,
@@ -28,6 +29,8 @@ import {
   CELL_SIZE,
   BODY_W,
   WORLD_W,
+  CHIP_FLASH_TICKS,
+  UNDER_ATTACK_ALERT,
 } from '../config';
 
 // ---------------------------------------------------------------------------
@@ -431,6 +434,87 @@ export function drawEdgeArrows(
 
   drawArrow(leftCount, 'left');
   drawArrow(rightCount, 'right');
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Under-attack alert (task 11-4, GDD §12 UX readability)
+// ---------------------------------------------------------------------------
+
+/**
+ * Draw left / right edge alert arrows when a structure cell is being breached
+ * OFF-SCREEN (GDD §12.1 off-screen awareness). Driven by `recentChips` from
+ * game/breaching.ts — any chip older than CHIP_FLASH_TICKS is ignored so the
+ * alert fades naturally when the breach stops.
+ *
+ * Reuses the `directionToWorldX` helper (same formula as drawEdgeArrows) and
+ * draws a small warning glyph + arrow at the vertical mid-point of the screen
+ * (below the zombie edge arrows, above the toolbar). Guard-safe for zero canvas.
+ * Only active when `UNDER_ATTACK_ALERT` config flag is true.
+ */
+export function drawUnderAttackAlert(
+  ctx: CanvasRenderingContext2D,
+  cam: { x: number },
+  viewportWpx: number,
+  viewportHpx: number,
+): void {
+  if (!UNDER_ATTACK_ALERT) return;
+
+  const canvas = ctx.canvas;
+  if (!canvas) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  if (cw === 0 || ch === 0) return;
+
+  const tick = getBreachTick();
+  let alertLeft = false;
+  let alertRight = false;
+
+  for (const [key, chipTick] of recentChips) {
+    if (tick - chipTick >= CHIP_FLASH_TICKS) continue; // expired
+    // Recover world-x from the flat cell index (formula inverse of grid.idx).
+    const cellX = key % WORLD_W;
+    const dir = directionToWorldX(cellX, cam, viewportWpx);
+    if (dir === '\u2190') alertLeft = true;
+    if (dir === '\u2192') alertRight = true;
+    if (alertLeft && alertRight) break; // both sides found — no need to keep scanning
+  }
+
+  if (!alertLeft && !alertRight) return;
+
+  ctx.save();
+
+  // Vertical position: below the zombie edge arrows (those sit at midY),
+  // so offset by ~40 px to avoid overlapping them.
+  const midY = MINIMAP_AT_TOP
+    ? MINIMAP_HEIGHT_PX + (ch - MINIMAP_HEIGHT_PX) / 2
+    : ch / 2;
+  const alertY = midY + 40;
+
+  ctx.font = 'bold 16px monospace';
+  ctx.textBaseline = 'middle';
+  ctx.globalAlpha = 0.92;
+
+  if (alertLeft) {
+    ctx.textAlign = 'left';
+    // Shadow.
+    ctx.fillStyle = '#000';
+    ctx.fillText('\u26a0\u2190', 3, alertY + 1);
+    // Amber warning.
+    ctx.fillStyle = '#ff8800';
+    ctx.fillText('\u26a0\u2190', 2, alertY);
+  }
+  if (alertRight) {
+    ctx.textAlign = 'right';
+    // Shadow.
+    ctx.fillStyle = '#000';
+    ctx.fillText('\u26a0\u2192', cw - 3, alertY + 1);
+    // Amber warning.
+    ctx.fillStyle = '#ff8800';
+    ctx.fillText('\u26a0\u2192', cw - 4, alertY);
+  }
 
   ctx.globalAlpha = 1;
   ctx.restore();

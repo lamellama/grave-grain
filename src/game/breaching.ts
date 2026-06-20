@@ -26,7 +26,29 @@ import type { Zombie } from '../characters/zombie';
 import { get, set, getIntegrity, setIntegrity, idx } from '../engine/grid';
 import { MATERIALS, AIR, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
-import { BREACH_CHANCE, BREACH_PRESSURE_MULT } from '../config';
+import { BREACH_CHANCE, BREACH_PRESSURE_MULT, CHIP_FLASH_TICKS } from '../config';
+
+// ---------------------------------------------------------------------------
+// Chip-flash registry (task 11-4, GDD §7.4 / §12).
+// recentChips maps cell index → the breach-tick at which a chip last landed.
+// The renderer reads it to flash chipped cells; entries are pruned every tick
+// once their age exceeds CHIP_FLASH_TICKS so the Map stays bounded.
+// getBreachTick() is the monotone counter the renderer compares against.
+// ---------------------------------------------------------------------------
+
+let _breachTick = 0;
+
+/** Monotone tick counter incremented once per resolveBreaching() call. */
+export function getBreachTick(): number {
+  return _breachTick;
+}
+
+/**
+ * Map<cellIdx, tickStamp> of recently-chipped cells.
+ * Exported read-write so the renderer and UI can read it; the test can seed it
+ * directly. Pruned in resolveBreaching every tick (bounded, never grows large).
+ */
+export const recentChips = new Map<number, number>();
 
 /**
  * The structure cell a body pressing in direction `dir` (-1 left / +1 right) is
@@ -100,6 +122,17 @@ export function findBlockingStructureCell(
  * list: iterate, group pressers by pressed cell, roll once per cell.
  */
 export function resolveBreaching(zombies: Zombie[]): void {
+  // Advance the breach-tick counter FIRST so the renderer always reads a
+  // monotonically increasing value after each sim tick (task 11-4).
+  _breachTick++;
+
+  // Prune expired chip entries (age >= CHIP_FLASH_TICKS) to keep Map bounded.
+  for (const [key, chipTick] of recentChips) {
+    if (_breachTick - chipTick >= CHIP_FLASH_TICKS) {
+      recentChips.delete(key);
+    }
+  }
+
   // Group attackers by the structure cell they press: idx → {x, y, count}.
   const pressed = new Map<number, { x: number; y: number; n: number }>();
 
@@ -121,7 +154,7 @@ export function resolveBreaching(zombies: Zombie[]): void {
   }
 
   // One chip roll per pressed cell; probability rises monotonically with n.
-  for (const { x, y, n } of pressed.values()) {
+  for (const [cellKey, { x, y, n }] of pressed.entries()) {
     // p = 1 - (1 - BREACH_CHANCE)^(1 + BREACH_PRESSURE_MULT*(n-1))
     // n=1 → BREACH_CHANCE; more attackers → higher p (compounded contact).
     const exponent = 1 + BREACH_PRESSURE_MULT * (n - 1);
@@ -130,6 +163,9 @@ export function resolveBreaching(zombies: Zombie[]): void {
     if (Math.random() < p) {
       const next = getIntegrity(x, y) - 1;
       setIntegrity(x, y, next);
+      // Record this chip for the renderer flash (task 11-4, GDD §12).
+      // We ONLY record; we never alter the chip decision or rates.
+      recentChips.set(cellKey, _breachTick);
       if (next <= 0) {
         set(x, y, AIR); // GDD §7.4: integrity 0 → cell destroyed, body pushes in
         markTerrainEdit(x, y); // navgrid/paths update around the new gap

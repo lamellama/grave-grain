@@ -54,6 +54,17 @@ export const ZOOM_DEFAULT = 1;
 // golden-ratio prime 0x9e3779b1); changing it only reshuffles the noise field.
 export const SIM_RNG_SEED = 0x9e3779b1;
 
+// Phase 11 (task 11-4) — Breach visualisation (GDD §7.4 / §12 UX readability).
+// BREACH_DARKEN_MAX: fraction a zero-integrity structure cell is darkened toward
+//   (full integrity = factor 1.0; near-0 = factor ≈ 1-BREACH_DARKEN_MAX).
+// CHIP_FLASH_TICKS: number of simulation ticks a freshly-chipped cell stays
+//   bright/highlighted in the renderer before fading to its darkened colour.
+// UNDER_ATTACK_ALERT: enable the off-screen "structure under attack" indicator
+//   in the HUD (← / → edge arrows when a breach is happening off-screen).
+export const BREACH_DARKEN_MAX = 0.6;
+export const CHIP_FLASH_TICKS = 12;
+export const UNDER_ATTACK_ALERT = true;
+
 // Phase 11 (task 11-2) — Chunk size for the dirty-rect cellular update (GDD §13,
 // App. B). The world is partitioned into CHUNK_SIZE×CHUNK_SIZE chunks; step()
 // processes only chunks that had activity last tick (or were edited), skipping

@@ -50,6 +50,7 @@ import {
   drawMinimap,
   drawToasts,
   drawEndScreen,
+  drawUnderAttackAlert,
   pushToast,
   getSimSpeed,
   directionToWorldX,
@@ -417,6 +418,8 @@ function renderLoop(): void {
   const vpH = renderer.viewportHeightPx;
   drawNeedsBars(ctx, survivors);
   drawEdgeArrows(ctx, zombies, camera, vpW, vpH);
+  // task 11-4: off-screen breach alert (GDD §12.1 / §7.4).
+  drawUnderAttackAlert(ctx, camera, vpW, vpH);
   drawMinimap(ctx, { survivors, zombies, camera, viewportWpx: vpW, viewportHpx: vpH });
   drawToasts(ctx);
   drawEndScreen(ctx, gameState); // only dims when not playing
