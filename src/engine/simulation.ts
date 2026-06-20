@@ -45,6 +45,7 @@ import {
   BLOOD,
   density,
   isStatic,
+  isFluid,
   isFlammable,
 } from './materials';
 
@@ -500,8 +501,16 @@ function trySwap(sx: number, sy: number, tx: number, ty: number): boolean {
     return false;
   }
   const target = material[t];
-  // Target must be displaceable: non-static AND strictly lighter than us.
+  // A faller may only displace AIR or a FLUID (water/blood) — NOT another powder
+  // or solid. This lets powders sink through air and water while RESTING on each
+  // other (piling) instead of stratifying by density like liquids. (Playtest:
+  // sand spawned under dirt should NOT float to the top — two dry powders of
+  // similar weight stay layered/mixed, they don't separate.) Static is never
+  // displaceable.
   if (isStatic(target)) {
+    return false;
+  }
+  if (target !== AIR && !isFluid(target)) {
     return false;
   }
   const s = idx(sx, sy);
