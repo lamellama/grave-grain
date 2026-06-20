@@ -348,10 +348,21 @@ Live playtest of the Phase-8 build surfaced these. Most are the *unwired* Phase-
 
 **Routing/sequencing:** C-visual + B-ammo + D-pacing are light (cheap/config) — fold into the **Phase 11 feel/balance pass** (or quick patches between phases). A (zombie-ladder climbing) is a real **expensive** AI/locomotion mechanic — schedule as a **Phase 7 follow-up after Phase 10**, with no-tunnel + a perf cap re-verified.
 
+### Playtest round 4 (v0.6) — readability/control/ecology (planned)
+
+| # | Ask (playtester) | Scope / root | Fix → where |
+|---|---|---|---|
+| E | **Different outfits per role** so you can see who is who (Miner/Lumberjack/Forager/Guard/idle) | Readability (GDD §12 UX priority). Today all survivors render identically; the renderer only has `bodies`, not roles. | **Render:** give the renderer per-body role info (or a per-body tint/uniform colour) and tint the body sprite by role — e.g. recolour the torso/‘cloth’ pixels per role, plus a distinct guard look. Pass `survivors` (or a `{body, tint}` list) to the renderer like the zombie green-tint path. **cheap_coder** (render-only). Land in the **Phase 11 readability/juice pass** (or a small patch). |
+| F | **Right-click a character opens the Assign menu** | Desktop convenience — the same role menu as long-press (10-6) / the Assign tool. | **Input:** add a `contextmenu` listener (`e.preventDefault()`) that picks the survivor under the cursor and calls `showRoleMenu` — the desktop twin of the **long-press** role menu. **Fold into task 10-6** (cheap_coder), since it shares the exact picking + menu code. |
+| G | **Plant foliage like a seed; it grows by itself** (replace the instant Foliage paint) | NEW mechanic = **tree/plant growth + reproduction**, which GDD §9 + §14 list as **vertical-slice/Beyond** (not MVP). | **Deferred to the vertical-slice tier** (see below). MVP-light option if pulled forward: a `SAPLING` material the player plants that, over `GROW_TICKS`, converts upward into FOLIAGE on suitable soil (DIRT) — a small sim rule + a “Plant” tool replacing the free Foliage paint. **expensive_coder** (new sim behaviour) IF authorised; otherwise it stays in the deferred list. |
+
+**Routing/sequencing:** F (right-click menu) → **fold into 10-6**. E (role outfits) → **Phase 11 readability**, render-only, easy. G (seed/growth) → **deferred vertical slice** unless you explicitly authorise the MVP-light SAPLING version.
+
 ### Deferred to post-MVP vertical slice (flagged, NOT in MVP — GDD §14)
 Playtester asked for survivors to **cooperatively build a camp: shelter, water, and a fire to keep warm.** Per the scope agreement this is the **vertical-slice tier**, deferred until the MVP (Phases 10–11) is complete:
 - **Warmth need + temperature + fire-as-warmth + shelter structure** (GDD §6.1 Warmth, §10 weather, §8 shelter) — vertical-slice/Beyond.
 - **Survivor-driven construction / cooperative base-building** (Builder/Hauler role, GDD §6.2) — vertical-slice.
+- **Plant/tree growth + reproduction (plant-a-seed foliage)** (GDD §9 ecology) — vertical-slice; MVP-light SAPLING→FOLIAGE grow rule possible if authorised (playtest v0.6 #G).
 - **In-scope sliver (do in the Phase 11 balance pass):** make survivors react EARLIER to hunger/thirst (bigger buffer) so they “go get it rather than just dying,” and keep the on-screen death-cause prominent.
 
 ---
