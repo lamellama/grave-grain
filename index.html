@@ -48,7 +48,9 @@
       color: #ccc;
       cursor: pointer;
       border-radius: 4px;
-      min-width: 4rem;
+      /* 10-2: ≥44×44px tap targets (GDD §12.4, Apple HIG, WCAG 2.5.5) */
+      min-width: 44px;
+      min-height: 44px;
       text-align: center;
       transition: all 0.2s;
       user-select: none;
@@ -113,6 +115,52 @@
       color: #777;
     }
 
+    /* 10-1: Rotate-device prompt — shown only in portrait via CSS media query (GDD §12.4) */
+    #rotate-prompt {
+      display: none; /* hidden by default (desktop/landscape are always safe) */
+      position: fixed;
+      inset: 0;
+      z-index: 9999;
+      background: rgba(0, 0, 0, 0.92);
+      color: #eee;
+      font-size: clamp(1.2rem, 5vw, 2rem);
+      font-family: monospace;
+      font-weight: bold;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 2rem;
+      pointer-events: none; /* game canvas/loop keeps running underneath */
+    }
+
+    @media (orientation: portrait) {
+      #rotate-prompt {
+        display: flex; /* reveal overlay in portrait */
+      }
+    }
+
+    @media (orientation: landscape) {
+      #rotate-prompt {
+        display: none; /* explicit: hidden in landscape (desktop always lands here) */
+      }
+    }
+
+    /* 10-2: Short landscape phone (e.g. iPhone SE landscape: ~375px tall).
+       Shrink toolbar padding/font so all buttons remain visible & thumb-reachable.
+       #toolbar already has flex-wrap:wrap so buttons spill to a 2nd row rather than overflow. */
+    @media (max-height: 480px) {
+      .tool-btn {
+        padding: 0.35rem 0.55rem;
+        font-size: 0.78rem;
+        min-width: 44px;   /* keep tap-target floor even when shrunk */
+        min-height: 44px;
+      }
+      #toolbar {
+        gap: 0.3rem;
+        padding: 0.3rem;
+      }
+    }
+
     /* Stockpile readout (top-centre HUD) */
     #stockpile-readout {
       position: fixed;
@@ -134,6 +182,10 @@
 <body>
   <canvas id="game"></canvas>
 
+  <!-- 10-1: Portrait rotate-device overlay. Pure CSS @media(orientation:portrait) reveals it.
+       pointer-events:none so the game canvas keeps running underneath — no JS needed. -->
+  <div id="rotate-prompt">&#8635; Rotate your device to landscape</div>
+
   <!-- Toolbar: Pan, Sand, Stone, Water, Dirt, Wood, Foliage, Ignite, Erase -->
   <!-- GDD §12.3: persistent, thumb-reachable toolbar. GDD §12.4: big, no hover dependence -->
   <div id="toolbar">
@@ -143,8 +195,8 @@
     <button class="tool-btn" data-tool="paint" data-material="4" title="Paint dirt (free terraforming)">Dirt</button>
     <button class="tool-btn" data-tool="paint" data-material="7" title="Paint foliage (free)">Foliage</button>
     <!-- Wood/Stone are NOT free paints: place them as costed, breachable structures (playtest #6/#7). -->
-    <button class="tool-btn" data-tool="build" data-structure="fence" title="Build wood fence (costs 1 wood/cell; flammable, zombies breach it fast)">Fence</button>
-    <button class="tool-btn" data-tool="build" data-structure="wall" title="Build stone wall (costs 1 stone/cell; zombies breach it slowly)">Wall</button>
+    <button class="tool-btn" data-tool="build" data-structure="fence" title="Place wood (costs 1 wood/cell; a flammable fence, zombies breach it fast)">Wood</button>
+    <button class="tool-btn" data-tool="build" data-structure="wall" title="Place stone (costs 1 stone/cell; a wall, zombies breach it slowly)">Stone</button>
     <button class="tool-btn" data-tool="ignite" title="Ignite flammable cells (wood/foliage only)">Ignite</button>
     <button class="tool-btn" data-tool="shoot" title="Shoot a body region">Shoot</button>
     <button class="tool-btn" data-tool="assign" title="Assign a role to a survivor (tap them in Assign mode)">Assign</button>

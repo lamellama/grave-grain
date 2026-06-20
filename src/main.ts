@@ -29,7 +29,7 @@ import {
 } from './config';
 import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons } from './input';
 import { initRenderer, getRenderer, setBodies, setZombieBodies } from './render/renderer';
-import { camera, clampCamera } from './camera';
+import { camera, clampCamera, effectiveCellPx } from './camera';
 import * as simulation from './engine/simulation';
 import { createSurvivor, updateSurvivor, assignRole } from './characters/survivor';
 import type { Survivor } from './characters/survivor';
@@ -99,7 +99,7 @@ function resizeCanvas(): void {
 let framedSurfaceRow = SURFACE_BASE_Y;
 function frameCameraVertically(): void {
   const r = getRenderer();
-  const visibleRows = r.viewportHeightPx / CELL_SIZE;
+  const visibleRows = r.viewportHeightPx / effectiveCellPx();
   camera.y = framedSurfaceRow - visibleRows * 0.3;
   clampCamera(r.viewportWidthPx, r.viewportHeightPx);
 }
@@ -142,7 +142,7 @@ frameCameraVertically();
 // drag pans from here; off-screen edge arrows point to incoming herds.
 {
   const r = getRenderer();
-  camera.x = world.spawnX - r.viewportWidthPx / CELL_SIZE / 2;
+  camera.x = world.spawnX - r.viewportWidthPx / effectiveCellPx() / 2;
   clampCamera(r.viewportWidthPx, r.viewportHeightPx);
 }
 

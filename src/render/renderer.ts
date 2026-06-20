@@ -4,8 +4,8 @@
  * Honour devicePixelRatio; keep cells chunky.
  */
 
-import { CELL_SIZE, WORLD_W, WORLD_H } from '../config';
-import { camera, clampCamera, worldToScreen } from '../camera';
+import { WORLD_W, WORLD_H } from '../config';
+import { camera, clampCamera, effectiveCellPx } from '../camera';
 import * as grid from '../engine/grid';
 import { MATERIALS } from '../engine/materials';
 import { type Body } from '../characters/body';
@@ -144,11 +144,19 @@ class Renderer {
    * Only renders the visible column range (GDD §13).
    */
   render(): void {
-    // Calculate visible column range in cells.
+    // Effective cell size in screen px (GDD §12.3 zoom). One world cell occupies
+    // effCell screen px; at ZOOM_MIN this is CELL_SIZE*0.5 = 3px so cells stay
+    // chunky (never sub-pixel). This is NOT a ctx transform / DPR multiply —
+    // the ImageData stays viewport-sized and putImageData(0,0) fills the canvas.
+    const effCell = effectiveCellPx();
+
+    // Calculate visible column/row range in cells (window optimisation, GDD §13).
+    // Only the cells whose screen rect overlaps the viewport are iterated — fewer
+    // when zoomed in, more (but still bounded by the world) when zoomed out.
     const visibleStartX = Math.floor(camera.x);
     const visibleStartY = Math.floor(camera.y);
-    const visibleEndX = Math.ceil(camera.x + this.viewportWidthPx / CELL_SIZE);
-    const visibleEndY = Math.ceil(camera.y + this.viewportHeightPx / CELL_SIZE);
+    const visibleEndX = Math.ceil(camera.x + this.viewportWidthPx / effCell);
+    const visibleEndY = Math.ceil(camera.y + this.viewportHeightPx / effCell);
 
     // Clamp to world bounds to avoid OOB reads.
     const startX = Math.max(0, visibleStartX);
@@ -157,35 +165,43 @@ class Renderer {
     const endY = Math.min(WORLD_H, visibleEndY);
 
     // Create an ImageData sized to the viewport (in screen pixels).
-    // Each cell is CELL_SIZE pixels; we'll fill it with a solid colour.
+    // Each cell fills an integer block derived from effCell; we'll fill it solid.
     const imageData = this.ctx.createImageData(this.viewportWidthPx, this.viewportHeightPx);
     const data = imageData.data; // RGBA tuples
+    const vw = this.viewportWidthPx;
+    const vh = this.viewportHeightPx;
 
-    // Fill the ImageData with the visible grid cells.
+    // Fill the ImageData with the visible grid cells. Block extents are taken as
+    // the difference of floored screen edges (this cell's edge → next cell's
+    // edge), so blocks are integer-pixel CRISP and TILE the viewport with no
+    // gaps/overlaps at any (possibly fractional) zoom.
     for (let cellY = startY; cellY < endY; cellY++) {
+      const sy0 = Math.floor((cellY - camera.y) * effCell);
+      const sy1 = Math.floor((cellY + 1 - camera.y) * effCell);
+      const py0 = Math.max(0, sy0);
+      const py1 = Math.min(vh, sy1);
+      if (py1 <= py0) continue;
+
       for (let cellX = startX; cellX < endX; cellX++) {
         // Get the material at this cell.
         const material = grid.get(cellX, cellY);
         const [r, g, b] = RGB_PALETTE[material] || RGB_PALETTE[0];
 
-        // Calculate the screen-pixel region for this cell.
-        const screenX = (cellX - camera.x) * CELL_SIZE;
-        const screenY = (cellY - camera.y) * CELL_SIZE;
+        const sx0 = Math.floor((cellX - camera.x) * effCell);
+        const sx1 = Math.floor((cellX + 1 - camera.x) * effCell);
+        const px0 = Math.max(0, sx0);
+        const px1 = Math.min(vw, sx1);
+        if (px1 <= px0) continue;
 
-        // Fill the cell's CELL_SIZE × CELL_SIZE region.
-        for (let py = 0; py < CELL_SIZE; py++) {
-          const pixelY = Math.floor(screenY) + py;
-          if (pixelY < 0 || pixelY >= this.viewportHeightPx) continue;
-
-          for (let px = 0; px < CELL_SIZE; px++) {
-            const pixelX = Math.floor(screenX) + px;
-            if (pixelX < 0 || pixelX >= this.viewportWidthPx) continue;
-
-            const idx = (pixelY * this.viewportWidthPx + pixelX) * 4;
+        // Fill the cell's integer block region.
+        for (let pixelY = py0; pixelY < py1; pixelY++) {
+          let idx = (pixelY * vw + px0) * 4;
+          for (let pixelX = px0; pixelX < px1; pixelX++) {
             data[idx] = r;
             data[idx + 1] = g;
             data[idx + 2] = b;
             data[idx + 3] = 255; // alpha
+            idx += 4;
           }
         }
       }
@@ -221,6 +237,9 @@ class Renderer {
     const vw = this.viewportWidthPx;
     const vh = this.viewportHeightPx;
     const ctx = this.ctx;
+    // Same effective cell size the cell layer uses (GDD §12.3 zoom) so body
+    // pixels stay locked flush to the CA grid at any zoom.
+    const effCell = effectiveCellPx();
 
     for (const body of bodies) {
       if (!body.alive) continue;
@@ -235,17 +254,20 @@ class Renderer {
           const wx = bx + bone.offset.dx + pixel.dx;
           const wy = by + bone.offset.dy + pixel.dy;
 
-          // Screen top-left — identical math to the ImageData cell loop above.
-          const { x: sx, y: sy } = worldToScreen(wx, wy);
-          const sx0 = Math.floor(sx);
-          const sy0 = Math.floor(sy);
+          // Screen rect — identical floor-of-edge math to the ImageData cell
+          // loop above (this cell's edge → next cell's edge) so the body pixel
+          // exactly tiles its world cell at any zoom.
+          const sx0 = Math.floor((wx - camera.x) * effCell);
+          const sy0 = Math.floor((wy - camera.y) * effCell);
+          const sx1 = Math.floor((wx + 1 - camera.x) * effCell);
+          const sy1 = Math.floor((wy + 1 - camera.y) * effCell);
 
           // Skip if the rect is fully outside the viewport.
-          if (sx0 + CELL_SIZE <= 0 || sx0 >= vw) continue;
-          if (sy0 + CELL_SIZE <= 0 || sy0 >= vh) continue;
+          if (sx1 <= 0 || sx0 >= vw) continue;
+          if (sy1 <= 0 || sy0 >= vh) continue;
 
           ctx.fillStyle = tint ? tint(pixel.color) : pixel.color;
-          ctx.fillRect(sx0, sy0, CELL_SIZE, CELL_SIZE);
+          ctx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
         }
       }
     }

@@ -1,0 +1,1 @@
+{ "compilerOptions": { "target":"ES2020","module":"CommonJS","moduleResolution":"node","strict":false,"esModuleInterop":true,"skipLibCheck":true,"outDir":"../.test-out","rootDir":".." }, "include": ["p10-zoom.test.ts","../src/**/*.ts"] }

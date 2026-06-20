@@ -18,7 +18,7 @@
 import type { Survivor } from '../characters/survivor';
 import type { Zombie } from '../characters/zombie';
 import type { GameState } from './state';
-import { worldToScreen } from '../camera';
+import { worldToScreen, effectiveCellPx } from '../camera';
 import { stockpilePoint } from './resources';
 import {
   NEED_MAX,
@@ -323,9 +323,12 @@ export function drawMinimap(
   }
 
   // Camera window (white outline).
+  // Visible width in world cells depends on zoom (GDD §12.3): the minimap maps
+  // the WHOLE world (zoom-independent), but the camera window rect must shrink
+  // when zoomed in and grow when zoomed out.
   const camLeft = worldToStripX(opts.camera.x, cw);
   const camRight = worldToStripX(
-    opts.camera.x + opts.viewportWpx / CELL_SIZE,
+    opts.camera.x + opts.viewportWpx / effectiveCellPx(),
     cw,
   );
   ctx.strokeStyle = 'rgba(255,255,255,0.85)';
@@ -351,7 +354,7 @@ export function directionToWorldX(
   viewportWpx: number,
 ): '\u2190' | '\u2192' | '' {
   const visLeft = cam.x;
-  const visRight = cam.x + viewportWpx / CELL_SIZE;
+  const visRight = cam.x + viewportWpx / effectiveCellPx();
   if (worldX < visLeft) return '\u2190'; // ←
   if (worldX >= visRight) return '\u2192'; // →
   return '';
@@ -379,7 +382,7 @@ export function drawEdgeArrows(
   if (cw === 0 || ch === 0) return;
 
   const visLeft = cam.x;
-  const visRight = cam.x + viewportWpx / CELL_SIZE;
+  const visRight = cam.x + viewportWpx / effectiveCellPx();
 
   let leftCount = 0;
   let rightCount = 0;

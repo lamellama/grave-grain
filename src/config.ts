@@ -22,6 +22,17 @@ export const SIM_HZ = 60;
 // Adjust to feel responsive but not twitchy.
 export const PAN_SPEED = 1.0;
 
+// Phase 10 — Camera zoom (task 10-3, GDD §12.3/§12.4). Zoom multiplies the
+// effective cell size (how many screen px a world cell occupies). It is NOT a
+// ctx transform and NOT a devicePixelRatio multiply — the renderer keeps the
+// ImageData == backing-store, putImageData(0,0) invariant. Cells stay chunky:
+// at ZOOM_MIN the effective cell is CELL_SIZE*0.5 = 3px (still >1, never
+// sub-pixel). Anchor-based zoom keeps the world point under the gesture stable.
+export const ZOOM_MIN = 0.5;
+export const ZOOM_MAX = 3;
+export const ZOOM_STEP = 0.15;
+export const ZOOM_DEFAULT = 1;
+
 // Phase 1 tunables — Falling-sand core (GDD §5.2)
 
 // Gravity simulation steps per frame
