@@ -29,6 +29,9 @@ import {
   FIRE_LIFETIME,
   FIRE_SPREAD_CHANCE,
   SMOKE_EMIT_CHANCE,
+  MAX_GORE_CELLS,
+  GORE_FADE_PER_TICK,
+  GORE_RECOUNT_INTERVAL,
 } from '../config';
 import { material, integrity, idx, set, setIntegrity } from './grid';
 import { reactions } from './reactions';
@@ -102,7 +105,89 @@ export function step(): void {
     }
   }
 
+  // Mobile gore budget (task 10-8, GDD §13): keep loose body-debris bounded so
+  // it can't accumulate forever and sink the framerate. Runs AFTER the movement
+  // scan so it never interferes with fall/settle/no-tunnel this tick.
+  sweepGore();
+
   tick++;
+}
+
+/**
+ * Last measured count of loose body-debris cells (FLESH + BONE + BLOOD).
+ * Refreshed by a full grid scan every GORE_RECOUNT_INTERVAL ticks (the ONLY
+ * full-grid scan this adds — see sweepGore for the amortised cost), and
+ * decremented as the fade AIR-ifies cells in between recounts.
+ */
+let goreCount = 0;
+
+/**
+ * Rolling cursor into the flat grid for the fade sweep. Advancing it across
+ * ticks (instead of restarting at 0) spreads the fade over the whole world and
+ * keeps each tick's fade work bounded to GORE_FADE_PER_TICK conversions.
+ */
+let fadeCursor = 0;
+
+/** Is `m` a loose body-debris material? (the only cells the fade may remove.) */
+function isLooseDebris(m: number): boolean {
+  return m === FLESH || m === BONE || m === BLOOD;
+}
+
+/**
+ * Gore budget sweep (task 10-8, GDD §13 "fade/settle gore so debris doesn't
+ * accumulate forever"). A deliberately MVP-minimal cap+fade — NOT chunking
+ * (Phase 11).
+ *
+ * Mechanism:
+ *  - Every GORE_RECOUNT_INTERVAL ticks, recount the loose FLESH/BONE/BLOOD cells
+ *    in one tight pass over the material array (a Uint8Array scan — fast). This
+ *    is the only full-grid scan we add; amortised it is ~WORLD_W·WORLD_H /
+ *    GORE_RECOUNT_INTERVAL reads/tick (≈10k/tick here), versus the main step()
+ *    which already visits every cell each tick — so the overhead is a small
+ *    fraction of one tick. We deliberately do NOT recount every tick.
+ *  - While the count is at/under MAX_GORE_CELLS the function is a no-op past the
+ *    cheap recount, so below the cap gore falls, piles and bleeds untouched.
+ *  - When OVER budget, AIR-ify up to GORE_FADE_PER_TICK debris cells found by a
+ *    rolling cursor (a slow fade, not a snap). The cursor walks the flat grid;
+ *    because being over budget means ≥ MAX_GORE_CELLS debris cells exist, it
+ *    finds its quota within a few thousand reads, and the `scanned < total`
+ *    guard caps the work so a sparse grid can never stall the tick.
+ *
+ * CRITICAL (THE GATE invariants): the fade ONLY ever converts loose
+ * FLESH/BONE/BLOOD → AIR. Terrain/structure (STONE/DIRT/WOOD/WALL/…) and live
+ * body SPRITES (which are not in the grid at all) are never touched.
+ */
+function sweepGore(): void {
+  // Periodic exact recount (amortised; never every tick).
+  if (tick % GORE_RECOUNT_INTERVAL === 0) {
+    let n = 0;
+    for (let i = 0; i < material.length; i++) {
+      if (isLooseDebris(material[i])) n++;
+    }
+    goreCount = n;
+  }
+
+  if (goreCount <= MAX_GORE_CELLS) {
+    return; // under budget — leave all debris alone
+  }
+
+  // Over budget → fade a bounded number of debris cells to AIR via the cursor.
+  const total = material.length;
+  let faded = 0;
+  let scanned = 0;
+  while (faded < GORE_FADE_PER_TICK && scanned < total) {
+    if (isLooseDebris(material[fadeCursor])) {
+      material[fadeCursor] = AIR;
+      integrity[fadeCursor] = 0; // clear any reused slot; AIR carries none
+      faded++;
+    }
+    fadeCursor++;
+    if (fadeCursor >= total) {
+      fadeCursor = 0;
+    }
+    scanned++;
+  }
+  goreCount -= faded;
 }
 
 /**

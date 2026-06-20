@@ -405,7 +405,30 @@ export const ZOMBIE_SPAWN_EDGE: 'left' | 'right' = 'left';
 export const ZOMBIE_SPAWN_Y = P3_GROUND_Y - 1;
 
 // §13 — Hard cap on simultaneously-active zombie entities (performance).
+// Mobile budget (task 10-8): this is the concurrent-zombie ceiling enforced in
+// waves.ts (aliveZombieCount < MAX_ZOMBIES gates every spawn). 24 chunky rigged
+// bodies + their per-tick AI/locomotion is the mid-phone budget the playtest
+// held; kept at 24 here (the gore cap below, not the zombie count, is the
+// debris-accumulation risk on mobile). Tune down if a weaker target struggles.
 export const MAX_ZOMBIES = 24;
+
+// §13 — Mobile gore budget (task 10-8). Loose body-debris cells (FLESH/BONE/
+// BLOOD shed by THE GATE — releaseBone/dissolveBody) otherwise accumulate
+// forever as bodies fall apart, dragging the sim below framerate on a phone.
+// A simple global CAP + slow FADE keeps the loose-debris count bounded WITHOUT
+// full chunking (that is Phase 11). NOTE: terrain/structure cells are NEVER
+// touched — only loose FLESH/BONE/BLOOD fades. See simulation.ts sweepGore().
+//   MAX_GORE_CELLS: target ceiling for total loose FLESH/BONE/BLOOD cells. Under
+//     this the sim runs untouched (gore still falls, piles, bleeds normally).
+//   GORE_FADE_PER_TICK: when OVER budget, at most this many oldest/excess debris
+//     cells are AIR-ified per tick — a slow fade (8/tick ≈ 480 cells/s @60Hz) so
+//     gore lingers a few seconds, never snapping away, and the tick stays bounded.
+//   GORE_RECOUNT_INTERVAL: ticks between full debris recounts. The count is the
+//     only full-grid scan; doing it every Nth tick (not every tick) amortises it
+//     to ~N_cells/INTERVAL reads/tick while keeping the cap responsive (~0.5s).
+export const MAX_GORE_CELLS = 1500;
+export const GORE_FADE_PER_TICK = 8;
+export const GORE_RECOUNT_INTERVAL = 30;
 
 // Wave sizing (GDD §7.1 / §13). Wave N (0-indexed) sends
 //   WAVE_SIZE_START + WAVE_SIZE_GROWTH × N  zombies total.
