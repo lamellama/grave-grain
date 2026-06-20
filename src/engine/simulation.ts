@@ -32,6 +32,7 @@ import {
   MAX_GORE_CELLS,
   GORE_FADE_PER_TICK,
   GORE_RECOUNT_INTERVAL,
+  SIM_RNG_SEED,
 } from '../config';
 import { material, integrity, idx, set, setIntegrity } from './grid';
 import { reactions } from './reactions';
@@ -58,6 +59,55 @@ import {
  * "scan-direction flip per row each frame to kill left/right bias").
  */
 let tick = 0;
+
+/**
+ * Deterministic per-(x, y, tick) RNG (task 11-1, GDD §13 / App. B).
+ *
+ * Replaces every per-cell `Math.random()` in the cellular update. Returns a
+ * float in [0, 1) by avalanche-mixing the cell coords, the current `tick`, the
+ * config seed, and a `salt` that distinguishes independent rolls at the SAME
+ * cell/tick (e.g. "spill chance" vs "which diagonal first"). Because the result
+ * depends ONLY on (x, y, tick, SIM_RNG_SEED, salt) — never on call order or how
+ * many other cells were processed — the sim becomes a pure function of initial
+ * state + tick. That is the precondition for the chunked scan (11-2): a scan
+ * that SKIPS settled chunks draws the exact same randoms as a full scan, so the
+ * two stay byte-identical.
+ *
+ * Mix: a small Math.imul integer hash (xmxmx-style avalanche) folding each input
+ * in turn, then dividing the unsigned 32-bit result by 2^32. The distribution is
+ * uniform in [0, 1), so every threshold test keeps its original semantics — only
+ * the SOURCE of the randomness changes from global to per-cell-deterministic.
+ */
+function simRand(x: number, y: number, salt: number): number {
+  let h = SIM_RNG_SEED >>> 0;
+  h = Math.imul(h ^ (x >>> 0), 0x85ebca6b);
+  h ^= h >>> 13;
+  h = Math.imul(h ^ (y >>> 0), 0xc2b2ae35);
+  h ^= h >>> 16;
+  h = Math.imul(h ^ (tick >>> 0), 0x27d4eb2f);
+  h ^= h >>> 15;
+  h = Math.imul(h ^ (salt >>> 0), 0x165667b1);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/**
+ * Distinct salt constants per random DECISION site (task 11-1). Two independent
+ * rolls at the same cell/tick must use DIFFERENT salts so they aren't perfectly
+ * correlated (e.g. dirt rolls its spill chance AND its left/right order). The
+ * salt is mixed into the hash, so even adjacent values give independent streams;
+ * the spacing below is only to keep the constants distinct and self-documenting.
+ */
+const SALT_DIAG = 1; // powder L/R diagonal order (sand/dirt/ash/flesh/bone)
+const SALT_SPILL = 2; // dirt: whether to attempt the diagonal spill at all
+const SALT_WATER = 3; // water/blood: L/R flow order
+const SALT_GAS_DISS = 4; // smoke/steam: dissipate-to-air roll
+const SALT_GAS_DIAG = 5; // smoke/steam: up-diagonal / drift L/R order
+const SALT_SMOKE_EMIT = 6; // fire expiry: puff SMOKE vs leave ASH
+// Fire spread rolls ONCE PER NEIGHBOUR, so the per-neighbour index (0..8) is
+// added to this base — each of the 8 neighbour rolls gets its own salt and so
+// its own independent stream (no correlation between neighbours at one cell).
+const SALT_FIRE_SPREAD = 100;
 
 /**
  * "Moved this tick" guard, one byte per cell (0 = free, 1 = already acted).
@@ -238,7 +288,7 @@ function powderFall(x: number, y: number): void {
   }
 
   // 2) Otherwise pile via the two diagonals below (random order, no side bias).
-  const leftFirst = Math.random() < 0.5;
+  const leftFirst = simRand(x, y, SALT_DIAG) < 0.5;
   const firstDx = leftFirst ? -1 : 1;
   const secondDx = leftFirst ? 1 : -1;
 
@@ -294,7 +344,7 @@ function updateSand(x: number, y: number): void {
   }
 
   // 2) Otherwise pile via the two diagonals below (random order, no side bias).
-  const leftFirst = Math.random() < 0.5;
+  const leftFirst = simRand(x, y, SALT_DIAG) < 0.5;
   const firstDx = leftFirst ? -1 : 1;
   const secondDx = leftFirst ? 1 : -1;
 
@@ -323,12 +373,12 @@ function updateDirt(x: number, y: number): void {
   }
 
   // 2) Blocked below → only spill diagonally with DIRT_SPILL_CHANCE (steepness).
-  if (Math.random() >= DIRT_SPILL_CHANCE) {
+  if (simRand(x, y, SALT_SPILL) >= DIRT_SPILL_CHANCE) {
     return;
   }
 
   // Same random L/R order and displacement primitive as sand.
-  const leftFirst = Math.random() < 0.5;
+  const leftFirst = simRand(x, y, SALT_DIAG) < 0.5;
   const firstDx = leftFirst ? -1 : 1;
   const secondDx = leftFirst ? 1 : -1;
 
@@ -357,7 +407,7 @@ function updateAsh(x: number, y: number): void {
   }
 
   // 2) Otherwise pile via the two diagonals below (random order, full spill).
-  const leftFirst = Math.random() < 0.5;
+  const leftFirst = simRand(x, y, SALT_DIAG) < 0.5;
   const firstDx = leftFirst ? -1 : 1;
   const secondDx = leftFirst ? 1 : -1;
 
@@ -392,7 +442,7 @@ function updateWater(x: number, y: number): void {
     return;
   }
 
-  const leftFirst = Math.random() < 0.5;
+  const leftFirst = simRand(x, y, SALT_WATER) < 0.5;
   const dx1 = leftFirst ? -1 : 1;
   const dx2 = leftFirst ? 1 : -1;
 
@@ -466,7 +516,10 @@ function updateFire(x: number, y: number): void {
       if (moved[n] || !isFlammable(material[n])) {
         continue;
       }
-      if (Math.random() < FIRE_SPREAD_CHANCE) {
+      // One roll PER NEIGHBOUR: fold the neighbour index (0..8) into the salt so
+      // each of the up-to-8 neighbour rolls is an independent stream (task 11-1).
+      const ni = (dy + 1) * 3 + (dx + 1);
+      if (simRand(x, y, SALT_FIRE_SPREAD + ni) < FIRE_SPREAD_CHANCE) {
         ignite(nx, ny); // single ignition path (FIRE + seeded lifetime)
         moved[n] = 1; // freshly lit: age from next tick, no same-tick re-spread
       }
@@ -477,7 +530,7 @@ function updateFire(x: number, y: number): void {
   const s = idx(x, y);
   const life = integrity[s];
   if (life <= 1) {
-    if (Math.random() < SMOKE_EMIT_CHANCE) {
+    if (simRand(x, y, SALT_SMOKE_EMIT) < SMOKE_EMIT_CHANCE) {
       material[s] = SMOKE;
     } else {
       material[s] = ASH;
@@ -513,7 +566,7 @@ function updateFire(x: number, y: number): void {
  */
 function updateGas(x: number, y: number): void {
   // 1) Dissipate: a fraction of the plume vanishes each tick (not conserved).
-  if (Math.random() < SMOKE_DISSIPATE) {
+  if (simRand(x, y, SALT_GAS_DISS) < SMOKE_DISSIPATE) {
     const s = idx(x, y);
     material[s] = AIR;
     moved[s] = 1; // Claim the cell so nothing re-processes the freed AIR.
@@ -528,7 +581,7 @@ function updateGas(x: number, y: number): void {
   }
 
   // 3) Blocked → up-diagonals in random per-cell order (no lateral bias).
-  const leftFirst = Math.random() < 0.5;
+  const leftFirst = simRand(x, y, SALT_GAS_DIAG) < 0.5;
   const dx1 = leftFirst ? -1 : 1;
   const dx2 = leftFirst ? 1 : -1;
   if (gasMove(x, y, x + dx1, above) || gasMove(x, y, x + dx2, above)) {

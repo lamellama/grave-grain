@@ -41,6 +41,19 @@ export const ZOOM_DEFAULT = 1;
 
 // Phase 1 tunables — Falling-sand core (GDD §5.2)
 
+// Phase 11 (task 11-1) — Deterministic cellular-sim RNG seed (GDD §13, App. B).
+// The falling-sand update must be a PURE function of (initial grid state + tick)
+// so two runs of the same scene are byte-identical — the precondition for
+// proving the chunked sim (11-2) is behaviour-preserving. Every per-cell random
+// decision (diagonal order, dirt spill, water flow order, smoke dissipate, fire
+// spread, smoke emit) is drawn from simRand(x, y, salt) which hashes
+// (x, y, tick, SIM_RNG_SEED, salt) instead of calling the global Math.random().
+// This makes a cell's roll INDEPENDENT of how many other cells were processed,
+// so a chunked scan that skips settled chunks draws the SAME randoms as a full
+// scan. The exact uint32 value is arbitrary (a well-mixed odd constant — the
+// golden-ratio prime 0x9e3779b1); changing it only reshuffles the noise field.
+export const SIM_RNG_SEED = 0x9e3779b1;
+
 // Gravity simulation steps per frame
 export const GRAVITY_STEPS = 1;
 
