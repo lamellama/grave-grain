@@ -24,6 +24,8 @@
 
 import { createZombie } from '../characters/zombie';
 import type { Zombie } from '../characters/zombie';
+import { material, idx } from '../engine/grid';
+import { isSolidForBody } from '../engine/materials';
 import {
   WAVE_INTERVAL,
   WAVE_INTERVAL_MIN,
@@ -34,9 +36,23 @@ import {
   MAX_ZOMBIES,
   WIN_WAVES,
   ZOMBIE_SPAWN_EDGE,
-  ZOMBIE_SPAWN_Y,
   WORLD_W,
+  WORLD_H,
 } from '../config';
+
+// How far in from the map edge zombies spawn, so the whole ~6-wide body is
+// in-world (not clipped half off-screen) — playtest fix.
+const ZOMBIE_SPAWN_INSET = 4;
+
+// Find the surface row (topmost body-solid cell) of a column so zombies spawn ON
+// the rolling worldgen surface instead of a FIXED y that can bury them in a hill
+// (a buried head pins the body → it can't move — playtest: zombies stuck at edge).
+function columnSurfaceY(x: number): number {
+  for (let y = 0; y < WORLD_H; y++) {
+    if (isSolidForBody(material[idx(x, y)])) return y;
+  }
+  return WORLD_H - 1;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -112,9 +128,14 @@ export function updateWaves(state: WaveState, aliveZombieCount: number): Zombie[
 
     if (state.ticksToNextSpawn <= 0) {
       if (aliveZombieCount < MAX_ZOMBIES) {
-        // Spawn one zombie at the configured edge.
-        const spawnX = ZOMBIE_SPAWN_EDGE === 'left' ? 1 : WORLD_W - 2;
-        spawned.push(createZombie(spawnX, ZOMBIE_SPAWN_Y));
+        // Spawn one zombie inset from the configured edge, a couple cells ABOVE
+        // the actual surface of that column so it lands on top (never buried).
+        const spawnX =
+          ZOMBIE_SPAWN_EDGE === 'left'
+            ? ZOMBIE_SPAWN_INSET
+            : WORLD_W - 1 - ZOMBIE_SPAWN_INSET;
+        const spawnY = Math.max(1, columnSurfaceY(spawnX) - 2);
+        spawned.push(createZombie(spawnX, spawnY));
         state.pendingThisWave--;
         // Arm the stagger timer for the next zombie in this wave.
         state.ticksToNextSpawn = ZOMBIE_SPAWN_STAGGER;

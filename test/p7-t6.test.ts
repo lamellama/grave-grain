@@ -22,7 +22,9 @@ import {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-const EXPECTED_X = ZOMBIE_SPAWN_EDGE === 'left' ? 1 : WORLD_W - 2;
+// Zombies now spawn INSET from the edge (ZOMBIE_SPAWN_INSET=4) so the whole
+// body is in-world (not clipped half off-screen).
+const EXPECTED_X = ZOMBIE_SPAWN_EDGE === 'left' ? 4 : WORLD_W - 1 - 4;
 
 function runTicks(
   maxTicks: number,
