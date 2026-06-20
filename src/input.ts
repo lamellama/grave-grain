@@ -29,7 +29,7 @@ import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
 import { ignite } from './engine/simulation';
 import { placeStructure, canPlace, type StructureKind } from './game/building';
-import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP } from './config';
+import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP, SELECT_TAP_RADIUS, TAP_CYCLE_RESET_MS } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
 import { applyDamage } from './characters/damage';
@@ -139,19 +139,102 @@ export function classifyGesture(dx: number, dy: number, heldMs: number): 'tap' |
 }
 
 // ---------------------------------------------------------------------------
-// Long-press stub — task 10-6 fills this with the context/role menu
+// Task 10-6 — pure cycling helper (GDD §12.4 forgiving tap selection)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pick an alive survivor near (wx, wy) within `radius` cells, with tap-cycle
+ * support for overlapping survivors (GDD §12.4). Pure function — no DOM, no
+ * side-effects. Exported for headless unit-testing (p10-select test).
+ *
+ * Candidates are sorted by distance ascending, then by list-index for a stable
+ * deterministic tie-break order.
+ *
+ *  - When `sameSpot` is false (new spot or reset): return the NEAREST candidate.
+ *  - When `sameSpot` is true (repeated tap at ~same location within
+ *    TAP_CYCLE_RESET_MS): return the NEXT alive candidate after `lastPicked`
+ *    (wrapping), so repeated taps cycle through the clump. If `lastPicked` is
+ *    no longer in the candidate set, restart from the nearest.
+ *
+ * @param list       live survivor array
+ * @param wx         world cell X of the tap
+ * @param wy         world cell Y of the tap
+ * @param radius     pick radius in cells (Euclidean)
+ * @param lastPicked survivor returned by the previous call (for cycling)
+ * @param sameSpot   true when this tap is a same-spot repeated tap
+ */
+export function pickCycling(
+  list: Survivor[],
+  wx: number,
+  wy: number,
+  radius: number,
+  lastPicked: Survivor | null,
+  sameSpot: boolean
+): Survivor | null {
+  // Build candidate set: alive survivors within radius, sorted by distance then index.
+  const radiusSq = radius * radius;
+  const candidates = list
+    .filter((s) => {
+      if (!s.body.alive) return false;
+      const dx = s.body.x - wx;
+      const dy = s.body.y - wy;
+      return dx * dx + dy * dy <= radiusSq;
+    })
+    .sort((a, b) => {
+      const da = (a.body.x - wx) ** 2 + (a.body.y - wy) ** 2;
+      const db = (b.body.x - wx) ** 2 + (b.body.y - wy) ** 2;
+      if (da !== db) return da - db;
+      return list.indexOf(a) - list.indexOf(b); // stable tie-break by list order
+    });
+
+  if (candidates.length === 0) return null;
+
+  // Cycle: advance past lastPicked when this is a same-spot repeated tap.
+  if (sameSpot && lastPicked !== null) {
+    const idx = candidates.indexOf(lastPicked);
+    if (idx !== -1) {
+      return candidates[(idx + 1) % candidates.length];
+    }
+  }
+
+  // Default: return the nearest candidate.
+  return candidates[0];
+}
+
+// ---------------------------------------------------------------------------
+// Tap-cycle state (module-level — shared between Assign and Shoot tap paths)
+// ---------------------------------------------------------------------------
+
+/** Survivor returned by the most recent Assign/Shoot tap (for cycling). */
+let _lastPickedSurvivor: Survivor | null = null;
+
+/** World X of the most recent Assign/Shoot tap. */
+let _lastTapWx = -9999;
+
+/** World Y of the most recent Assign/Shoot tap. */
+let _lastTapWy = -9999;
+
+/** performance.now() timestamp of the most recent Assign/Shoot tap. */
+let _lastTapTime = 0;
+
+// ---------------------------------------------------------------------------
+// Long-press — task 10-6: open context/role menu (GDD §12.3)
 // ---------------------------------------------------------------------------
 
 /**
  * Called when a single pointer is held still for ≥ LONG_PRESS_MS (GDD §12.3).
- * No-op stub: task 10-6 wires this to the contextual role menu.
- *
- * @param _worldX  world cell X under the held pointer
- * @param _worldY  world cell Y under the held pointer
+ * Picks the nearest alive survivor within SELECT_TAP_RADIUS and opens the
+ * role-assign menu (a global shortcut independent of the current tool mode).
+ * Closes the menu if no survivor is nearby.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-function onLongPress(_worldX: number, _worldY: number): void {
-  // No-op stub — task 10-6 implements the role context menu here.
+function onLongPress(worldX: number, worldY: number): void {
+  // GDD §12.3 long-press → context menu (task 10-6).
+  const s = pickCycling(survivorList, worldX, worldY, SELECT_TAP_RADIUS, null, false);
+  if (s) {
+    showRoleMenu(s);
+  } else {
+    closeRoleMenu();
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -539,8 +622,22 @@ function onPointerMove(event: PointerEvent): void {
 /**
  * Perform the tap-classified action for Shoot / Assign modes.
  * Called from onPointerUp when the gesture classifies as a tap.
+ * Uses pickCycling for forgiving, tap-cycle survivor selection (GDD §12.4,
+ * task 10-6). State (_lastPickedSurvivor, _lastTapW*, _lastTapTime) is
+ * shared between modes so cycling is consistent across tool switches.
  */
 function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
+  // --- Resolve world cell and tap-cycle state (shared by Assign + Shoot) ---
+  const canvasCoords = getCanvasRelativeCoords(event, canvas);
+  const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+  const wx = worldCoords.x;
+  const wy = worldCoords.y;
+
+  const now = performance.now();
+  const sameSpot =
+    Math.hypot(wx - _lastTapWx, wy - _lastTapWy) <= SELECT_TAP_RADIUS &&
+    now - _lastTapTime <= TAP_CYCLE_RESET_MS;
+
   if (toolState.mode === 'Shoot') {
     // Shoot on TAP: a quick tap shoots; a drag does NOT (task 10-4 key change).
     // Limited ammo (playtest): every shot costs a bullet; out of ammo → no-op + toast.
@@ -549,11 +646,20 @@ function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
       return;
     }
     // Routes through THE GATE (GDD §14 hand-test, §7.2 emergent damage).
-    const canvasCoords = getCanvasRelativeCoords(event, canvas);
-    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
-    const cellX = Math.floor(worldCoords.x);
-    const cellY = Math.floor(worldCoords.y);
-    const targetBodyHit = nearestBodyTo(cellX, cellY);
+    const cellX = Math.floor(wx);
+    const cellY = Math.floor(wy);
+
+    // Tap-cycle: try picking a survivor via the cycling helper first (GDD §12.4).
+    // Fall back to nearestBodyTo (which includes zombies) if no survivor nearby.
+    const cycledSurvivor = pickCycling(survivorList, wx, wy, SELECT_TAP_RADIUS, _lastPickedSurvivor, sameSpot);
+    const targetBodyHit = cycledSurvivor ? cycledSurvivor.body : nearestBodyTo(cellX, cellY);
+
+    // Update tap-cycle tracking state.
+    _lastPickedSurvivor = cycledSurvivor;
+    _lastTapWx = wx;
+    _lastTapWy = wy;
+    _lastTapTime = now;
+
     if (targetBodyHit) {
       const name = pickBone(targetBodyHit, cellX, cellY);
       if (name) {
@@ -562,26 +668,19 @@ function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
     }
     if (getAmmo() === 0) pushToast('Last bullet — out of ammo!');
   } else if (toolState.mode === 'Assign') {
-    // Assign on TAP: open role menu for nearest alive survivor (p6-t5, GDD §6.2).
-    const canvasCoords = getCanvasRelativeCoords(event, canvas);
-    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
-    const wx = worldCoords.x;
-    const wy = worldCoords.y;
-    const radiusSq = ASSIGN_PICK_RADIUS * ASSIGN_PICK_RADIUS;
-    let nearest: Survivor | null = null;
-    let nearestDist = radiusSq + 1; // one beyond threshold
-    for (const s of survivorList) {
-      if (!s.body.alive) continue;
-      const dx = s.body.x - wx;
-      const dy = s.body.y - wy;
-      const d2 = dx * dx + dy * dy;
-      if (d2 <= radiusSq && d2 < nearestDist) {
-        nearestDist = d2;
-        nearest = s;
-      }
-    }
-    if (nearest) {
-      showRoleMenu(nearest);
+    // Assign on TAP: open role menu for nearest/cycled alive survivor
+    // (p6-t5, GDD §6.2; forgiving tap-cycle from task 10-6, GDD §12.4).
+    // Uses SELECT_TAP_RADIUS (generous) instead of the tighter ASSIGN_PICK_RADIUS.
+    const picked = pickCycling(survivorList, wx, wy, SELECT_TAP_RADIUS, _lastPickedSurvivor, sameSpot);
+
+    // Update tap-cycle tracking state.
+    _lastPickedSurvivor = picked;
+    _lastTapWx = wx;
+    _lastTapWy = wy;
+    _lastTapTime = now;
+
+    if (picked) {
+      showRoleMenu(picked);
     } else {
       closeRoleMenu();
     }
@@ -762,6 +861,18 @@ export function initInput(canvas: HTMLCanvasElement): void {
 
   // Prevent browser default touch actions (scrolling, zooming, etc.)
   canvas.style.touchAction = 'none';
+
+  // --- Right-click context menu: open role-assign overlay (task 10-6 / playtest #F) ---
+  // GDD §12.3: desktop equivalent of the long-press gesture; works in ANY tool mode.
+  canvas.addEventListener('contextmenu', (e: MouseEvent) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.clientX - rect.left;
+    const cy = e.clientY - rect.top;
+    const world = screenToWorld(cx, cy);
+    const s = pickCycling(survivorList, world.x, world.y, SELECT_TAP_RADIUS, null, false);
+    if (s) showRoleMenu(s);
+  });
 
   // Wire up toolbar buttons to set tool mode (GDD §12.3: toolbar switches modes)
   const toolbarButtons = document.querySelectorAll('[data-tool]');

@@ -531,3 +531,17 @@ export const SPAWN_GUARANTEE_WATER = true;
 // Player ammo for the Shoot tool (playtest: limited bullets so you can't just
 // shoot every zombie — GDD §6.3/§13 guns are a power spike gated by scarce ammo).
 export const STARTING_AMMO = 15;
+
+// ---------------------------------------------------------------------------
+// Phase 10 task 10-6 — tap-cycle selection & right-click / long-press menu
+// (GDD §12.3 long-press context menu, §12.4 forgiving tap selection)
+// ---------------------------------------------------------------------------
+
+// Generous pick radius (cells, Euclidean) used by long-press, right-click, and
+// tap-cycle selection so players can tap near a survivor without pixel precision.
+export const SELECT_TAP_RADIUS = 6;
+
+// Max time (ms) between two taps at ~the same world position that are considered
+// a "same-spot" repeated tap, causing the cycle to advance to the next survivor
+// instead of resetting to the nearest. After this window the cycle resets.
+export const TAP_CYCLE_RESET_MS = 800;
