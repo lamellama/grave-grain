@@ -69,17 +69,25 @@ These are the load-bearing ideas. Every feature should serve at least one. If a 
 
 #### The hybrid model (this is what the MVP builds)
 
-A character is a **chunky pixel-art body rigged to a simple skeleton while alive, that sheds real cells when damaged and fully dissolves into the cellular sim when it dies.** Three things make this read as "made of CA" while staying cheap and controllable:
+A character is a **chunky pixel-art body rigged to a simple skeleton while alive, that sheds real cells when damaged and — on a *violent* death — dissolves into the cellular sim.** Not every death dissolves: how a character dies reads in how it falls (see *Death outcomes* below). Three things make this read as "made of CA" while staying cheap and controllable:
 
 1. **Rendered at the world's cell resolution.** The body is drawn in coarse, low-res pixels that are *the same size as world cells*. A character's pixels and a pile of loose sand grains look like the same material at the same grain — so the eye reads the character as part of the cellular world. (This pixel style is mandatory, not cosmetic — it's what sells the illusion.)
 2. **Alive = sprite + simple skeleton.** A small rig (head, torso, two arms, two legs) drives a procedural/animated walk cycle. Locomotion and pathfinding are the *solved, cheap* rigged-character kind — not deformable-blob physics. This sidesteps the hardest risk entirely.
 3. **Damaged/dead = real cells.** This is the key trick (borrowed from Vagabond — see Appendix B). When a body region takes damage, its pixels are **released into the live cellular simulation** as body cells (flesh/bone/blood) that fall, pile, bleed and burn:
    - **Lose a leg:** that limb's pixels detach and drop as cells; the rig disables the limb → the character collapses to a **crawl**. Real limb loss, no soft-body solver.
-   - **Headshot / death:** the whole body disintegrates into falling cells (the Vagabond death-collapse).
-   - **Fire:** flesh pixels convert to flammable cells and ignite/spread like any other fuel.
-   - **Buried/drowned:** the rigged body reads the world (sand above, water over head) and reacts; on death it dissolves into the sim like everything else.
+   - **Headshot / violent death:** the whole body disintegrates into falling cells (the Vagabond death-collapse) — reserved for *extreme* deaths (see below).
+   - **Fire:** flesh pixels convert to flammable cells and ignite/spread like any other fuel; a corpse can still catch fire and *then* dissolve.
+   - **Buried/drowned:** the rigged body reads the world (sand above, water over head) and reacts.
 
-So the **damage model is still emergent and cellular** (§7) — gore, severing, burning and burial all happen in the real sim — while **locomotion stays a cheap, reliable rigged sprite**. Best of both: the look and the limb-loss of cellular bodies, without the locomotion nightmare.
+#### Death outcomes (how you die reads in how you fall)
+
+The full cell-dissolve is **not** the only way to die — it's reserved for *extreme* deaths. The death cause selects one of three outcomes:
+
+1. **Extreme → dissolve into cells.** Headshot, explosion/blast, torso disintegration past threshold, crushed by a collapse, or burned to completion → the whole body releases into the live sim (the Vagabond death-collapse). This is the spectacular gore moment; keep it for violence.
+2. **Quiet/needs → lie down as a corpse.** Starvation, thirst, freezing (§10), drowning, or a slow bleed-out from minor wounds → the rig plays a **lie-down/settle**, leaving a **prone corpse body** — *not* a cell spray. Corpses settle, can be buried, ignited (then they dissolve) or **decay/fade over time** (§13). A needs-death corpse is inert.
+3. **Bitten → prone → turns.** A zombie's bite *infects* rather than dismembers: the survivor keeps acting briefly, **drops to a prone/downed state**, then **reanimates as a zombie** (§7.2) — the same body, controller swapped to zombie AI. **Counterplay:** an *extreme* hit on the infected/prone body before it turns kills it for good (outcome 1) instead of letting it rise — so clearing or burning your dead matters.
+
+So the **damage model is still emergent and cellular** (§7) — gore, severing, burning and burial all happen in the real sim — while **locomotion stays a cheap, reliable rigged sprite**, and **death now carries meaning**: violence explodes, neglect lays you down, a bite turns you against your own. Best of both: the look and the limb-loss of cellular bodies, without the locomotion nightmare.
 
 #### Full cellular soft-body locomotion = post-MVP stretch
 
@@ -136,10 +144,10 @@ Each survivor is a **hybrid pixel body** (§5.1) driven by a controller: needs +
 
 | Need | Depletes from | Replenished by | Failure state |
 |---|---|---|---|
-| **Hunger** | time, exertion | eating food | starves → death |
-| **Thirst** | time, heat | drinking water | dehydrates → death |
-| **Warmth** | cold weather, night, water/snow exposure | shelter, fire, clothing(?) | freezes → death |
-| **Body integrity** | lost cells from hits, fire, drowning, falls, burial | partial regen over time/food(?); lost limbs don't regrow | death when head/core destroyed |
+| **Hunger** | time, exertion | eating food | starves → **lies down dead (corpse, §5.1)** |
+| **Thirst** | time, heat | drinking water | dehydrates → **lies down dead (corpse)** |
+| **Warmth** | cold weather, night, water/snow exposure | shelter, fire, clothing(?) | freezes → **lies down dead (corpse)** |
+| **Body integrity** | lost cells from hits, fire, drowning, falls, burial | partial regen over time/food(?); lost limbs don't regrow | head/core destroyed or other **extreme** hit → **dissolves into cells**; a **zombie bite** → infected → **turns** (§5.1, §7.2) |
 
 > A survivor whose need crosses a threshold **auto-overrides** their assigned role to self-preserve (seek food/water/shelter, flee fire, dig out of burial). This is the "they retreat to a shelter when too cold" behaviour generalized — it keeps the player from micromanaging survival basics and makes the colony feel alive.
 
@@ -189,14 +197,16 @@ Under the hybrid model (§5.1), a hit doesn't subtract from a hit-table — it *
 
 | What's destroyed | Emergent effect |
 |---|---|
-| **Head** region | body fully dissolves into falling cells → death |
+| **Head** region | **extreme death** → body fully dissolves into falling cells (§5.1) |
 | **Leg** region | leg pixels drop as cells, rig disables that limb → crawls (much slower) or topples |
 | **Arm** region | arm pixels drop, loses that arm's reach → can't attack from that side |
-| **Torso** region | bleeds, weakens; enough loss triggers full disintegration |
+| **Torso** region | bleeds, weakens; enough loss triggers full disintegration (extreme); a *slow* bleed-out instead lays the body down as a **corpse** (§5.1) |
 
 - Weapon choice and positioning matter for real: a guard with a spear at a chokepoint can aim low and **leg the front rank** to slow a herd, or a gun can pop heads at range.
 - **Severed parts are just loose body cells** — they fall, settle, bleed, and can burn. Gore is emergent and effectively free; keep body resolution low so it stays cheap.
 - The same model applies to **survivors** — they can lose limbs too, which raises the stakes of every fight.
+
+**Bite & turning (the zombie's signature attack).** A zombie's melee is a **bite** that *infects* rather than dismembers. A bitten survivor is marked **infected**, keeps acting briefly, then **drops to a prone/downed state** (no work, no fight, maybe a slow crawl), then **reanimates as a zombie** — the same body, controller swapped to zombie AI, recoloured. This means **a lost fight grows the horde**: your fallen rise against you. **Counterplay:** finish the infected/prone body with an *extreme* hit (headshot, fire, burial) **before the turn timer** and it dissolves (§5.1) instead of rising — so clearing and **burning your dead** becomes a real defensive verb. *(Optional balance knob: not every bite need infect.)*
 
 ### 7.3 Vulnerabilities
 
@@ -312,7 +322,7 @@ Input is built **pointer-first** (unified mouse/touch/pen) so the same UI works 
 | Area | Risk | Mitigation |
 |---|---|---|
 | **Character locomotion** | Walking reliably over jagged, destructible terrain. | **Largely de-risked by the hybrid (§5.1):** alive bodies are rigged pixel sprites using standard, cheap character locomotion — not deformable soft-bodies. Free-form cellular-body locomotion is pushed to a post-MVP stretch, off the critical path. |
-| **Damage→cells handoff** | The moment of releasing a body region's pixels into the live sim (and disabling the rig) must look seamless and stay cheap. | Bodies rendered at world-cell resolution so released pixels are visually identical to sim cells; release only the affected region, not the whole body, except on death; cap simultaneous death-dissolves. |
+| **Damage→cells handoff** | The moment of releasing a body region's pixels into the live sim (and disabling the rig) must look seamless and stay cheap. | Bodies rendered at world-cell resolution so released pixels are visually identical to sim cells; release only the affected region, not the whole body, except on **extreme** death; cap simultaneous death-dissolves. Corpses are cheap settled bodies (LOD'd, poolable, decay over time); a **turning** body reuses its existing Body (controller swap, no respawn) — but cap concurrent turns since they grow the live horde (§7.2). |
 | **Body simulation cost** | Many bodies, plus their released-cell debris, every tick. | **Low-resolution chunky bodies** (also the art style); cap concurrent zombies; LOD for distant/idle bodies; fade/settle gore cells over time so debris doesn't accumulate forever; pooling. |
 | **Pathfinding on mutable terrain** | Paths invalidate constantly as terrain changes. | Coarse navgrid for routing + local steering; invalidate paths only on *local* edits near the path, not globally; rigged bodies path as points, which is far simpler than soft bodies. |
 | **Cellular sim performance (world)** | Cellular automata over a large grid is heavy. | Chunked/active-region updates (only simulate dirty chunks), multithreading, cap grid resolution (this is the proven Noita approach — see Appendix B). |
@@ -334,7 +344,7 @@ The smallest build that tests whether the core loop is fun. **The MVP uses the h
   - walk, climb gentle slopes, and fall using ordinary rigged-character locomotion (cheap, reliable);
   - take a hit and **release that region's pixels into the live cellular sim** as flesh/bone/blood cells that fall, pile and bleed;
   - **lose a leg → collapse to a crawl** (limb pixels drop, rig disables the limb);
-  - **catch fire** (flesh pixels become flammable cells and spread) and **dissolve fully into cells on death** (the Vagabond death-collapse, Appendix B);
+  - **catch fire** (flesh pixels become flammable cells and spread) and, on a **violent death** (headshot), **dissolve fully into cells** (the Vagabond death-collapse, Appendix B — the gate test for the illusion; quiet deaths lay down as corpses instead, §5.1);
   - react to being buried by sand / submerged in water.
   - *Success test:* the handoff from "sprite" to "loose cells" is seamless and cheap, and players can't tell the body wasn't "real" CA. If this illusion holds and runs fast, the architecture is proven.
 - **Art direction is load-bearing here:** all characters use a **very coarse pixel style at world-cell resolution** — this is what makes rigged sprites read as cellular automata (the illusion described in §5.1). It is a design requirement, not polish.
@@ -342,6 +352,7 @@ The smallest build that tests whether the core loop is fun. **The MVP uses the h
 - Survivors with Hunger + Thirst needs and 3 roles: **Miner, Lumberjack, Forager** + **Guard**.
 - Wood-tier tools only; one weapon.
 - Zombies: spawn from one edge, meander + detect + attack, **emergent cellular damage** (head/leg via the pixel-release model), fire-vulnerable, **breach a wooden fence**.
+- **Death outcomes (§5.1):** *extreme* deaths (headshot, blast, disintegration, crush, full burn) dissolve into cells; *quiet* deaths (hunger/thirst/freeze/drown/bleed-out) lay down as a **corpse**; a zombie **bite** infects → the survivor goes **prone** → **turns into a zombie** (kill it before the turn timer to stop it). Corpses decay/burn (§13).
 - Player can drop/place materials and ignite fire.
 - Win = survive N waves; loss = all dead.
 - One procedurally generated map.
@@ -373,9 +384,11 @@ The smallest build that tests whether the core loop is fun. **The MVP uses the h
 ## Appendix A — Glossary
 
 - **Cell / grain:** one unit of the cellular world — the stuff the world (and character debris) is made of.
-- **Hybrid body:** a survivor or zombie — a rigged pixel-art sprite while alive that releases real cells when damaged and dissolves into the sim on death (§5.1). The MVP model.
+- **Hybrid body:** a survivor or zombie — a rigged pixel-art sprite while alive that releases real cells when damaged and, on a *violent* death, dissolves into the sim (§5.1). The MVP model.
 - **Damage→cells handoff:** the moment a hit converts a body region's pixels into live simulated cells.
-- **Death-collapse:** a dead body disintegrating into falling cells (the Vagabond trick, Appendix B).
+- **Death-collapse:** a body disintegrating into falling cells (the Vagabond trick, Appendix B) — reserved for **extreme** deaths (§5.1).
+- **Corpse:** a settled prone body left by a *quiet* death (starvation, thirst, freezing, drowning, slow bleed-out) — not a cell spray; can be buried, burned, or decays over time (§5.1, §13).
+- **Infection / turning:** a survivor **bitten** by a zombie goes prone and **reanimates as a zombie** unless finished off first (§7.2).
 - **Cellular soft-body:** the post-MVP stretch where a living body is itself simulated cells bound by constraints (Lenia-style, Appendix B).
 - **Skeleton / rig:** the bones that drive a hybrid body's animation and locomotion.
 - **Integrity:** a structure cell's resistance to being broken (by zombies, fire, erosion).
