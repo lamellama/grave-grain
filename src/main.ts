@@ -25,10 +25,11 @@ import {
   SURVIVOR_SPAWN_SPREAD,
   STARTING_WOOD,
   STARTING_STONE,
+  SURFACE_BASE_Y,
 } from './config';
 import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons } from './input';
 import { initRenderer, getRenderer, setBodies, setZombieBodies } from './render/renderer';
-import { camera } from './camera';
+import { camera, clampCamera } from './camera';
 import * as simulation from './engine/simulation';
 import { createSurvivor, updateSurvivor, assignRole } from './characters/survivor';
 import type { Survivor } from './characters/survivor';
@@ -86,6 +87,21 @@ function resizeCanvas(): void {
   // Notify renderer of new size
   const renderer = getRenderer();
   renderer.onResize();
+  // Re-frame vertically so the surface stays in view on resize.
+  frameCameraVertically();
+}
+
+// The world (WORLD_H) is taller than the viewport and horizontal drag is the
+// primary navigation (GDD §12.1), so we FRAME the camera vertically on the
+// surface (where the colony, survivors and zombies are) instead of showing the
+// empty sky at y=0. Surface sits ~30% down the viewport, leaving sky above and
+// the dig-down terrain below. Updated to the real spawn surface after worldgen.
+let framedSurfaceRow = SURFACE_BASE_Y;
+function frameCameraVertically(): void {
+  const r = getRenderer();
+  const visibleRows = r.viewportHeightPx / CELL_SIZE;
+  camera.y = framedSurfaceRow - visibleRows * 0.3;
+  clampCamera(r.viewportWidthPx, r.viewportHeightPx);
 }
 
 // ============================================================================
@@ -117,6 +133,10 @@ window.addEventListener('resize', resizeCanvas);
 
 const world = generateWorld();
 rebuildNavgrid();
+// Frame the camera on the generated surface so the action is on-screen (not the
+// empty sky above it). Horizontal drag still pans; y stays framed here.
+framedSurfaceRow = world.spawnY;
+frameCameraVertically();
 
 // Colony stockpile sits on the surface inside the spawn zone (GDD §8 deposit loc).
 setStockpilePoint(world.stockpilePoint.x, world.stockpilePoint.y);

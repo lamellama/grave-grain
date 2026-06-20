@@ -35,9 +35,10 @@ export function clampCamera(viewportWidthPx: number, viewportHeightPx: number): 
   const maxY = Math.max(0, world.height - viewportHeightPx);
 
   camera.x = Math.max(0, Math.min(camera.x, maxX / CELL_SIZE));
+  // Vertical: the world (WORLD_H) is taller than the viewport, so we clamp y to
+  // a valid range and let main frame the camera on the surface. Horizontal drag
+  // is still the primary navigation (GDD §12.1); y is set by framing, not panned.
   camera.y = Math.max(0, Math.min(camera.y, maxY / CELL_SIZE));
-  // For MVP, pinned to 0 (per GDD §12.1)
-  camera.y = 0;
 }
 
 /**
