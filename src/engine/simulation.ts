@@ -32,6 +32,8 @@ import {
   MAX_GORE_CELLS,
   GORE_FADE_PER_TICK,
   GORE_RECOUNT_INTERVAL,
+  GORE_SETTLE_TICKS,
+  GORE_AGE_FADE_PER_TICK,
   SIM_RNG_SEED,
 } from '../config';
 import { material, integrity, idx, set, setIntegrity } from './grid';
@@ -261,6 +263,27 @@ let goreCount = 0;
  */
 let fadeCursor = 0;
 
+/**
+ * Separate rolling cursor for the under-cap AGE trickle (task 11-3). Kept apart
+ * from `fadeCursor` so the two fades never fight over a position; in practice
+ * they never run on the same tick (the over-cap fade resets the settle clock).
+ */
+let ageFadeCursor = 0;
+
+/**
+ * Global "settle clock" for the age/settle trickle (task 11-3, GDD §13).
+ * APPROXIMATION of per-cell age (which we cannot store — FIRE already reuses the
+ * integrity slot): this counts how many consecutive ticks the loose-debris field
+ * has been QUIESCENT — i.e. under MAX_GORE_CELLS AND unchanged since the last
+ * recount (no fresh gore from combat, no scene reset). It advances while the
+ * field sits still and RESETS to 0 the instant the field is over budget or its
+ * recount disagrees with our predicted running count (fresh gore arrived / the
+ * scene was edited). Once it reaches GORE_SETTLE_TICKS the field is "old" and the
+ * trickle gently AIR-ifies a few debris cells per tick so the battlefield
+ * self-cleans for readability — even while under the cap.
+ */
+let goreSettleAge = 0;
+
 /** Is `m` a loose body-debris material? (the only cells the fade may remove.) */
 function isLooseDebris(m: number): boolean {
   return m === FLESH || m === BONE || m === BLOOD;
@@ -297,30 +320,77 @@ function sweepGore(): void {
     for (let i = 0; i < material.length; i++) {
       if (isLooseDebris(material[i])) n++;
     }
+    // External-change detection (task 11-3): our running `goreCount` is already
+    // decremented by every cell WE fade, so a recount that DISAGREES with it
+    // means the field changed outside the fade — fresh gore from combat, or a
+    // scene reset/edit. Either way the field is no longer "settled", so restart
+    // the age clock. This is what keeps a freshly-churned battlefield from being
+    // instantly aged out (and keeps the trickle out of the just-reset gore
+    // scenes the cap test relies on).
+    if (n !== goreCount) goreSettleAge = 0;
     goreCount = n;
   }
 
-  if (goreCount <= MAX_GORE_CELLS) {
-    return; // under budget — leave all debris alone
+  // -------------------------------------------------------------------------
+  // Over-cap FAST fade (Phase 10 — unchanged). Being over budget is the
+  // opposite of "settled", so hold the age clock at 0 while we drain.
+  // -------------------------------------------------------------------------
+  if (goreCount > MAX_GORE_CELLS) {
+    goreSettleAge = 0;
+    const total = material.length;
+    let faded = 0;
+    let scanned = 0;
+    while (faded < GORE_FADE_PER_TICK && scanned < total) {
+      if (isLooseDebris(material[fadeCursor])) {
+        material[fadeCursor] = AIR;
+        integrity[fadeCursor] = 0; // clear any reused slot; AIR carries none
+        markIndexActive(fadeCursor); // gore→AIR is a change → wake the chunk (P11)
+        faded++;
+      }
+      fadeCursor++;
+      if (fadeCursor >= total) {
+        fadeCursor = 0;
+      }
+      scanned++;
+    }
+    goreCount -= faded;
+    return;
   }
 
-  // Over budget → fade a bounded number of debris cells to AIR via the cursor.
+  // -------------------------------------------------------------------------
+  // Under-cap AGE/SETTLE trickle (task 11-3, GDD §13). Below the cap the field
+  // is "settled"; once it has sat quiescent for GORE_SETTLE_TICKS, gently
+  // trickle-fade old debris so the battlefield self-cleans for readability — a
+  // slow GORE_AGE_FADE_PER_TICK, never a snap. Same GATE invariants as the
+  // over-cap fade: ONLY loose FLESH/BONE/BLOOD → AIR; terrain/structure and live
+  // sprites are never touched.
+  // -------------------------------------------------------------------------
+  if (goreCount <= 0) {
+    goreSettleAge = 0; // nothing to age — keep the clock cold
+    return;
+  }
+  goreSettleAge++;
+  if (goreSettleAge < GORE_SETTLE_TICKS) {
+    return; // not old enough yet — leave the settled debris be
+  }
+
   const total = material.length;
   let faded = 0;
   let scanned = 0;
-  while (faded < GORE_FADE_PER_TICK && scanned < total) {
-    if (isLooseDebris(material[fadeCursor])) {
-      material[fadeCursor] = AIR;
-      integrity[fadeCursor] = 0; // clear any reused slot; AIR carries none
-      markIndexActive(fadeCursor); // gore→AIR is a change → wake the chunk (P11)
+  while (faded < GORE_AGE_FADE_PER_TICK && scanned < total) {
+    if (isLooseDebris(material[ageFadeCursor])) {
+      material[ageFadeCursor] = AIR;
+      integrity[ageFadeCursor] = 0; // clear any reused slot; AIR carries none
+      markIndexActive(ageFadeCursor); // gore→AIR is a change → wake the chunk (P11)
       faded++;
     }
-    fadeCursor++;
-    if (fadeCursor >= total) {
-      fadeCursor = 0;
+    ageFadeCursor++;
+    if (ageFadeCursor >= total) {
+      ageFadeCursor = 0;
     }
     scanned++;
   }
+  // Subtract our own fades so the next recount still agrees (no false reset).
   goreCount -= faded;
 }
 

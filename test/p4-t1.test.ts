@@ -14,7 +14,14 @@ import {
 } from '../src/engine/materials';
 import { material, idx, set } from '../src/engine/grid';
 import { reactions } from '../src/engine/reactions';
+import { setChunkingEnabled } from '../src/engine/chunks';
 import { createBody } from '../src/characters/body';
+
+// This test calls reactions() DIRECTLY (not via step()/beginTick()), so the
+// chunked active-set is never rolled. Use the full-scan reactions path here.
+// (Production extinguish is covered through step() by p2-t6 + the 11-2 fire
+// equivalence battery.)
+setChunkingEnabled(false);
 
 function fail(msg: string): never {
   console.log('FAIL:', msg);

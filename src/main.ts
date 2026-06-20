@@ -31,6 +31,7 @@ import {
 import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons } from './input';
 import { initRenderer, getRenderer, setBodies, setZombieBodies } from './render/renderer';
 import { camera, clampCamera, effectiveCellPx } from './camera';
+import { lodWindow, survivorShouldRun, zombieShouldRun } from './game/lod';
 import * as simulation from './engine/simulation';
 import { createSurvivor, updateSurvivor, assignRole } from './characters/survivor';
 import type { Survivor } from './characters/survivor';
@@ -257,9 +258,28 @@ function simulationTick(): void {
   // Phase 1/2: advance the falling-sand cellular update one tick (GDD §5.2).
   simulation.step();
 
+  // Body LOD (task 11-3, GDD §13): a body that is BOTH far off-screen AND idle
+  // (and grounded, not being attacked) runs its controller only every
+  // BODY_LOD_THROTTLE-th tick — invisible and cheap for a distant idler. Bodies
+  // on-screen, mid-fall, pursuing/attacking, being attacked, or self-preserving
+  // update every tick (no missed combat / fall / needs-death). Compute the
+  // visible window + the opposing body lists once for this tick's gate checks.
+  const win = lodWindow(
+    camera.x,
+    camera.y,
+    renderer.viewportWidthPx,
+    renderer.viewportHeightPx,
+    effectiveCellPx(),
+  );
+  const survivorBodies = survivors.map((s) => s.body);
+  const zombieBodiesNow = zombies.map((z) => z.body);
+
   // Drive zombies FIRST so survivor combat + breaching read fresh zombie state.
-  for (const z of zombies) {
-    updateZombie(z, survivors);
+  for (let i = 0; i < zombies.length; i++) {
+    const z = zombies[i];
+    if (zombieShouldRun(z, i, win, survivorBodies, tickCount)) {
+      updateZombie(z, survivors);
+    }
   }
 
   // Update every survivor (owns its body drive — GDD §6.1). The zombie list is
@@ -274,7 +294,9 @@ function simulationTick(): void {
         s.body.moveDir = 1;
       }
     }
-    updateSurvivor(s, zombies);
+    if (survivorShouldRun(s, i, win, zombieBodiesNow, tickCount)) {
+      updateSurvivor(s, zombies);
+    }
   }
 
   // Zombies gnaw through structures they're pressing (GDD §7.4). After

@@ -453,6 +453,42 @@ export const MAX_GORE_CELLS = 1500;
 export const GORE_FADE_PER_TICK = 8;
 export const GORE_RECOUNT_INTERVAL = 30;
 
+// Phase 11 (task 11-3) — Gore age/settle trickle (GDD §13: "fade/settle gore
+// over time so debris doesn't accumulate forever"). The Phase-10 cap+fade only
+// thins debris when OVER MAX_GORE_CELLS; this adds a gentle age-based trickle so
+// an OLD battlefield self-cleans for readability EVEN WHILE UNDER the cap.
+//   GORE_SETTLE_TICKS: how long the loose-debris field must sit quiescent (under
+//     the cap AND unchanged — no fresh gore arriving) before it counts as "old"
+//     and the trickle begins. ~30 s @60Hz, so combat debris lingers long enough
+//     to read, then gradually clears once the fighting moves on.
+//   GORE_AGE_FADE_PER_TICK: max loose FLESH/BONE/BLOOD cells AIR-ified per tick
+//     by the trickle once the field is old. Deliberately slower than
+//     GORE_FADE_PER_TICK (the over-cap fade) — a gentle settle, not a snap.
+// APPROXIMATION (documented): per-cell age is NOT tracked (no spare slot — FIRE
+// already reuses the integrity slot). We approximate "old debris" with a single
+// GLOBAL settle clock that advances only while the whole field is quiescent and
+// resets the instant fresh gore arrives or the field is over budget. See
+// simulation.ts sweepGore().
+export const GORE_SETTLE_TICKS = 1800;
+export const GORE_AGE_FADE_PER_TICK = 4;
+
+// Phase 11 (task 11-3) — Body LOD (GDD §13: "LOD for distant/idle bodies"). A
+// body that is BOTH far off-screen AND idle runs its controller only every Nth
+// tick — it isn't doing anything the player can see, so missing a few movement
+// ticks is invisible and cheap. Bodies that are on-screen, mid-fall, pursuing/
+// attacking, being attacked, or self-preserving (seeking water/food / fleeing
+// fire) are NEVER throttled — they update every tick so no combat, fall, or
+// needs-death is ever missed. This is a GATE on WHEN the controller runs, never
+// a change to locomotion.
+//   BODY_LOD_OFFSCREEN_MARGIN: a body is "far" only when its (x,y) is more than
+//     this many cells OUTSIDE the visible window (camera + viewport). The margin
+//     keeps bodies just past the screen edge at full update so nothing pops as
+//     it scrolls into view.
+//   BODY_LOD_THROTTLE: a far+idle body's controller runs once every this many
+//     ticks (keyed by tick + body index so idlers stagger, spreading the work).
+export const BODY_LOD_OFFSCREEN_MARGIN = 64;
+export const BODY_LOD_THROTTLE = 4;
+
 // Wave sizing (GDD §7.1 / §13). Wave N (0-indexed) sends
 //   WAVE_SIZE_START + WAVE_SIZE_GROWTH × N  zombies total.
 export const WAVE_SIZE_START = 3;
