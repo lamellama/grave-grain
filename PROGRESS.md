@@ -8,8 +8,10 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 10 — Mobile & touch polish
-- **Status:** starting (Phase 9 done; v0.4b playtest patches committed)
+- **Current phase:** Phase 11 — Performance & feel pass (FINAL)
+- **Status:** not started (Phase 10 complete & committed)
+- **Last passed Done-when:** Phase 10 — landscape prompt + touch-sized UI + pinch/wheel zoom (correct screen↔world, no hi-DPI regression) + tap/drag/long-press + long-press/right-click role menu + tap-to-cycle + responsive resize + gore/zombie perf caps. Planner-verified PASS; Phases 3–9 not regressed. MANUAL on-device framerate check still recommended.
+- **Phase 11 should fold in the deferred playtest items:** v0.5 #C breach VISUAL feedback (crack/darken cells by integrity), v0.5 #D wave pacing (done), v0.6 #E role outfits (tint body by role for readability), v0.5 #B ammo (done), in-scope 'react earlier to needs' sliver, plus chunking/LOD/juice/balance. Deferred vertical-slice (camp/shelter/warmth, cooperative building, plant-a-seed growth) stays OUT unless authorised.
 - **v0.4b playtest patches (committed, between Phase 9 and 10):** hi-DPI viewport corner FIXED (render CSS px); blank-view/empty-sky FIXED (vertical surface framing + horizontal center on colony); zombies-don't-move FIXED (idle drift toward colony, idle speed 0.12→0.2); zombies-buried-at-edge FIXED (spawn inset + on actual surface); sand/dirt-stratify FIXED (powders only displace AIR/fluid). Commits e777873, eabd9b1, 6371130, 590931e, d0b1bf3.
 - **SCOPE DECISION (user):** continue per PLAN (finish MVP). Camp/shelter/Warmth/fire-warmth/cooperative-building DEFERRED to post-MVP vertical slice (logged in PLAN.md). In-scope 'react earlier to needs' sliver → Phase 11 balance.
 - **Last passed Done-when:** Phase 9 — fresh seed plays the full loop on a layered procedural world; survivors forage/drink natural resources; escalating waves from one edge; win (survive 5 waves) / lose (all dead) with end screen; off-screen awareness (death-cause toasts w/ ←→, edge arrows, minimap, speed toggle). Planner-verified PASS, incl. all 7 v0.4 playtest fixes. Phases 3–8 not regressed.
@@ -43,6 +45,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 - [x] Phase 7 — Zombies, combat, breaching
 - [x] Phase 8 — Player building + fire-as-tool
 - [x] Phase 9 — Worldgen, waves, win/lose, UI
+- [x] Phase 10 — Mobile & touch polish
 - [ ] Phase 1 — Falling-sand core
 - [ ] Phase 2 — Materials, fire, interactions, integrity
 - [ ] Phase 3 — Hybrid body locomotion **(GATE)**
@@ -147,6 +150,16 @@ Phase 9 · 9-8 · expensive(opus) · pass · #3/#5 nearest-REACHABLE targeting (
 Phase 9 · 9-7 · expensive(opus) · pass · main integration: generateWorld+rebuildNavgrid, gameState loop (freeze on end), UI overlays, speed loop, direction death toasts; 4 survivors live 3000t, loss state reached; smoke+dev green.
 Phase 9 · VERIFY · planner · PASS · full-loop win/lose + off-screen awareness + all 7 playtest fixes over real modules (layered world, forage/drink reachable, miner ore, climb-2/stop-4, WALL breached vs raw STONE immune, no free wood/stone paint); MVP clean; Phases 3–8 intact.
 
+v0.4b/v0.5/v0.6 playtest patches (between phases, committed): hi-DPI corner; blank-view vertical framing + center-on-colony; zombies idle-drift + spawn-on-surface; sand/dirt no-stratify; limited ammo (STARTING_AMMO=15); wave pacing 1200→2400; Wood/Stone button relabel.
+Phase 10 · 10-1/2 · cheap(haiku) · pass · landscape rotate prompt + touch-sized (≥44px) hover-free responsive toolbar.
+Phase 10 · 10-3 · expensive(opus) · pass · camera.zoom (effectiveCellPx) + setZoom-about-anchor wired through screen↔world+renderer; ImageData==backing invariant kept; 95/0.
+Phase 10 · 10-4 · cheap(haiku) · pass · pointer registry + classifyGesture (tap/drag/longpress); Shoot/Assign on tap; 6/6.
+Phase 10 · 10-5 · cheap(haiku) · pass · pinch + wheel zoom; 2-finger suppresses tools; 12/12.
+Phase 10 · 10-6 + #F · cheap(haiku) · pass · long-press + right-click role menu; pickCycling tap-to-cycle; 12/12.
+Phase 10 · 10-7 · cheap(haiku) · pass · orientationchange resize; canvas==viewport invariant 20/20.
+Phase 10 · 10-8 · expensive(opus) · pass · sweepGore caps loose debris @MAX_GORE_CELLS (never terrain); MAX_ZOMBIES=24; gore 10460→1500, p4 regressions pass.
+Phase 10 · VERIFY · planner · PASS · all 6 p10 suites green; zoom/render-invariant/pinch/gore/ammo/tap-vs-hold confirmed; Phases 3–9 intact; on-device framerate = manual check.
+
 ---
 
 ## Blockers
@@ -169,4 +182,5 @@ Phase 7 t1–t7 WIP — commit 8767e9a.
 Phase 7 (complete) — commit 90f15c2.
 Phase 8 (complete) — commit 1631561.
 Phase 9 WIP — commit a0ae3ba; playtest #2/#6/#7 + PLAN — commit 644e32e.
-Phase 9 (complete) — see commit below.
+Phase 9 (complete) — commit 8998254 (+ v0.4b/v0.5/v0.6 patches).
+Phase 10 (complete) — see commit below.
