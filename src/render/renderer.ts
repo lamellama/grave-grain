@@ -96,8 +96,10 @@ class Renderer {
    */
   onResize(): void {
     const rect = this.canvas.getBoundingClientRect();
-    this.viewportWidthPx = rect.width;
-    this.viewportHeightPx = rect.height;
+    // Integer CSS-px viewport so the ImageData size exactly matches the canvas
+    // backing store (main sizes it to floor(rect.w/h) — no devicePixelRatio).
+    this.viewportWidthPx = Math.max(1, Math.floor(rect.width));
+    this.viewportHeightPx = Math.max(1, Math.floor(rect.height));
     clampCamera(this.viewportWidthPx, this.viewportHeightPx);
   }
 

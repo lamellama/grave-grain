@@ -73,14 +73,16 @@ const ctx: CanvasRenderingContext2D = ctx2d;
 // ============================================================================
 
 function resizeCanvas(): void {
-  const dpr = window.devicePixelRatio || 1;
+  // Render in CSS pixels (chunky cells — GDD §12.4 keep cells chunky / small grid).
+  // The renderer builds its ImageData in CSS px and putImageData ignores the ctx
+  // transform, so the canvas backing store MUST be CSS-px sized (not device-px)
+  // or the world draws into a 1/dpr corner of the canvas. We deliberately do NOT
+  // multiply by devicePixelRatio or ctx.scale(dpr): keeps ImageData == backing
+  // store so putImageData fills the whole canvas. (Slight upscale on hi-DPI is
+  // fine for the pixel-art look; crisp-retina is a possible later refinement.)
   const rect = canvas.getBoundingClientRect();
-  canvas.width = rect.width * dpr;
-  canvas.height = rect.height * dpr;
-  const context = canvas.getContext('2d');
-  if (context) {
-    context.scale(dpr, dpr);
-  }
+  canvas.width = Math.max(1, Math.floor(rect.width));
+  canvas.height = Math.max(1, Math.floor(rect.height));
   // Notify renderer of new size
   const renderer = getRenderer();
   renderer.onResize();
