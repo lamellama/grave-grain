@@ -3,7 +3,7 @@ import { createSurvivor } from '../src/characters/survivor';
 import { material, set } from '../src/engine/grid';
 import { rebuildNavgrid } from '../src/engine/navgrid';
 import { STONE } from '../src/engine/materials';
-import { WORLD_W, ZOMBIE_IDLE_RADIUS, SENSE_RADIUS } from '../src/config';
+import { WORLD_W, ZOMBIE_IDLE_RADIUS, SENSE_RADIUS, ZOMBIE_SPAWN_EDGE } from '../src/config';
 
 function clearGrid() { material.fill(0); }
 function floor(row: number) { for (let x = 0; x < WORLD_W; x++) set(x, row, STONE); }
@@ -38,10 +38,17 @@ for (let i = 0; i < 600; i++) {
   if (bodyInStone(z1.body)) tunnel1 = true;
 }
 const endX = Math.round(z1.body.x);
-console.log('R1 idle: startX', startX, 'endX', endX, 'maxDev', maxDev,
-  'idleRadius', ZOMBIE_IDLE_RADIUS, 'everAttacked', everAttacked, 'tunnel', tunnel1);
-console.log('R1 PASS stayed idle + bounded meander + no-tunnel:',
-  !everAttacked && z1.state === 'idle' && maxDev <= 6 * ZOMBIE_IDLE_RADIUS && !tunnel1);
+// New behaviour: idle zombies DRIFT toward the colony (opposite their spawn
+// edge) so the horde advances across the map. For a left-edge spawn the colony
+// is to the right, so the zombie should advance (endX > startX) by a meaningful
+// amount while staying idle (survivor still far beyond SENSE_RADIUS) and never
+// tunnelling.
+const advanceDir = ZOMBIE_SPAWN_EDGE === 'left' ? 1 : -1;
+const advanced = (endX - startX) * advanceDir;
+const R1_PASS = !everAttacked && z1.state === 'idle' && advanced >= 25 && !tunnel1;
+console.log('R1 idle: startX', startX, 'endX', endX, 'advancedTowardColony', advanced,
+  'everAttacked', everAttacked, 'tunnel', tunnel1);
+console.log('R1 PASS idle drifts toward colony + no attack + no-tunnel:', R1_PASS);
 
 // =====================================================================
 // R2 — survivor INSIDE senseRadius: zombie flips to attack and closes
@@ -57,25 +64,33 @@ updateZombie(z2, [tgt]);
 const flipped = z2.state === 'attack';
 const initialGap = Math.abs(Math.round(z2.body.x) - Math.round(tgt.body.x));
 let prevGap = initialGap, monotone = true;
-let pursuitStartX = Math.round(z2.body.x), pursuitTicks = 0;
 let finalGap = initialGap;
+// Measure pure-approach pursuit speed: sum displacement only on ticks where the
+// zombie is still closing (gap > ADJACENCY), i.e. BEFORE it stops to strike.
+// (Combat-integrated updateZombie halts at ~half-body-width adjacency, gap ~6,
+//  and stands still to attack — so the old `gap<=2` / post-loop speed were stale.)
+const ADJACENCY = 8;
+let approachDist = 0, approachTicks = 0;
+let prevX = Math.round(z2.body.x);
 for (let i = 0; i < 400; i++) {
   updateZombie(z2, [tgt]);
   if (bodyInStone(z2.body)) tunnel2 = true;
   const gap = Math.abs(Math.round(z2.body.x) - Math.round(tgt.body.x));
-  // Gap must never grow while pursuing (allow equal — slow ticks don't step).
   if (gap > prevGap + 0.001) monotone = false;
+  if (prevGap > ADJACENCY) { // still approaching, not yet striking
+    approachDist += Math.abs(Math.round(z2.body.x) - prevX);
+    approachTicks++;
+  }
+  prevX = Math.round(z2.body.x);
   prevGap = gap;
   finalGap = gap;
-  pursuitTicks++;
-  if (gap <= 2) break; // adjacent
+  if (gap <= ADJACENCY) break; // reached striking adjacency
 }
-const pursuitDist = Math.abs(Math.round(z2.body.x) - pursuitStartX);
-const attackSpeed = pursuitDist / pursuitTicks;
+const attackSpeed = approachTicks > 0 ? approachDist / approachTicks : 0;
+const R2_PASS = flipped && finalGap < initialGap && finalGap <= ADJACENCY && monotone && !tunnel2;
 console.log('R2 attack: flipped', flipped, 'initialGap', initialGap,
   'finalGap', finalGap, 'monotone(non-increasing)', monotone, 'tunnel', tunnel2);
-console.log('R2 PASS detect+pursue+close+no-tunnel:',
-  flipped && finalGap < initialGap && finalGap <= 2 && monotone && !tunnel2);
+console.log('R2 PASS detect+pursue+close-to-adjacency+no-tunnel:', R2_PASS);
 
 // =====================================================================
 // R3 — measured idle speed vs attack speed (cells/tick).
@@ -93,10 +108,8 @@ for (let i = 0; i < 1200; i++) {
   px = nx;
 }
 const idleSpeed = idlePath / 1200;
-console.log('R3 idleSpeed', idleSpeed.toFixed(4), 'attackSpeed', attackSpeed.toFixed(4));
-console.log('R3 PASS pursuit faster than idle:', attackSpeed > idleSpeed);
+const R3_PASS = attackSpeed > idleSpeed;
+console.log('R3 idleSpeed', idleSpeed.toFixed(4), 'attackSpeed(approach)', attackSpeed.toFixed(4));
+console.log('R3 PASS pursuit faster than idle:', R3_PASS);
 
-console.log('\nSUMMARY',
-  'R1', !everAttacked && z1.state === 'idle' && maxDev <= 6 * ZOMBIE_IDLE_RADIUS && !tunnel1,
-  'R2', flipped && finalGap < initialGap && finalGap <= 2 && monotone && !tunnel2,
-  'R3', attackSpeed > idleSpeed);
+console.log('\nSUMMARY', 'R1', R1_PASS, 'R2', R2_PASS, 'R3', R3_PASS);

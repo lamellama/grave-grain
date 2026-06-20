@@ -56,6 +56,7 @@ import {
   ZOMBIE_IDLE_RETARGET_MIN,
   ZOMBIE_IDLE_RETARGET_MAX,
   ZOMBIE_IDLE_RADIUS,
+  ZOMBIE_SPAWN_EDGE,
   WANDER_ARRIVE_DIST,
   ATTACK_REACH,
   PATH_REPATH_COOLDOWN,
@@ -191,14 +192,25 @@ function steerToCell(
  * only; the speed gate downstream makes the actual drift slow. Never touches the
  * grid or a path — meander is pure local steering.
  */
+// The colony sits on the OPPOSITE edge from the zombie spawn edge, so idle
+// zombies advance in this direction (+1 = toward higher x, i.e. colony when they
+// spawn on the left edge; -1 when they spawn on the right).
+const ADVANCE_DIR: 1 | -1 = ZOMBIE_SPAWN_EDGE === 'left' ? 1 : -1;
+
 function driveIdle(z: Zombie): void {
   const body = z.body;
   const bx = Math.round(body.x);
 
   // Pick a new goal when none is set or the retarget timer has elapsed.
+  // Idle zombies DON'T just shuffle in place — they DRIFT toward the colony
+  // (the opposite edge from where they spawned) so a horde actually advances
+  // across the wide map and reaches the base even before it senses a survivor
+  // (GDD §7.1 tower-defense advance). The goal is biased forward (mostly toward
+  // the colony) with a little wobble so it still reads as a meander, not a march.
   if (z.idleGoalX === null || z.idleTicks <= 0) {
-    const offset = randInt(-ZOMBIE_IDLE_RADIUS, ZOMBIE_IDLE_RADIUS);
-    z.idleGoalX = Math.min(WORLD_W - 1, Math.max(0, bx + offset));
+    const forward = randInt(3, ZOMBIE_IDLE_RADIUS) * ADVANCE_DIR; // mostly toward colony
+    const wobble = randInt(-3, 3); // small meander on top of the forward drift
+    z.idleGoalX = Math.min(WORLD_W - 1, Math.max(0, bx + forward + wobble));
     z.idleTicks = randInt(ZOMBIE_IDLE_RETARGET_MIN, ZOMBIE_IDLE_RETARGET_MAX);
   }
   z.idleTicks--;

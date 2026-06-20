@@ -332,7 +332,7 @@ export const SENSE_RADIUS = 60;
 
 // §7.1 — Idle meander speed (cells/tick). Matches CRAWL_SPEED so an
 // undirected zombie drifts slowly without telegraphing its threat.
-export const ZOMBIE_IDLE_SPEED = 0.12;   // ~CRAWL_SPEED
+export const ZOMBIE_IDLE_SPEED = 0.2;    // slow forward drift toward the colony (still < WALK_SPEED 0.3) — playtest: zombies must advance across the map, not shuffle in place
 
 // §7.1 — Pursuit speed (cells/tick) once a zombie has detected a survivor.
 // "slightly faster than WALK_SPEED (0.3)" — provides pressure without

@@ -137,6 +137,14 @@ rebuildNavgrid();
 // empty sky above it). Horizontal drag still pans; y stays framed here.
 framedSurfaceRow = world.spawnY;
 frameCameraVertically();
+// Center horizontally on the COLONY (spawnX) at startup so the player starts
+// looking at their base — not the empty far edge where zombies spawn. Horizontal
+// drag pans from here; off-screen edge arrows point to incoming herds.
+{
+  const r = getRenderer();
+  camera.x = world.spawnX - r.viewportWidthPx / CELL_SIZE / 2;
+  clampCamera(r.viewportWidthPx, r.viewportHeightPx);
+}
 
 // Colony stockpile sits on the surface inside the spawn zone (GDD §8 deposit loc).
 setStockpilePoint(world.stockpilePoint.x, world.stockpilePoint.y);
