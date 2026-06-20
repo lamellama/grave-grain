@@ -21,7 +21,7 @@
  *   Assign     — fires on TAP (opens role menu for nearest survivor)
  */
 
-import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo } from './camera';
+import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo, setZoom } from './camera';
 import { cycleSimSpeed, getSimSpeed, minimapXToWorld, MINIMAP_HEIGHT_PX, MINIMAP_AT_TOP, pushToast } from './game/ui';
 import { spendAmmo, getAmmo } from './game/resources';
 import { getRenderer } from './render/renderer';
@@ -29,7 +29,7 @@ import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
 import { ignite } from './engine/simulation';
 import { placeStructure, canPlace, type StructureKind } from './game/building';
-import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS } from './config';
+import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
 import { applyDamage } from './characters/damage';
@@ -83,6 +83,38 @@ interface PointerInfo {
 
 /** Active pointer registry: pointerId → PointerInfo. */
 const pointers = new Map<number, PointerInfo>();
+
+// ---------------------------------------------------------------------------
+// Pinch-zoom state (task 10-5, GDD §12.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure pinch-zoom helper: returns the unclamped target zoom given the initial
+ * pinch distance, the current pinch distance, and the zoom at pinch start.
+ * Clamping to [ZOOM_MIN, ZOOM_MAX] is handled by camera.setZoom.
+ * Exported for headless unit-testing (p10-pinch test).
+ * Guard: if startDist ≤ 0 return startZoom unchanged (avoid NaN/Infinity).
+ */
+export function pinchZoom(startDist: number, curDist: number, startZoom: number): number {
+  if (startDist <= 0) return startZoom;
+  return startZoom * (curDist / startDist);
+}
+
+/** True while two fingers are actively pinching. */
+let pinching = false;
+
+/** Pinch distance (px) when the pinch gesture began. */
+let pinchStartDist = 0;
+
+/** camera.zoom value when the pinch gesture began. */
+let pinchStartZoom = 1;
+
+/**
+ * Pointer IDs that were part of a pinch and must be ignored for tool actions
+ * until they produce a fresh pointerdown. Prevents the lingering finger from
+ * inadvertently painting/panning after the second finger lifts.
+ */
+const suppressedPointers = new Set<number>();
 
 // ---------------------------------------------------------------------------
 // Pure gesture classifier (exported for headless unit tests, task 10-4)
@@ -368,8 +400,35 @@ function onPointerDown(event: PointerEvent): void {
     cameraStartX: camera.x,
     timerId: null,
   };
+  // A fresh pointerdown clears any prior pinch-suppression for this pointer ID.
+  suppressedPointers.delete(event.pointerId);
   pointers.set(event.pointerId, info);
 
+  // --- Pinch detection (task 10-5, GDD §12.3) ---
+  // When a second finger arrives, enter pinch mode: cancel all long-press timers
+  // and record the initial distance + zoom so pointermove can scale from it.
+  // Two-finger gestures must NEVER paint/pan/ignite/build.
+  if (pointers.size >= 2) {
+    // Cancel long-press timers for ALL active pointers.
+    for (const [, pi] of pointers) {
+      if (pi.timerId !== null) {
+        clearTimeout(pi.timerId);
+        pi.timerId = null;
+      }
+    }
+    if (!pinching) {
+      // Just entered pinch — record baseline.
+      pinching = true;
+      const pts = Array.from(pointers.values());
+      const ddx = pts[1].lastX - pts[0].lastX;
+      const ddy = pts[1].lastY - pts[0].lastY;
+      pinchStartDist = Math.hypot(ddx, ddy);
+      pinchStartZoom = camera.zoom;
+    }
+    return; // GDD §12.3: two-finger gesture is pinch, not paint/pan/tap.
+  }
+
+  // --- Single-pointer path ---
   // Arm long-press timer (GDD §12.3, task 10-4).
   info.timerId = window.setTimeout(() => {
     fireLongPress(event.pointerId);
@@ -406,6 +465,39 @@ function onPointerMove(event: PointerEvent): void {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   if (!canvas) return;
 
+  // Capture prev position for incremental pan delta before updating.
+  const prevLastX = info.lastX;
+  // Update position (used by pinch midpoint calc below).
+  info.lastX = event.clientX;
+  info.lastY = event.clientY;
+
+  // --- Pinch zoom (task 10-5, GDD §12.3) ---
+  // When two pointers are active, scale camera.zoom by the distance ratio
+  // relative to the initial pinch baseline, anchored at the midpoint.
+  if (pinching && pointers.size === 2) {
+    const pts = Array.from(pointers.values());
+    const curDx = pts[1].lastX - pts[0].lastX;
+    const curDy = pts[1].lastY - pts[0].lastY;
+    const curDist = Math.hypot(curDx, curDy);
+    const newZoom = pinchZoom(pinchStartDist, curDist, pinchStartZoom);
+
+    // Midpoint in client coords → canvas-relative.
+    const rect = canvas.getBoundingClientRect();
+    const midClientX = (pts[0].lastX + pts[1].lastX) / 2;
+    const midClientY = (pts[0].lastY + pts[1].lastY) / 2;
+    const midX = midClientX - rect.left;
+    const midY = midClientY - rect.top;
+
+    const renderer = getRenderer();
+    setZoom(newZoom, midX, midY, renderer.viewportWidthPx, renderer.viewportHeightPx);
+    return; // pinch consumes the event — no pan/paint.
+  }
+
+  // --- Suppressed pointers (lingering finger after pinch end, GDD §12.3) ---
+  if (suppressedPointers.has(event.pointerId)) {
+    return; // don't pan/paint until a fresh pointerdown.
+  }
+
   // Total displacement from start (for moved flag / long-press guard).
   const totalDx = event.clientX - info.startX;
   const totalDy = event.clientY - info.startY;
@@ -436,16 +528,12 @@ function onPointerMove(event: PointerEvent): void {
     igniteDisc(worldCoords.x, worldCoords.y);
   } else if (toolState.mode === 'Pan') {
     // Pan: incremental delta from the last recorded position (tracks 1:1).
-    // Reset anchor each move so panning tracks the pointer without accumulation.
-    const deltaX = event.clientX - info.lastX;
+    // prevLastX captured before info.lastX was updated above.
+    const deltaX = event.clientX - prevLastX;
     panCamera(-deltaX);
     const renderer = getRenderer();
     clampCamera(renderer.viewportWidthPx, renderer.viewportHeightPx);
   }
-
-  // Advance anchor for the next incremental delta.
-  info.lastX = event.clientX;
-  info.lastY = event.clientY;
 }
 
 /**
@@ -513,13 +601,33 @@ function onPointerUp(event: PointerEvent): void {
     info.timerId = null;
   }
 
+  // --- Pinch exit (task 10-5, GDD §12.3) ---
+  // If we were pinching, suppress the lingering finger so it can't immediately
+  // paint/pan/tap. A fresh pointerdown is required to re-activate it.
+  if (pinching) {
+    pointers.delete(event.pointerId);
+    suppressedPointers.add(event.pointerId); // will be cleared on next pointerdown
+    if (pointers.size < 2) {
+      // End pinch mode; mark all remaining pointers as suppressed.
+      pinching = false;
+      for (const [id] of pointers) {
+        suppressedPointers.add(id);
+      }
+    }
+    return; // no tap action from a pinch-participant finger.
+  }
+
+  // Normal single-pointer path.
   const heldMs = performance.now() - info.startTime;
   const dx = event.clientX - info.startX;
   const dy = event.clientY - info.startY;
   const gesture = classifyGesture(dx, dy, heldMs);
 
-  // Tap action: Shoot and Assign now fire on tap (not on raw pointerdown).
-  if (gesture === 'tap') {
+  // Skip tap/actions for suppressed pointers (lingered from a pinch).
+  const wasSuppressed = suppressedPointers.has(event.pointerId);
+  suppressedPointers.delete(event.pointerId);
+
+  if (!wasSuppressed && gesture === 'tap') {
     const canvas = document.getElementById('game') as HTMLCanvasElement | null;
     if (canvas) {
       handleTapAction(event, canvas);
@@ -538,6 +646,14 @@ function onPointerCancel(event: PointerEvent): void {
     clearTimeout(info.timerId!);
   }
   pointers.delete(event.pointerId);
+  suppressedPointers.delete(event.pointerId);
+  // If we lost a pinch finger via cancel, exit pinch mode.
+  if (pinching && pointers.size < 2) {
+    pinching = false;
+    for (const [id] of pointers) {
+      suppressedPointers.add(id);
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -629,6 +745,20 @@ export function initInput(canvas: HTMLCanvasElement): void {
   document.addEventListener('pointerup', onPointerUp);
   // pointercancel fires on system interrupts (task 10-4): clean up registry.
   document.addEventListener('pointercancel', onPointerCancel);
+
+  // --- Scroll-wheel zoom (task 10-5, GDD §12.3 desktop zoom) ---
+  // Multiplicative step: each notch scales zoom by (1 ± ZOOM_STEP), keeping
+  // the world point under the cursor stationary. Clamping is handled by setZoom.
+  canvas.addEventListener('wheel', (e: WheelEvent) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
+    const direction = e.deltaY < 0 ? 1 : -1; // scroll up = zoom in
+    const newZoom = camera.zoom * (1 + direction * ZOOM_STEP);
+    const renderer = getRenderer();
+    setZoom(newZoom, cursorX, cursorY, renderer.viewportWidthPx, renderer.viewportHeightPx);
+  }, { passive: false });
 
   // Prevent browser default touch actions (scrolling, zooming, etc.)
   canvas.style.touchAction = 'none';
