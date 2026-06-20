@@ -37,6 +37,27 @@ import {
 import { material, integrity, idx, set, setIntegrity } from './grid';
 import { reactions } from './reactions';
 import {
+  markCellActive,
+  markIndexActive,
+  beginTick,
+  isActiveThisTick,
+  chunkRowHasActive,
+  isChunkingEnabled,
+  CHUNK_COLS,
+  CHUNK_ROWS,
+} from './chunks';
+import { CHUNK_SIZE } from '../config';
+
+// Re-export the chunking controls so tests/consumers have a single sim entry
+// point (the equivalence harness flips chunking off→on through these).
+export {
+  setChunkingEnabled,
+  isChunkingEnabled,
+  activeThisTickCount,
+  chunkCount,
+  resetChunks,
+} from './chunks';
+import {
   AIR,
   SAND,
   WATER,
@@ -128,6 +149,14 @@ export function step(): void {
   // Clear the moved-guard for the new tick.
   moved.fill(0);
 
+  // Roll the dirty-rect window forward (Phase 11): chunks woken last tick become
+  // THIS tick's work set. Done BEFORE reactions so it too can skip settled
+  // chunks. When chunking is OFF (the equivalence reference path) we leave the
+  // active sets untouched and fall through to the original full grid scan.
+  if (isChunkingEnabled()) {
+    beginTick();
+  }
+
   // Cross-material adjacency reactions run FIRST, before the movement scan
   // (GDD §5.2 interactions). Rationale:
   //  - They read the START-OF-TICK grid (a stable snapshot), so a reaction
@@ -140,9 +169,27 @@ export function step(): void {
   //    the phase Done-when checks for.
   reactions();
 
-  // Flip column scan direction every tick to avoid any lateral bias.
-  const leftToRight = (tick & 1) === 0;
+  if (isChunkingEnabled()) {
+    chunkedScan();
+  } else {
+    fullScan();
+  }
 
+  // Mobile gore budget (task 10-8, GDD §13): keep loose body-debris bounded so
+  // it can't accumulate forever and sink the framerate. Runs AFTER the movement
+  // scan so it never interferes with fall/settle/no-tunnel this tick.
+  sweepGore();
+
+  tick++;
+}
+
+/**
+ * Original FULL grid scan (the byte-identical REFERENCE, used when chunking is
+ * OFF). Bottom row → top row, columns flipped per tick to kill lateral bias
+ * (GDD App. B). Every cell is visited every tick.
+ */
+function fullScan(): void {
+  const leftToRight = (tick & 1) === 0;
   for (let y = WORLD_H - 1; y >= 0; y--) {
     if (leftToRight) {
       for (let x = 0; x < WORLD_W; x++) {
@@ -154,13 +201,49 @@ export function step(): void {
       }
     }
   }
+}
 
-  // Mobile gore budget (task 10-8, GDD §13): keep loose body-debris bounded so
-  // it can't accumulate forever and sink the framerate. Runs AFTER the movement
-  // scan so it never interferes with fall/settle/no-tunnel this tick.
-  sweepGore();
-
-  tick++;
+/**
+ * CHUNKED movement scan (Phase 11) — visits ONLY active chunks but in the EXACT
+ * same global order as fullScan, so its output is byte-identical.
+ *
+ * Order is the crux. Two cells that can interact are within 1 cell of each
+ * other, so byte-identity requires preserving their relative visit order. We
+ * therefore iterate strictly by world-row, bottom-up (chunk-rows cover disjoint
+ * world-row ranges, so descending chunk-rows then descending world-rows within
+ * each IS global bottom-up), and within each world-row we visit the active
+ * chunk-columns in the per-tick scan-flip direction, walking each chunk's cells
+ * in that same direction. The cells we visit are thus exactly the full scan's
+ * order with the (provably no-op) inactive-chunk cells removed.
+ *
+ * A whole chunk-row with no active chunk is skipped in one test (skips 32 world
+ * rows). The dirty-rect invariant (chunks.ts) guarantees every cell that changes
+ * this tick lives in an active chunk, so skipping the rest is a true no-op.
+ */
+function chunkedScan(): void {
+  const leftToRight = (tick & 1) === 0;
+  for (let cr = CHUNK_ROWS - 1; cr >= 0; cr--) {
+    if (!chunkRowHasActive(cr)) continue; // skip this chunk-row's 32 world rows
+    const yTop = cr * CHUNK_SIZE;
+    const yBot = Math.min(yTop + CHUNK_SIZE, WORLD_H) - 1;
+    for (let y = yBot; y >= yTop; y--) {
+      if (leftToRight) {
+        for (let cc = 0; cc < CHUNK_COLS; cc++) {
+          if (!isActiveThisTick(cc, cr)) continue;
+          const x0 = cc * CHUNK_SIZE;
+          const x1 = Math.min(x0 + CHUNK_SIZE, WORLD_W);
+          for (let x = x0; x < x1; x++) updateCell(x, y);
+        }
+      } else {
+        for (let cc = CHUNK_COLS - 1; cc >= 0; cc--) {
+          if (!isActiveThisTick(cc, cr)) continue;
+          const x0 = cc * CHUNK_SIZE;
+          const x1 = Math.min(x0 + CHUNK_SIZE, WORLD_W);
+          for (let x = x1 - 1; x >= x0; x--) updateCell(x, y);
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -229,6 +312,7 @@ function sweepGore(): void {
     if (isLooseDebris(material[fadeCursor])) {
       material[fadeCursor] = AIR;
       integrity[fadeCursor] = 0; // clear any reused slot; AIR carries none
+      markIndexActive(fadeCursor); // gore→AIR is a change → wake the chunk (P11)
       faded++;
     }
     fadeCursor++;
@@ -537,9 +621,16 @@ function updateFire(x: number, y: number): void {
     }
     integrity[s] = 0; // clear reused slot — ASH/SMOKE carry no integrity
     moved[s] = 1; // claim the cell so the new ASH/SMOKE isn't re-processed now
+    markCellActive(x, y); // FIRE→ASH/SMOKE is a change → keep the chunk live.
     return;
   }
   integrity[s] = life - 1;
+  // FIRE ages every tick even when nothing around it changes (its reused
+  // integrity slot counts down). That is a per-tick state change, so the fire
+  // must keep its OWN chunk active until it expires — otherwise the chunked scan
+  // would stop visiting it and it would never burn out (Phase 11). Writing the
+  // integrity directly (not via setIntegrity) means we wake the chunk here.
+  markCellActive(x, y);
 }
 
 /**
@@ -570,6 +661,7 @@ function updateGas(x: number, y: number): void {
     const s = idx(x, y);
     material[s] = AIR;
     moved[s] = 1; // Claim the cell so nothing re-processes the freed AIR.
+    markCellActive(x, y); // SMOKE→AIR is a change → keep the chunk live (P11).
     return;
   }
 
@@ -617,6 +709,10 @@ function gasMove(sx: number, sy: number, tx: number, ty: number): boolean {
   material[s] = AIR;
   moved[t] = 1;
   moved[s] = 1;
+  // Both endpoints changed → wake their chunks (+ border neighbours) for next
+  // tick so the chunked scan keeps following the gas (Phase 11 dirty-rect).
+  markCellActive(sx, sy);
+  markCellActive(tx, ty);
   return true;
 }
 
@@ -660,5 +756,10 @@ function trySwap(sx: number, sy: number, tx: number, ty: number): boolean {
   material[s] = target;
   moved[t] = 1;
   moved[s] = 1;
+  // Both endpoints changed → wake their chunks (+ border neighbours) for next
+  // tick so a grain crossing a chunk boundary keeps its destination chunk live
+  // (Phase 11 dirty-rect invariant).
+  markCellActive(sx, sy);
+  markCellActive(tx, ty);
   return true;
 }

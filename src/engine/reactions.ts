@@ -36,9 +36,15 @@
  *     Would require inventing a MUD material; out of scope for this task.
  */
 
-import { WORLD_W, WORLD_H } from '../config';
+import { WORLD_W, WORLD_H, CHUNK_SIZE } from '../config';
 import { material, idx, set, setIntegrity } from './grid';
 import { moved } from './simulation';
+import {
+  isChunkingEnabled,
+  isActiveThisTick,
+  CHUNK_COLS,
+  CHUNK_ROWS,
+} from './chunks';
 import { WATER, FIRE, SMOKE } from './materials';
 
 /**
@@ -64,23 +70,49 @@ function isWater(x: number, y: number): boolean {
  * outcome depends on another fire processed earlier in the same pass.
  */
 export function reactions(): void {
-  for (let y = 0; y < WORLD_H; y++) {
-    for (let x = 0; x < WORLD_W; x++) {
-      const i = idx(x, y);
-      if (material[i] !== FIRE) {
-        continue;
-      }
-      // water + fire → steam + extinguish (GDD §5.2): orthogonal contact only.
-      if (
-        isWater(x - 1, y) ||
-        isWater(x + 1, y) ||
-        isWater(x, y - 1) ||
-        isWater(x, y + 1)
-      ) {
-        set(x, y, SMOKE); // fire becomes rising steam at the contact
-        setIntegrity(x, y, 0); // clear the reused fire-lifetime slot
-        moved[i] = 1; // claim the cell — movement scan skips it this tick
+  // Chunked path (Phase 11): only active chunks can hold a FIRE cell whose state
+  // could change this tick. A FIRE cell ages every tick, so it ALWAYS keeps its
+  // own chunk active (simulation.updateFire wakes it) — therefore iterating the
+  // active chunks visits every FIRE the full scan would, in any order (this pass
+  // is order-independent: it only reads WATER, which it never modifies). Result
+  // is byte-identical to the full scan. When chunking is OFF, scan everything.
+  if (isChunkingEnabled()) {
+    for (let cr = 0; cr < CHUNK_ROWS; cr++) {
+      for (let cc = 0; cc < CHUNK_COLS; cc++) {
+        if (!isActiveThisTick(cc, cr)) continue;
+        const x0 = cc * CHUNK_SIZE;
+        const x1 = Math.min(x0 + CHUNK_SIZE, WORLD_W);
+        const y0 = cr * CHUNK_SIZE;
+        const y1 = Math.min(y0 + CHUNK_SIZE, WORLD_H);
+        for (let y = y0; y < y1; y++) {
+          for (let x = x0; x < x1; x++) reactCell(x, y);
+        }
       }
     }
+  } else {
+    for (let y = 0; y < WORLD_H; y++) {
+      for (let x = 0; x < WORLD_W; x++) reactCell(x, y);
+    }
+  }
+}
+
+/**
+ * Apply the water+fire→steam reaction at a single cell (GDD §5.2). No-op unless
+ * the cell is FIRE with WATER in an orthogonal neighbour. Order-independent:
+ * reads only WATER (untouched here) and writes only the FIRE→SMOKE cell.
+ */
+function reactCell(x: number, y: number): void {
+  const i = idx(x, y);
+  if (material[i] !== FIRE) return;
+  // water + fire → steam + extinguish (GDD §5.2): orthogonal contact only.
+  if (
+    isWater(x - 1, y) ||
+    isWater(x + 1, y) ||
+    isWater(x, y - 1) ||
+    isWater(x, y + 1)
+  ) {
+    set(x, y, SMOKE); // fire becomes rising steam at the contact
+    setIntegrity(x, y, 0); // clear the reused fire-lifetime slot
+    moved[i] = 1; // claim the cell — movement scan skips it this tick
   }
 }

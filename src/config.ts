@@ -54,6 +54,16 @@ export const ZOOM_DEFAULT = 1;
 // golden-ratio prime 0x9e3779b1); changing it only reshuffles the noise field.
 export const SIM_RNG_SEED = 0x9e3779b1;
 
+// Phase 11 (task 11-2) — Chunk size for the dirty-rect cellular update (GDD §13,
+// App. B). The world is partitioned into CHUNK_SIZE×CHUNK_SIZE chunks; step()
+// processes only chunks that had activity last tick (or were edited), skipping
+// settled regions. 32 is the Noita-standard chunk edge — large enough that
+// interior changes stay inside one chunk (so only border cells wake a neighbour,
+// keeping the dirty-rect cheap), small enough that a localised disturbance wakes
+// only a handful of chunks. WORLD_W (1280) is a multiple of 32; WORLD_H (240) is
+// not, so the bottom chunk-row is partial (16 rows) — handled by min-clamping.
+export const CHUNK_SIZE = 32;
+
 // Gravity simulation steps per frame
 export const GRAVITY_STEPS = 1;
 

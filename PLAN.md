@@ -358,12 +358,121 @@ Live playtest of the Phase-8 build surfaced these. Most are the *unwired* Phase-
 
 **Routing/sequencing:** F (right-click menu) → **fold into 10-6**. E (role outfits) → **Phase 11 readability**, render-only, easy. G (seed/growth) → **deferred vertical slice** unless you explicitly authorise the MVP-light SAPLING version.
 
-### Deferred to post-MVP vertical slice (flagged, NOT in MVP — GDD §14)
-Playtester asked for survivors to **cooperatively build a camp: shelter, water, and a fire to keep warm.** Per the scope agreement this is the **vertical-slice tier**, deferred until the MVP (Phases 10–11) is complete:
-- **Warmth need + temperature + fire-as-warmth + shelter structure** (GDD §6.1 Warmth, §10 weather, §8 shelter) — vertical-slice/Beyond.
-- **Survivor-driven construction / cooperative base-building** (Builder/Hauler role, GDD §6.2) — vertical-slice.
+### Playtest round 5 (v0.7) — death-model revision (planned)
+
+Today **every** death runs the same path: the whole body dissolves into falling cells (the Vagabond death-collapse — GDD §5.1, §7.2, §14, glossary). That's too uniform and too explosive. This revision makes **how you die read in how you fall**, and adds **infection/turning** as a new threat.
+
+> **GDD divergence — reconcile when adopted:** the GDD currently states death *always* dissolves into cells (§5.1 "fully dissolves… when it dies", §7.2 "Head → body fully dissolves", §14 Milestone 0, Appendix A "Death-collapse"). This round **narrows** that to *extreme* deaths only and **adds a corpse state + zombie infection/turning**. Update those GDD sections (and add a Warmth/needs ↔ corpse note in §6.1, a bite/turning note in §7) when this is accepted. The MVP **Gate test** (Phase 4 *Done when* #2 "headshot → indistinguishable pile") still holds — a headshot is exactly the extreme case that keeps the dissolve.
+
+**The new model — three death outcomes, selected by *cause*:**
+
+| # | Ask (you) | Outcome / rule | Where it lands |
+|---|---|---|---|
+| H | **Only *extreme* deaths explode into elements** (not every death) | Reserve the **full cell-dissolve** for **violent/extreme** deaths: **headshot**, explosion/blast, **torso disintegration past threshold**, crushed by collapse, or burned to completion. Everything else takes the new **corpse** path (below). Requires tagging each lethal event with a **death cause/type**, then branching the death handler on it instead of always dissolving. | **Phase 4 revision** (`damage.ts`): the existing dissolve becomes the *extreme* branch; add a `dropToCorpse()` branch. Keep limb-loss→crawl unchanged. |
+| I | **Bitten survivor → drops *prone*, then *turns into a zombie*** | A zombie melee hit is a **bite** (infecting), not a dismembering hit. On a bite: set `infected=true` + start a **turn timer**; the survivor keeps acting briefly, then **drops to a prone/downed state** (can't work/fight, may twitch/crawl), then **reanimates as a zombie** — reuse the same body, **swap the controller to zombie AI**, recolour (green-tint path). **Counterplay:** an **extreme** hit on the infected/prone body **before** it turns kills it for good (it explodes via #H instead of rising) — so the player races the timer. | **Phase 7 revision** (`zombie.ts` + `survivor.ts`): add a **bite** attack distinct from generic damage; add `infected`/`turnTimer`; add the **prone** state to `locomotion.ts`/render; reanimation reuses the Body, switches AI. |
+| J | **Starvation / thirst death → just *lay down dead*** (no explosion) | Non-violent needs deaths (**hunger, thirst**, and by extension **freezing** from VS-2, quiet **bleed-out** from minor wounds, **drowning**) take the **corpse** path: the rig plays a **lie-down/settle**, leaving a **prone corpse body** — *not* a cell spray. Corpses **settle, are buryable/burnable** (a burning corpse can still ignite → then it may dissolve), and **decay/fade over time** under body-LOD so debris doesn't accumulate (GDD §13). A starvation corpse is **inert** (does not turn — only **bites** infect, per #I). | **Phase 5 revision** (`survivor.ts`): needs-zero death calls `dropToCorpse()` not dissolve. Same for VS-2 freeze/drown. |
+
+**Shared new machinery (the corpse + turning state):**
+- **Death cause enum** threaded into the kill path: `EXTREME` (headshot/blast/disintegrate/crush/full-burn) → dissolve; `NEEDS`/`QUIET` (hunger/thirst/freeze/drown/bleed-out) → corpse; `BITE` → infected → prone → zombie.
+- **Body lifecycle states:** `alive → (infected) → prone/downed → {corpse | reanimated-zombie | dissolved}`. Prone is a real locomotion/render state (low stance, no role work, optional slow crawl).
+- **Corpse handling:** corpses are settled Bodies (cheap, LOD'd, poolable) that can be **buried, ignited (→ may then dissolve), or decayed/faded** over `CORPSE_DECAY_TICKS`. Distinct from loose gore cells.
+- **Reanimation:** turning reuses the existing Body + the Phase-7 zombie controller (no new spawn), so a colony that loses a fight **grows the horde** — a strong new pressure and a reason to **clear/burn your dead**.
+
+**Config seeds:** `TURN_TICKS` (bite → zombie), `PRONE_AFTER_BITE_TICKS`, `CORPSE_DECAY_TICKS`, `EXTREME_DEATH_CAUSES` (the dissolve set), `BLEEDOUT_THRESHOLD` (quiet bleed vs. violent disintegration), `BITE_INFECT_CHANCE` (optional: not every bite infects).
+
+**Routing/sequencing:** this is a **core model change**, not polish — schedule it as a deliberate pass, **not** the Phase 11 juice pass. Land #H (corpse-vs-dissolve branch) and #J (needs→corpse) together as a **Phase 4 + Phase 5 revision** (shares the corpse machinery); #I (bite→prone→turn) as a **Phase 7 revision** on top. **expensive_coder** (new states + AI handoff + death-cause plumbing). **Re-run the Phase 4 Gate test** (headshot still dissolves) and Phase 7 combat regressions after. Pairs naturally with the **VS-2 freeze** death (also a corpse) — sequence after VS-2 if you want freeze handled in the same pass.
+
+## Vertical slice (post-MVP — prove the *feel*)  *(GDD §14 "Vertical slice")*
+
+These phases start **only after the MVP (Phases 0–11) is complete and fun.** They came out of the playtester ask for survivors to **cooperatively build a camp — shelter, water, and a fire to keep warm** — and fold in the GDD's weather/warmth tier (GDD §10, §6.1). Same rules as the MVP phases: each ends in something **runnable and testable**, names the **GDD sections it implements**, and tunes via `config.ts`.
+
+> **Build order matters:** VS-1 (weather makes it cold/wet) → VS-2 (cold/wet hurts survivors, fire/shelter relieve it) → VS-3 (survivors *build* that shelter themselves, in groups). Don't start VS-2 until VS-1's temperature drives a number you can read; don't start VS-3 until VS-2 gives survivors a reason to want shelter.
+
+### Vertical-slice phase → GDD map
+
+| Phase | Builds | Primary GDD refs |
+|---|---|---|
+| VS-1 | Weather + temperature (rain, snow) | §10, §5.2 (Ice/Snow), §12.2 |
+| VS-2 | Warmth need: cold & wet → fire & shelter | §6.1 (Warmth + auto-override), §8 (shelter, campfire) |
+| VS-3 | Survivor-driven **cooperative** base-building + group/shelter logic | §6.2 (Builder/Hauler), §8, §6.1 |
+
+### New files this tier grows into
+
+```
+/src
+  game/
+    weather.ts        // VS-1: weather state machine, ambient temperature, precip emit
+    groups.ts         // VS-3: proximity/line-of-sight clustering of survivors into groups
+    shelter.ts        // VS-3: shelter blueprint, site selection, enclosure/roof test
+  characters/
+    survivor.ts       // extend needs: + warmth, + wetness (VS-2)
+```
+
+---
+
+## Phase VS-1 — Weather & temperature (rain + snow)
+**Implements (GDD):** §10 (weather states, rain, snow, temperature), §5.2 (Ice/Snow material), §12.2 (weather/temperature indicator).
+**Goal:** the sky becomes a system. Weather cycles, rain falls and pools, snow accumulates, and a single readable **ambient temperature** comes out the other side for VS-2 to consume.
+
+**Build:**
+- `weather.ts` — a **weather state machine**: `CLEAR → RAIN → SNOW` (and back) with seeded, timed transitions (GDD §10). Expose `currentWeather` and a scalar **`ambientTemp`** (warm in clear, cooler in rain, sharply colder in snow). Keep temperature a **single global scalar**, not a per-cell grid — survivors sample *local* modifiers in VS-2; a temp grid is too expensive (GDD §13).
+- **Rain (GDD §10):** emit a sparse scatter of `WATER` cells along the **top of the active/visible columns** each tick (a few drops per tick, not a full curtain — cheap). Rain therefore **douses fire** and **pools/floods/erodes loose grains for free** via the existing water sim + `reactions.ts`; it also **accelerates plant growth** (hook for the ecology slice). Optional **wind**: bias precip + smoke + fire-spread x-drift by `WIND_DIR`.
+- **Snow (GDD §5.2, §10):** add a `SNOW` material to `materials.ts` — a **light powder** (low density, piles like sand but softer) that **accumulates as cells** and **melts** (reaction: `SNOW + FIRE → WATER`, and a slow ambient melt above freezing → WATER). Snow contact is what makes a survivor "cold/wet" in VS-2; snow can **bury/insulate** like any powder.
+- `reactions.ts` additions: `snow + fire → water`; rain-over-fire → steam+extinguish (already exists from Phase 2). 
+- **HUD (GDD §12.2):** a weather + temperature indicator (icon for clear/rain/snow + the ambient-temp readout) so the player can **telegraph and prepare** (GDD §13 difficulty legibility).
+
+**Config seeds:** `WEATHER_CYCLE_TICKS`, `WEATHER_TRANSITION_TICKS`, `RAIN_DROPS_PER_TICK`, `SNOW_FLAKES_PER_TICK`, `SNOW_MELT_TICKS`, `AMBIENT_TEMP_CLEAR`, `AMBIENT_TEMP_RAIN`, `AMBIENT_TEMP_SNOW`, `FREEZE_POINT`, `WIND_DIR`.
+
+**Done when:** weather visibly cycles; rain fills puddles and **puts out a fire**; snow **accumulates into drifts** and **melts when a fire is lit beside it**; the HUD always shows the current weather and temperature. (No survivor effects yet — that's VS-2.)
+
+---
+
+## Phase VS-2 — Warmth need: cold & wet survivors, fire & shelter as relief
+**Implements (GDD):** §6.1 (Warmth need + auto-override + freeze death), §8 (shelter as warmth/retreat, campfire as warmth source).
+**Goal:** weather now *bites*. Survivors get cold and wet, must reach **fire or enclosed shelter**, and **freeze to death** if they can't.
+
+**Build:**
+- **Warmth need (GDD §6.1):** add `warmth` to the survivor needs floats (the Phase-5 needs system). It **drains when local temperature is below `FREEZE_POINT`** (faster the colder it is, faster at night if day/night exists) and **refills near fire or inside shelter**. Hitting zero → **freeze → death** via the Phase-4 death path, with a clear on-screen death-cause (GDD §13).
+- **Wetness (the "wet" half of cold-and-wet):** a per-survivor `wetness` float that **rises in rain and on contact with `WATER`/`SNOW`** and **dries slowly** (much faster near fire). **Wet survivors lose warmth faster** (`WET_WARMTH_MULT`) — so being caught in rain/snow without shelter is the threat, exactly as asked.
+- **Local effective temperature** (sampled per survivor, cheaply, on an interval): `ambientTemp` (from VS-1) **+ nearby-FIRE bonus** (any FIRE/campfire within `FIRE_WARMTH_RADIUS`) **+ shelter-enclosure bonus** **− wetness penalty** **− snow/water-contact penalty**. This single number drives the warmth drain/refill.
+- **Shelter / enclosure test** (`shelter.ts`): a survivor counts as **sheltered** when its cell is **roofed** (solid cells overhead within `ROOF_SCAN_H`) inside a **mostly-enclosed air pocket** (cheap flood-fill from the cell, bounded; cache the verdict per region and refresh on an interval / on local terrain edits — same invalidation discipline as the navgrid). This is the rule VS-3's built shelters must satisfy.
+- **Campfire (GDD §8):** a placeable/buildable **contained fire** that **burns long for warmth + light without eating your structures** (a managed fuel source, distinct from raw spreading `FIRE`). Player can place one now; VS-3 survivors will build one.
+- **Auto-override (GDD §6.1):** `warmth < WARMTH_THRESHOLD` drops the survivor's role and sends it to the **nearest heat source or enclosed shelter** to recover; if **neither exists**, that's the unmet need VS-3 resolves (build one). Generalises the GDD's "retreat to shelter when too cold."
+- **HUD:** a third needs bar (warmth) over survivors, a **wet icon**, and a freeze death-cause toast.
+
+**Config seeds:** `WARMTH_RATE`, `WARMTH_THRESHOLD`, `WET_WARMTH_MULT`, `DRY_RATE`, `FIRE_WARMTH_RADIUS`, `SHELTER_WARMTH_BONUS`, `SNOW_CONTACT_PENALTY`, `WARMTH_SAMPLE_TICKS`, `CAMPFIRE_FUEL`, `FREEZE_TICKS`.
+
+**Done when:** in snow/cold a survivor's warmth visibly drains — **faster while it's wet or standing in snow** — it **auto-overrides to huddle by a campfire or step into a roofed shelter** and recovers, and with **no heat and no shelter it freezes to death** with a clear cause. (Survivors don't yet *build* the shelter — they only use existing ones. That's VS-3.)
+
+---
+
+## Phase VS-3 — Survivor-driven cooperative base-building + group/shelter logic
+**Implements (GDD):** §6.2 (Builder/Hauler role), §8 (shelter structure), §6.1 (shelter-seeking auto-override).
+**Goal:** the headline ask. Co-located survivors **work together to raise one shared shelter**; a survivor that wanders **out of sight** of the others **splits into its own group** and builds **its own** shelter where it is.
+
+**Build:**
+- **Builder/Hauler role (GDD §6.2):** the vertical-slice role — **hauls a material from the stockpile, paths to a build cell, places it** (decrement stockpile, consume `BUILD_PLACE_TICKS`), repeat. Reuses Phase-5 pathing, Phase-6 role loop, Phase-8 stockpile-gated placement.
+- **Grouping by sight (`groups.ts`) — the core of the ask:** on an interval (`GROUP_RECHECK_TICKS`, **not every tick**), partition survivors into **groups** by mutual visibility — two survivors share a group if within `SIGHT_RADIUS` **with line-of-sight** (no solid wall between; reuse the zombie sense/LOS idea from §7.1). Use union-find / simple clustering.
+  - **Split:** a survivor (or sub-cluster) **out of sight of its group for longer than `SPLIT_DEBOUNCE_TICKS`** becomes its **own group** — so "over the hill, out of sight" really does fork them, as specified. The debounce stops flicker when someone briefly dips behind terrain.
+  - **Merge:** groups that come **back into mutual sight** for `MERGE_DEBOUNCE_TICKS` rejoin.
+- **One shelter project per group (`shelter.ts`):** each group owns at most **one** shelter **project** = a **blueprint** (an enclosed `WALL`/`WOOD` box with a **roof + doorway**, sized by member count via `SHELTER_PER_SURVIVOR_AREA`) at a **site picked near the group's centroid** on suitable, defensible ground (near water/heat if possible). The project's enclosure must satisfy VS-2's **shelter test** when complete.
+  - **Cooperative build:** the group's Builders **divide the remaining blueprint cells** — each **claims/reserves** a cell so two builders don't target the same one — and haul+place until the shell **encloses**. Then a survivor builds a **campfire** (VS-2) inside. Non-builders in the group may still **shelter** there.
+  - **Split → own shelter:** a freshly-split cold group **starts its own project at its own location** — it does **not** trudge back across the map to the original shelter (the whole point of the fork). VS-2's shelter-seek auto-override targets **this group's** shelter / build-site.
+  - **Merge → consolidate:** when groups remerge, keep the **more complete** project and **abandon the redundant one** (its claimed cells release; members join the survivor project). Log it so it reads as intentional, not a glitch (GDD §13).
+- **Ownership & cost discipline (GDD §13):** groups, projects and cell-claims live in `groups.ts`/`shelter.ts`; recompute clustering on an interval; **cap concurrent build-claims**; release claims on builder death/reassignment so projects can't deadlock.
+
+**Config seeds:** `SIGHT_RADIUS`, `GROUP_RECHECK_TICKS`, `SPLIT_DEBOUNCE_TICKS`, `MERGE_DEBOUNCE_TICKS`, `SHELTER_PER_SURVIVOR_AREA`, `SHELTER_MIN_SIZE`, `BUILD_PLACE_TICKS`, `HAUL_CAPACITY`, `MAX_BUILD_CLAIMS`.
+
+**Done when:**
+1. A **co-located** group of survivors, when cold, **collectively hauls wood/stone and raises one shared roofed shelter**, lights a campfire inside, and huddles to recover warmth (VS-2).
+2. Lead **one survivor away over a hill, out of sight** — after the split debounce it **forms its own group and builds a second, separate shelter** where it is.
+3. Bring them back together — the groups **remerge** and the **redundant project is abandoned** cleanly (no orphaned half-builds, no deadlocked claims).
+
+---
+
+### Also deferred to the vertical slice (flagged, NOT in MVP — GDD §14)
 - **Plant/tree growth + reproduction (plant-a-seed foliage)** (GDD §9 ecology) — vertical-slice; MVP-light SAPLING→FOLIAGE grow rule possible if authorised (playtest v0.6 #G).
-- **In-scope sliver (do in the Phase 11 balance pass):** make survivors react EARLIER to hunger/thirst (bigger buffer) so they “go get it rather than just dying,” and keep the on-screen death-cause prominent.
+- **In-scope sliver (do in the Phase 11 balance pass, not deferred):** make survivors react EARLIER to hunger/thirst (bigger buffer) so they “go get it rather than just dying,” and keep the on-screen death-cause prominent.
 
 ---
 

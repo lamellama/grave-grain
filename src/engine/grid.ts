@@ -6,6 +6,7 @@
 
 import { WORLD_W, WORLD_H } from '../config';
 import { MATERIALS } from './materials';
+import { markCellActive } from './chunks';
 
 /**
  * Get the linear index of a cell at (x, y) in the grid.
@@ -50,6 +51,10 @@ export function set(x: number, y: number, value: number): void {
     return; // Out of bounds write is safe no-op
   }
   material[idx(x, y)] = value;
+  // Wake the chunk (Phase 11): player edits, worldgen post-fixups, breaching,
+  // body release and ignite all route through here, so the right chunks
+  // re-activate NEXT tick. Cheap; harmless if the value is unchanged.
+  markCellActive(x, y);
 }
 
 /**
@@ -72,6 +77,9 @@ export function setIntegrity(x: number, y: number, value: number): void {
     return;
   }
   integrity[idx(x, y)] = value;
+  // Integrity-only edits (breaching chips, fire-lifetime seeding) also count as
+  // a cell change and must wake the chunk (Phase 11).
+  markCellActive(x, y);
 }
 
 /**
