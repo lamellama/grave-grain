@@ -330,6 +330,19 @@ Live playtest of the Phase-8 build surfaced these. Most are the *unwired* Phase-
 
 **Routing:** #2 (locomotion/config) and #3 (autonomy targeting) and #6/#7 (placement gating + sim consequence) are correctness → **expensive_coder** or careful orchestrator fixes; #1/#4/#5 land inside the **9-7** integration (expensive). Add a **9-8 “playtest fixes”** pass if cleaner than overloading 9-7. **Re-run the Phase 3/4 locomotion + Phase 5/6/7 regression suites** after #2 and #3.
 
+### Playtest round 2 (v0.4b) — post-Phase-9 patches (all DONE, committed)
+- **Viewport corner on hi-DPI:** render in CSS px (canvas backing = floor(rect.w/h), no dpr scale) so ImageData == backing store.
+- **Blank view / empty sky:** world taller than viewport → frame camera vertically on the surface (clampCamera no longer pins y=0); center camera horizontally on the colony at startup.
+- **Zombies don't move:** idle zombies now DRIFT toward the colony (opposite spawn edge); ZOMBIE_IDLE_SPEED 0.12→0.2.
+- **Zombies stuck/buried at edge:** spawn INSET from the edge + on the actual rolling surface of the spawn column (not a fixed y), so they're never buried.
+- **Sand/dirt stratify like liquids:** a faller only displaces AIR or fluids, never another powder → powders pile, still sink through water.
+
+### Deferred to post-MVP vertical slice (flagged, NOT in MVP — GDD §14)
+Playtester asked for survivors to **cooperatively build a camp: shelter, water, and a fire to keep warm.** Per the scope agreement this is the **vertical-slice tier**, deferred until the MVP (Phases 10–11) is complete:
+- **Warmth need + temperature + fire-as-warmth + shelter structure** (GDD §6.1 Warmth, §10 weather, §8 shelter) — vertical-slice/Beyond.
+- **Survivor-driven construction / cooperative base-building** (Builder/Hauler role, GDD §6.2) — vertical-slice.
+- **In-scope sliver (do in the Phase 11 balance pass):** make survivors react EARLIER to hunger/thirst (bigger buffer) so they “go get it rather than just dying,” and keep the on-screen death-cause prominent.
+
 ---
 
 ## How to vibe this
