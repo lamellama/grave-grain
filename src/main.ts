@@ -25,6 +25,7 @@ import {
   SURVIVOR_SPAWN_SPREAD,
   STARTING_WOOD,
   STARTING_STONE,
+  STARTING_AMMO,
   SURFACE_BASE_Y,
 } from './config';
 import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons } from './input';
@@ -39,7 +40,7 @@ import { resolveBreaching } from './game/breaching';
 import { createWaveState, updateWaves } from './game/waves';
 import { makeTool } from './game/roles';
 import { rebuildNavgrid } from './engine/navgrid';
-import { addResource, setStockpilePoint, getStockpile } from './game/resources';
+import { addResource, setStockpilePoint, getStockpile, setAmmo, getAmmo } from './game/resources';
 import { generateWorld } from './game/worldgen';
 import { createGameState, updateGameState } from './game/state';
 import {
@@ -153,6 +154,7 @@ setStockpilePoint(world.stockpilePoint.x, world.stockpilePoint.y);
 // (GDD §6.2 tool-gating, §8 build affordability).
 addResource('wood', STARTING_WOOD);
 addResource('stone', STARTING_STONE);
+setAmmo(STARTING_AMMO); // limited bullets for the Shoot tool (playtest)
 
 // ============================================================================
 // Survivors (GDD §6.1) — SURVIVOR_COUNT spawned in a loose cluster around the
@@ -396,7 +398,7 @@ function renderLoop(): void {
   if (stockpileReadoutEl) {
     const sp = getStockpile();
     stockpileReadoutEl.textContent =
-      `Wood ${sp.wood}  Stone ${sp.stone}  Food ${sp.food}  Ore ${sp.ore}`;
+      `Wood ${sp.wood}  Stone ${sp.stone}  Food ${sp.food}  Ore ${sp.ore}  Ammo ${getAmmo()}`;
   }
 
   // Refresh build-button affordability (GDD §8).

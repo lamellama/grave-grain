@@ -69,6 +69,35 @@ export function setStockpilePoint(x: number, y: number): void {
 }
 
 // ---------------------------------------------------------------------------
+// Player ammo for the Shoot tool (playtest: limited bullets). Separate from the
+// {wood,stone,food,ore} stockpile. main seeds it to STARTING_AMMO at startup.
+// ---------------------------------------------------------------------------
+
+let ammo = 0;
+
+/** Current bullets remaining for the Shoot tool. */
+export function getAmmo(): number {
+  return ammo;
+}
+
+/** Set the ammo count (clamped ≥ 0). */
+export function setAmmo(n: number): void {
+  ammo = Math.max(0, Math.floor(n));
+}
+
+/** Add (or remove) ammo, clamped ≥ 0 (for later pickups/crafting). */
+export function addAmmo(n: number): void {
+  ammo = Math.max(0, ammo + n);
+}
+
+/** Consume one bullet; returns false (and spends nothing) if out of ammo. */
+export function spendAmmo(): boolean {
+  if (ammo <= 0) return false;
+  ammo--;
+  return true;
+}
+
+// ---------------------------------------------------------------------------
 // Test / reset helper (not part of runtime behaviour)
 // ---------------------------------------------------------------------------
 

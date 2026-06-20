@@ -50,7 +50,7 @@ let clearedTick = -1;
 // most WAVE_INTERVAL ticks to start + wave_size * ZOMBIE_SPAWN_STAGGER ticks to
 // fully spawn. With WIN_WAVES=5, WAVE_INTERVAL=1200 and max wave size=11,
 // 10_000 ticks is more than enough.
-const MAX_TICKS = 10_000;
+const MAX_TICKS = 24_000; // enough for 5 waves at WAVE_INTERVAL=2400 (sum of intervals ~11k + spawn/clear time)
 
 let prevWaveNumber = 0;
 

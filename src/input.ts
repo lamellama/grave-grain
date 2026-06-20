@@ -22,7 +22,8 @@
  */
 
 import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo } from './camera';
-import { cycleSimSpeed, getSimSpeed, minimapXToWorld, MINIMAP_HEIGHT_PX, MINIMAP_AT_TOP } from './game/ui';
+import { cycleSimSpeed, getSimSpeed, minimapXToWorld, MINIMAP_HEIGHT_PX, MINIMAP_AT_TOP, pushToast } from './game/ui';
+import { spendAmmo, getAmmo } from './game/resources';
 import { getRenderer } from './render/renderer';
 import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, isFlammable } from './engine/materials';
@@ -454,6 +455,11 @@ function onPointerMove(event: PointerEvent): void {
 function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
   if (toolState.mode === 'Shoot') {
     // Shoot on TAP: a quick tap shoots; a drag does NOT (task 10-4 key change).
+    // Limited ammo (playtest): every shot costs a bullet; out of ammo → no-op + toast.
+    if (!spendAmmo()) {
+      pushToast('Out of ammo!');
+      return;
+    }
     // Routes through THE GATE (GDD §14 hand-test, §7.2 emergent damage).
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
@@ -466,6 +472,7 @@ function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
         applyDamage(targetBodyHit, name);
       }
     }
+    if (getAmmo() === 0) pushToast('Last bullet — out of ammo!');
   } else if (toolState.mode === 'Assign') {
     // Assign on TAP: open role menu for nearest alive survivor (p6-t5, GDD §6.2).
     const canvasCoords = getCanvasRelativeCoords(event, canvas);

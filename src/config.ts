@@ -413,7 +413,7 @@ export const WAVE_SIZE_START = 3;
 export const WAVE_SIZE_GROWTH = 2;
 
 // §7.1 — Ticks between successive waves.
-export const WAVE_INTERVAL = 1200;
+export const WAVE_INTERVAL = 2400;  // ticks between waves (~40s @60Hz) — playtest: give the colony room to breathe between waves
 
 // §7.1 — Ticks between individual zombie spawns within the same wave,
 // so they trickle onto the map rather than teleporting in as a block.
@@ -452,7 +452,7 @@ export const WIN_WAVES = 5;
 
 // §7.1 — Floor for the wave interval (ticks) as difficulty ramps up.
 // The interval never drops below this regardless of wave number.
-export const WAVE_INTERVAL_MIN = 600;
+export const WAVE_INTERVAL_MIN = 1200; // floor as the interval decays per wave (~20s) — playtest: keep late waves from stacking
 
 // §7.1 — Each wave shortens the pre-wave pause by this many ticks:
 //   effectiveInterval = max(WAVE_INTERVAL - WAVE_INTERVAL_DECAY*(waveNumber-1), WAVE_INTERVAL_MIN)
@@ -527,3 +527,7 @@ export const SPAWN_GUARANTEE_WOOD_CELLS = 60;
 // Whether worldgen must guarantee at least one WATER cell reachable from the
 // spawn zone (places a small pool if none exists within RESOURCE_SCAN_RADIUS).
 export const SPAWN_GUARANTEE_WATER = true;
+
+// Player ammo for the Shoot tool (playtest: limited bullets so you can't just
+// shoot every zombie — GDD §6.3/§13 guns are a power spike gated by scarce ammo).
+export const STARTING_AMMO = 15;
