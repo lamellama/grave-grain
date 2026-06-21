@@ -4,7 +4,7 @@
  * Honour devicePixelRatio; keep cells chunky.
  */
 
-import { WORLD_W, WORLD_H, BREACH_DARKEN_MAX, CHIP_FLASH_TICKS } from '../config';
+import { WORLD_W, WORLD_H, BREACH_DARKEN_MAX, CHIP_FLASH_TICKS, ROLE_TINT_MIX } from '../config';
 import { camera, clampCamera, effectiveCellPx } from '../camera';
 import * as grid from '../engine/grid';
 import { MATERIALS } from '../engine/materials';
@@ -106,6 +106,14 @@ class Renderer {
   // p7-t7: render-only zombie bodies, drawn with a green tint over the cell layer.
   private zombieBodies: Body[] = [];
 
+  // p11-5: survivor bodies with per-body role tints (render-only, GDD §12 readability).
+  // Each entry pairs a Body with a nullable RGB tint; null = draw with authored colours.
+  private survivorRenderList: { body: Body; tint: [number, number, number] | null }[] = [];
+
+  // Cache tint functions keyed by 'r,g,b' so we never rebuild the same closure twice
+  // (bodies share a tiny fixed pixel palette, so these caches warm up quickly).
+  private readonly tintFnCache = new Map<string, (color: string) => string>();
+
   constructor(canvas: HTMLCanvasElement, ctx: CanvasRenderingContext2D) {
     this.canvas = canvas;
     this.ctx = ctx;
@@ -149,6 +157,44 @@ class Renderer {
    */
   setZombieBodies(bodies: Body[]): void {
     this.zombieBodies = [...bodies];
+  }
+
+  /**
+   * Register survivor bodies with per-body role tints (p11-5, GDD §12 readability).
+   * Pass an array of {body, tint} pairs; null tint = drawn with authored colours.
+   * Draw-time only — body.rig pixels and the grid are NEVER mutated here.
+   */
+  setSurvivorRender(list: { body: Body; tint: [number, number, number] | null }[]): void {
+    this.survivorRenderList = [...list];
+  }
+
+  /**
+   * Return a cached tint function for the given RGB triple (p11-5). Each unique
+   * tint gets exactly one closure and one colour-cache Map; repeated calls with
+   * the same tint return the same function so no closures are created per frame.
+   * Mirrors the zombie tintZombie pattern but is parametric over the tint colour.
+   */
+  private makeTintFn(tint: [number, number, number]): (color: string) => string {
+    const key = `${tint[0]},${tint[1]},${tint[2]}`;
+    const cached = this.tintFnCache.get(key);
+    if (cached) return cached;
+    // One colour-result cache per tint so repeated draws of the same pixel colour
+    // pay only one blend arithmetic op across all survivors with that role.
+    const colorCache = new Map<string, string>();
+    const fn = (color: string): string => {
+      const hit = colorCache.get(color);
+      if (hit) return hit;
+      const [r, g, b] = hexToRgb(color);
+      const m = ROLE_TINT_MIX;
+      const tr = Math.round(r * (1 - m) + tint[0] * m);
+      const tg = Math.round(g * (1 - m) + tint[1] * m);
+      const tb = Math.round(b * (1 - m) + tint[2] * m);
+      const out = `rgb(${tr},${tg},${tb})`;
+      colorCache.set(color, out);
+      return out;
+    };
+    this.tintFnCache.set(key, fn);
+    return fn;
   }
 
   /** Add one body to the draw list without clearing the rest. */
@@ -269,11 +315,20 @@ class Renderer {
     this.ctx.putImageData(imageData, 0, 0);
 
     // GDD §5.1 / §14 Milestone 0: draw the hybrid body over the cell layer.
-    // Each body pixel fills exactly one CELL_SIZE×CELL_SIZE rect at the same
-    // screen position the cell layer would use for that world cell — guaranteeing
-    // pixel-perfect alignment with the CA grid (same formula: (wx - camera.x)*CELL_SIZE).
-    // Survivors draw with their authored colours; zombies (p7-t7) are tinted green.
-    this.drawBodyList(this.bodies, null);
+    // Survivors are drawn with per-body role tints (p11-5) when survivorRenderList
+    // is populated; otherwise fall back to this.bodies with no tint (backwards compat
+    // for shims / tests that still call setBodies directly).
+    // Zombies (p7-t7) are always drawn with the fixed green tint.
+    if (this.survivorRenderList.length > 0) {
+      // Per-body tint path: each survivor gets its role colour blended in.
+      for (const item of this.survivorRenderList) {
+        const tintFn = item.tint ? this.makeTintFn(item.tint) : null;
+        this.drawBodyList([item.body], tintFn);
+      }
+    } else {
+      // Fallback: draw this.bodies with no tint (pre-p11-5 callers).
+      this.drawBodyList(this.bodies, null);
+    }
     this.drawBodyList(this.zombieBodies, tintZombie);
 
     // Draw FPS counter.
@@ -393,6 +448,18 @@ export function setBodies(bodies: Body[]): void {
  */
 export function setZombieBodies(bodies: Body[]): void {
   getRenderer().setZombieBodies(bodies);
+}
+
+/**
+ * Register survivor bodies with per-body role tints (p11-5). Module-level wrapper;
+ * call after initRenderer(). Pass {body, tint} pairs where tint is the RGB colour
+ * from ROLE_TINT[role] or null for the 'none' role (no tint applied). Draw-time
+ * only — body.rig pixels and the grid are NEVER mutated.
+ */
+export function setSurvivorRender(
+  list: { body: Body; tint: [number, number, number] | null }[],
+): void {
+  getRenderer().setSurvivorRender(list);
 }
 
 /** Add one body to the renderer's draw list. Module-level wrapper. */

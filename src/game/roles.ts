@@ -24,7 +24,7 @@ import type { ResourceKind } from './resources';
 import { canAfford, spend, stockpilePoint } from './resources';
 import { get } from '../engine/grid';
 import { AIR, STONE, ORE, FOLIAGE } from '../engine/materials';
-import { RESOURCE_SCAN_RADIUS, WOOD_TOOL_DURABILITY } from '../config';
+import { RESOURCE_SCAN_RADIUS, WOOD_TOOL_DURABILITY, ROLE_TINT_MIX } from '../config';
 import {
   CHOP_TICKS,
   MINE_TICKS,
@@ -41,6 +41,42 @@ import {
 
 /** MVP roles (GDD §6.2 subset); 'none' is the unassigned default. */
 export type RoleName = 'none' | 'miner' | 'lumberjack' | 'forager' | 'guard';
+
+// ---------------------------------------------------------------------------
+// Role tints (GDD §12 UX readability, task 11-5 — render-only)
+// ---------------------------------------------------------------------------
+
+/**
+ * Per-role RGB tint colour. At draw time each body pixel is blended toward its
+ * role's tint by ROLE_TINT_MIX so roles are visually distinct. 'none' carries a
+ * sentinel (black) — tintForRole returns rgb UNCHANGED for 'none'.
+ */
+export const ROLE_TINT: Record<RoleName, [number, number, number]> = {
+  none:       [  0,   0,   0], // sentinel — tintForRole returns rgb unchanged
+  miner:      [110, 120, 135], // slate-grey
+  lumberjack: [150,  90,  40], // brown / orange
+  forager:    [ 60, 140,  60], // forest green
+  guard:      [ 70, 110, 170], // steel-blue
+};
+
+/**
+ * Blend `rgb` toward the role's tint by ROLE_TINT_MIX (render-only helper).
+ * 'none' returns `rgb` unchanged (no tint).
+ * Pure — no side-effects, no globals mutated — so it is safe to call per-pixel.
+ */
+export function tintForRole(
+  rgb: [number, number, number],
+  role: RoleName,
+): [number, number, number] {
+  if (role === 'none') return rgb;
+  const t = ROLE_TINT[role];
+  const m = ROLE_TINT_MIX;
+  return [
+    Math.round(rgb[0] * (1 - m) + t[0] * m),
+    Math.round(rgb[1] * (1 - m) + t[1] * m),
+    Math.round(rgb[2] * (1 - m) + t[2] * m),
+  ];
+}
 
 /** Wood-tier tool kinds. Weapons are tools too (GDD §6.3). */
 export type ToolKind = 'pickaxe' | 'axe' | 'basket' | 'weapon';

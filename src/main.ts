@@ -29,7 +29,7 @@ import {
   SURFACE_BASE_Y,
 } from './config';
 import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons } from './input';
-import { initRenderer, getRenderer, setBodies, setZombieBodies } from './render/renderer';
+import { initRenderer, getRenderer, setBodies, setZombieBodies, setSurvivorRender } from './render/renderer';
 import { camera, clampCamera, effectiveCellPx } from './camera';
 import { lodWindow, survivorShouldRun, zombieShouldRun } from './game/lod';
 import * as simulation from './engine/simulation';
@@ -39,7 +39,7 @@ import { updateZombie } from './characters/zombie';
 import type { Zombie } from './characters/zombie';
 import { resolveBreaching } from './game/breaching';
 import { createWaveState, updateWaves } from './game/waves';
-import { makeTool } from './game/roles';
+import { makeTool, ROLE_TINT } from './game/roles';
 import { rebuildNavgrid } from './engine/navgrid';
 import { addResource, setStockpilePoint, getStockpile, setAmmo, getAmmo } from './game/resources';
 import { generateWorld } from './game/worldgen';
@@ -177,8 +177,12 @@ for (let i = 0; i < SURVIVOR_COUNT; i++) {
   survivors.push(createSurvivor(spawnX, world.spawnY));
 }
 
-// Register all survivor bodies with the renderer so they are drawn each frame.
-setBodies(survivors.map((s) => s.body));
+// Register all survivor bodies with per-role tints so they are drawn each frame
+// (p11-5, GDD §12 readability). 'none' role → null tint (authored colours kept).
+setSurvivorRender(survivors.map((s) => ({
+  body: s.body,
+  tint: s.role === 'none' ? null : ROLE_TINT[s.role],
+})));
 
 // Wire the Shoot tool to survivors[0] (keeps the Phase-4 hand-test functional).
 setTargetBody(survivors[0].body);
@@ -320,6 +324,14 @@ function simulationTick(): void {
 
   // Register the (possibly changed) zombie bodies with the renderer.
   setZombieBodies(zombies.map((z) => z.body));
+
+  // Re-register survivor bodies with up-to-date role tints each tick so that
+  // a role re-assignment (Assign tool) is reflected in the next rendered frame
+  // (p11-5, GDD §12 readability — draw-time only, no body/grid mutation).
+  setSurvivorRender(survivors.map((s) => ({
+    body: s.body,
+    tint: s.role === 'none' ? null : ROLE_TINT[s.role],
+  })));
 
   // Advance the win/lose state machine + death watcher (GDD §11/§12.2).
   const aliveZombieCount = zombies.filter((z) => z.body.alive).length;

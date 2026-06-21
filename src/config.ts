@@ -638,3 +638,13 @@ export const SELECT_TAP_RADIUS = 6;
 // a "same-spot" repeated tap, causing the cycle to advance to the next survivor
 // instead of resetting to the nearest. After this window the cycle resets.
 export const TAP_CYCLE_RESET_MS = 800;
+
+// ---------------------------------------------------------------------------
+// Phase 11 task 11-5 — Survivor role tints (GDD §12 UX readability)
+// Render-only: pixel colours are blended toward the role tint at draw time.
+// NEVER mutates body matter or grid cells.
+// ---------------------------------------------------------------------------
+
+// Fraction (0–1) that each pixel is pulled toward the role's tint colour.
+// 0 = no tint (original colour); 1 = fully replaced by tint.
+export const ROLE_TINT_MIX = 0.45;

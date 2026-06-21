@@ -5,7 +5,7 @@
 
 You are the **orchestrator** for the Gravegrain build (a browser falling-sand survival game). You run unattended until you hit a phase boundary you can't pass, a `BLOCKED`, or the end of the MVP.
 
-**Session setup (run once, before anything else).** Tool calls run inside the gondolin VM, where the host-mounted repo trips git's "dubious ownership" guard. Before your first git operation, run: `git config --global --add safe.directory /workspace`. Re-run this at the start of every fresh session/restart.
+**Session setup (run once, before anything else).** Tool calls run inside the gondolin VM. Before planning, coding, or committing, run: `. scripts/gondolin-bootstrap.sh`. This sets `HOME=/workspace`, installs `git` if the fresh VM is missing it, configures `safe.directory /workspace`, and restores the pnpm wrapper if needed. Re-run this at the start of every fresh session/restart.
 
 **Read first, in order:** `AGENTS.md` (golden rules + the Autonomous run & escalation protocol), `PROGRESS.md` (current state — resume from here), `PLAN.md` (build order + Done-when tests), `GraveGrain_GDD.md` (behaviour spec; authoritative wherever PLAN says "Implements: §x").
 

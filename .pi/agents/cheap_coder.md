@@ -35,6 +35,7 @@ You are the **Cheap Coder** for Gravegrain (gpt-5-codex). You handle the routine
 In any of these cases, report back clearly: what you found, what's blocking, and that it should be re-routed to `expensive_coder`.
 
 ## Sandbox toolchain (CRITICAL — read `/workspace/TOOLING.md`)
+- At the start of a fresh gondolin session, run **`. scripts/gondolin-bootstrap.sh`** before git, pnpm, or verification commands. It sets `HOME=/workspace`, installs git if missing, configures `safe.directory`, and restores the pnpm wrapper if needed.
 - **Never run `npm install` / `npm ci`** — the VM's global npm is corrupted and will break the build. If deps must change, use **`pnpm install`** / `pnpm add -D <pkg>` (wrapper at `/usr/local/bin/pnpm`, run with `HOME=/workspace`).
 - Verify with **`npm run build`** and **`npm run dev`** — these work (they call binaries via `node`, since the mount has no exec bit). New scripts must invoke binaries as `node ./node_modules/<pkg>/...`, never bare `tsc`/`vite`.
 

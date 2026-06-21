@@ -36,12 +36,24 @@ JS entrypoints through `node` directly (not the `.bin` shims):
 `npm run build` / `npm run dev` work (npm's *script runner* is fine — only its *installer*
 is broken). Keep this pattern for any new script; don't rely on bare `tsc`/`vite` on PATH.
 
-## 3. git
+## 3. Session bootstrap: git + HOME + pnpm
 
-git is not in the base image; installed via `apk add git`. git needs `export HOME=/workspace`
-(global config + `safe.directory /workspace` live there). Re-run `apk add git` after a restart.
+At the start of each fresh gondolin session, run:
+
+```sh
+. scripts/gondolin-bootstrap.sh
+```
+
+This sets `HOME=/workspace`, installs `git` with `apk add git` if the VM image is
+missing it, configures `safe.directory /workspace`, and recreates the pnpm wrapper
+if it disappeared after a VM restart.
+
+Why this exists: git is not in the base image, and the mounted repo needs
+`safe.directory /workspace` before commits. Agents should use the bootstrap instead
+of repeatedly diagnosing/reinstalling git by hand.
 
 ## TL;DR for coders
+- Start fresh sessions with **`. scripts/gondolin-bootstrap.sh`**.
 - Verify with **`npm run build`** and **`npm run dev`** — these work.
 - **Never `npm install`.** If deps change, use **`pnpm install`** / `pnpm add`.
 - New npm scripts must invoke binaries via `node ./node_modules/<pkg>/...`, not `.bin` shims.
