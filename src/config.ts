@@ -798,7 +798,14 @@ export const AMBIENT_COLD = true;
 // SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
 //   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).
 // SHELTER_SIDE_SCAN: cells scanned LEFT and RIGHT at the body's mid-row to find
-//   WOOD/WALL walls. 4 cells allows a little gap between body and wall.
-// Total worst-case reads per call: SHELTER_ROOF_SCAN + 2*SHELTER_SIDE_SCAN = 14.
+//   WOOD/WALL walls. 7 cells (W3 tuning, was 4): a 6-wide body collides with any
+//   wall inside its footprint, so with side-scan 4 the ONLY cells that satisfy
+//   isSheltered are a tight 7–8-wide pocket the body is TRAPPED in (≤1 approach
+//   cell) — making the "retreat to shelter when too cold" override (GDD §6.1)
+//   barely demonstrable and unusable for a real walled camp. Widening to 7 lets a
+//   roofed nook inside a ~12-wide enclosure be BOTH sheltered AND walk-into-able
+//   from non-sheltered standable cells in the same camp. Kept so worst-case reads
+//   stay ≤ 20 (6 + 2×7 = 20) — W2's bounded-scan invariant holds.
+// Total worst-case reads per call: SHELTER_ROOF_SCAN + 2*SHELTER_SIDE_SCAN = 20.
 export const SHELTER_ROOF_SCAN = 6;
-export const SHELTER_SIDE_SCAN = 4;
+export const SHELTER_SIDE_SCAN = 7;

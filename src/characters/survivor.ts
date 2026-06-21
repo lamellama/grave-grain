@@ -17,7 +17,7 @@
  *
  * AUTO-OVERRIDE (p5-t4, GDD §6.1 / §13): crossing a need threshold DROPS wander
  * and self-preserves. Each tick we pick a behaviour by priority —
- *   fleeFire  > seekWater(thirst) > seekFood(hunger) > wander
+ *   fleeFire > seekWater(thirst) > seekFood(hunger) > seekWarmth(cold) > wander
  * — then drive the body toward the nearest resource via the coarse navgrid
  * router (game/pathfinding) plus LOCAL STEERING (set body.moveDir toward the
  * next waypoint's x; let Phase-3 locomotion do the actual walk/step/fall). Paths
@@ -62,6 +62,7 @@ import {
   THIRST_RATE,
   WARMTH_RATE,
   WARMTH_RESTORE_RATE,
+  WARMTH_THRESHOLD,
   FIRE_WARMTH_RADIUS,
   AMBIENT_COLD,
   EXERTION_RATE_MULT,
@@ -100,6 +101,7 @@ export type Behaviour =
   | 'wander'
   | 'seekWater'
   | 'seekFood'
+  | 'seekWarmth'
   | 'fleeFire'
   | 'consuming';
 
@@ -249,8 +251,16 @@ function nearFire(body: Body): boolean {
  * All scans early-exit on the first match, so the common hot-path is cheaper.
  */
 export function isSheltered(body: Body): boolean {
-  const rx = Math.round(body.x);
-  const ry = Math.round(body.y);
+  return isShelteredAt(Math.round(body.x), Math.round(body.y));
+}
+
+/**
+ * Shelter test for a HYPOTHETICAL body whose feet rest at (rx, ry) — the same
+ * bounded WOOD/WALL roof+walls probe as isSheltered, evaluated for a CANDIDATE
+ * stand cell rather than the live body. W3's seekWarmth uses this to pick a
+ * sheltered stand cell to retreat to (test the destination BEFORE walking there).
+ */
+function isShelteredAt(rx: number, ry: number): boolean {
   const headRow = ry - (BODY_H - 1);
   const midRow  = ry - Math.floor(BODY_H / 2);
 
@@ -557,6 +567,49 @@ function nearestReachable(
 }
 
 /**
+ * Nearest REACHABLE SHELTERED stand-cell within range (Task W3, GDD §6.1 "retreat
+ * to shelter when too cold"). Scans rings outward from the body anchor
+ * (nearest-first) for a cell where the feet can stand AND a body placed there
+ * would be sheltered (isShelteredAt), then returns the first such cell with a
+ * route to it. NEVER targets fire — fleeFire owns flames; seekWarmth is shelter
+ * only (resolves the flee-vs-seek conflict). Mirrors nearestReachable's bounded
+ * O(scan)+O(K·A*) shape: cheap standable+sheltered filter first, A* capped at
+ * REACH_MAX_PATH_ATTEMPTS. Here the matched cell IS the stand cell (no separate
+ * bank), so ReachTarget.cell === standCell. Returns null when no reachable
+ * shelter is in range (→ the caller falls back to wander; W5's colony fire warms).
+ */
+function nearestReachableShelter(s: Survivor): ReachTarget | null {
+  const bx = Math.round(s.body.x);
+  const by = Math.round(s.body.y);
+  let attempts = 0;
+  for (let r = 1; r <= RESOURCE_SCAN_RADIUS; r++) {
+    const ring: Array<{ x: number; y: number; d: number }> = [];
+    for (let dy = -r; dy <= r; dy++) {
+      for (let dx = -r; dx <= r; dx++) {
+        if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue; // perimeter only
+        const x = bx + dx;
+        const y = by + dy;
+        // A sheltered STAND cell: feet can rest here AND a body here is warm-safe.
+        if (isStandableFeet(x, y) && isShelteredAt(x, y)) {
+          ring.push({ x, y, d: dx * dx + dy * dy });
+        }
+      }
+    }
+    if (ring.length === 0) continue;
+    ring.sort((a, b) => a.d - b.d);
+    for (const c of ring) {
+      if (attempts >= REACH_MAX_PATH_ATTEMPTS) return null; // give up this scan
+      attempts++;
+      const path = findPath(bx, by, c.x, c.y);
+      if (path) {
+        return { cell: { x: c.x, y: c.y }, standCell: { x: c.x, y: c.y }, path };
+      }
+    }
+  }
+  return null;
+}
+
+/**
  * Nearest REACHABLE work target for a harvest role (playtest #3/#5): exposed
  * STONE/ORE for the miner, FOLIAGE for the lumberjack/forager — each filtered to
  * one with a standable bank and a route, so the survivor walks to and works a
@@ -673,6 +726,61 @@ function driveSeek(
   }
 
   // 4. Steer toward the STANDABLE bank beside the resource (never into it).
+  const tgt = s.seekTarget;
+  steerToCell(s, tgt.standCell.x, tgt.standCell.y, tgt.cell.x);
+}
+
+/**
+ * Seek warmth = retreat to SHELTER (Task W3, GDD §6.1 "they retreat to a shelter
+ * when too cold"). NEVER seeks fire (fleeFire owns flames). Drive order each tick:
+ *   1. ARRIVAL — already sheltered → stand still. Warmth then restores PASSIVELY
+ *      via the deplete block (sheltered ⇒ warm); no `consuming` state needed.
+ *   2. TARGET — (re)acquire the nearest REACHABLE sheltered stand-cell (standable
+ *      + isShelteredAt + a route), throttled by PATH_REPATH_COOLDOWN like seek.
+ *   3. NO SHELTER — none reachable → fall back to wander (the survivor stays near
+ *      home; the colony fire passively warms it, W5). May still freeze if there
+ *      is genuinely no heat anywhere — the W1 graceful-degradation behaviour.
+ *   4. STEER — local steering toward the sheltered stand-cell.
+ */
+function driveSeekWarmth(s: Survivor): void {
+  const body = s.body;
+
+  // 1. Already sheltered → stand; warmth restores via the deplete block.
+  if (isSheltered(body)) {
+    s.path = null;
+    s.seekTarget = null;
+    body.moveDir = 0;
+    return;
+  }
+
+  // 2. (Re)acquire a nearest-REACHABLE sheltered stand-cell when we have none or
+  //    its route went locally stale. Throttled so the bounded scan + A* never
+  //    runs every tick (GDD §13).
+  const t = s.seekTarget;
+  const valid =
+    t !== null &&
+    isShelteredAt(t.standCell.x, t.standCell.y) &&
+    s.path !== null &&
+    !isPathStale(s.path);
+  if (!valid && s.tick - s.lastRepath >= PATH_REPATH_COOLDOWN) {
+    s.lastRepath = s.tick;
+    const next = nearestReachableShelter(s);
+    s.seekTarget = next;
+    if (next) {
+      s.path = next.path;
+      s.waypointIndex = 0;
+    } else {
+      s.path = null;
+    }
+  }
+
+  // 3. Nothing reachable → wander near home (colony fire warms; may still die).
+  if (s.seekTarget === null) {
+    driveWander(s);
+    return;
+  }
+
+  // 4. Steer toward the sheltered stand-cell.
   const tgt = s.seekTarget;
   steerToCell(s, tgt.standCell.x, tgt.standCell.y, tgt.cell.x);
 }
@@ -972,7 +1080,7 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
 /**
  * Pick this tick's behaviour by priority (GDD §6.1 auto-override). Full priority
  * including the Phase-6 role loop is:
- *   fleeFire > seekWater(thirst) > seekFood(hunger) > role-loop > wander.
+ *   fleeFire > seekWater(thirst) > seekFood(hunger) > seekWarmth(cold) > role-loop > wander.
  * This picker resolves the need/fire layer; when it lands on 'wander',
  * updateSurvivor substitutes the role loop if a role + tool are present.
  * Fire interrupts ANYTHING (incl. consuming); otherwise an in-progress consume
@@ -991,6 +1099,17 @@ function selectBehaviour(s: Survivor): { x: number; y: number } | null {
     next = 'seekWater';
   } else if (s.needs.hunger < HUNGER_THRESHOLD) {
     next = 'seekFood';
+  } else if (
+    s.needs.warmth < WARMTH_THRESHOLD &&
+    !nearWarmth(s.body) &&
+    !isSheltered(s.body)
+  ) {
+    // Warmth is the LOWEST-priority need (TUNABLE ordering): freezing is the
+    // SLOWEST of the three deaths (WARMTH_RATE < THIRST/HUNGER), so a survivor
+    // that is BOTH cold and thirsty/hungry eats/drinks first (GDD §6.1). Don't
+    // seek if already warming — near a fire (nearWarmth) or already sheltered.
+    // seekWarmth targets SHELTER ONLY, never fire (fleeFire owns flames).
+    next = 'seekWarmth';
   } else {
     next = 'wander';
   }
@@ -1047,8 +1166,9 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   //     COLD & EXPOSED (no heat source within FIRE_WARMTH_RADIUS, not sheltered)
   //     loses warmth; otherwise (by a fire, or sheltered) it warms back up fast.
   //     Warmth is mainly cold-vs-heat — no exertion factor (you don't freeze
-  //     faster by walking). Shelter is W2/W3; W1 treats it as always false.
-  const sheltered = false; // W2/W3 wires real shelter
+  //     faster by walking). W3 wires REAL shelter: a sheltered survivor (under a
+  //     WOOD/WALL roof with side walls) stops losing warmth and warms back up.
+  const sheltered = isSheltered(body); // GDD §8/§6.1 shelter blocks the cold
   if (AMBIENT_COLD && !nearWarmth(body) && !sheltered) {
     s.needs.warmth = Math.max(0, s.needs.warmth - WARMTH_RATE);
   } else {
@@ -1089,6 +1209,9 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
       break;
     case 'seekFood':
       driveSeek(s, FOLIAGE, 'food');
+      break;
+    case 'seekWarmth':
+      driveSeekWarmth(s);
       break;
     case 'consuming':
       driveConsume(s);
