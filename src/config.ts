@@ -756,3 +756,40 @@ export const MAX_CORPSES = 16;
 // RGB values produce a desaturated grey-blue that reads as "cold/dead" without
 // being pure grey (which would clash with stone). Blended via ROLE_TINT_MIX.
 export const CORPSE_TINT: [number, number, number] = [110, 110, 118];
+
+// ---------------------------------------------------------------------------
+// Warmth + camp (post-MVP, Task W1) — survival WARMTH need (GDD §6.1, §10)
+// ---------------------------------------------------------------------------
+// A third survival need: WARMTH depletes under ambient cold/exposure and is
+// restored near a heat source (FIRE). Failure (warmth → 0) is a QUIET freeze
+// death → the rig lies down as a CORPSE (layDownCorpse), NOT a dissolve.
+
+// Warmth lost per tick when the survivor is COLD and EXPOSED (no heat source,
+// not sheltered). Deliberately slightly under THIRST_RATE so that, all else
+// equal, freezing is the SLOWEST of the three deaths (you notice cold last).
+export const WARMTH_RATE = 0.012;
+
+// Warmth gained per tick when near a heat source (or sheltered). Must out-pace
+// WARMTH_RATE by a wide margin so standing by a fire reliably tops you back up
+// (a survivor sitting at a fire never slowly freezes).
+export const WARMTH_RESTORE_RATE = 0.5;
+
+// Warmth level below which the autonomy AI auto-overrides to seek warmth — used
+// by W3's seek-warmth behaviour (defined now so W1 ships the full constant set).
+// NOTE (W3): seek-warmth seeks SHELTER, never FIRE (survivors FLEE fire).
+export const WARMTH_THRESHOLD = 50;
+
+// Radius (cells, Chebyshev) within which a FIRE cell PASSIVELY warms a survivor.
+// INVARIANT (resolves the flee-vs-warm conflict): this MUST be ≥ FLEE_FIRE_RADIUS
+// (8). selectBehaviour flees ANY fire within FLEE_FIRE_RADIUS, so the ring a
+// survivor is pushed back TO must still count as "warm" — otherwise a freezing
+// survivor would flee its only heat source and freeze anyway. Warmth is therefore
+// PASSIVE PROXIMITY (no seek-fire behaviour ever exists); W3's seekWarmth targets
+// SHELTER instead. Keep FIRE_WARMTH_RADIUS ≥ FLEE_FIRE_RADIUS.
+export const FIRE_WARMTH_RADIUS = 8;
+
+// MVP global-cold flag (Task W1): the world is always cold, so a survivor ALWAYS
+// needs a heat source (or shelter) to stay warm. This is the simplest model that
+// makes warmth matter; day/night temperature cycles and §10 ambient temperature
+// fields are deferred to a later warmth task.
+export const AMBIENT_COLD = true;

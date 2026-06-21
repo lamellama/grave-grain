@@ -6,10 +6,14 @@
  * by setting `body.moveDir`. This controller OWNS the body drive — main calls
  * updateSurvivor once per tick and never pokes moveDir itself.
  *
- * SCOPE (MVP per GDD §6.1): Hunger + Thirst only (Warmth is OUT of MVP), role
- * fixed 'none'. Needs deplete faster with exertion (moving) and, for thirst,
- * near heat (FIRE). When a need hits 0 the survivor dies through the existing
- * Phase-4 death-collapse (dissolveBody → cells into the live sim).
+ * SCOPE: Hunger + Thirst + Warmth (Task W1 added warmth). Needs deplete faster
+ * with exertion (moving) and, for thirst, near heat (FIRE). WARMTH instead
+ * depletes under AMBIENT_COLD when NOT near a heat source (and not sheltered —
+ * shelter is W2/W3, treated false here) and is RESTORED near FIRE within
+ * FIRE_WARMTH_RADIUS (passive proximity — never a seek-fire behaviour, since
+ * survivors FLEE fire; see FIRE_WARMTH_RADIUS invariant in config). When a need
+ * hits 0 the survivor dies a QUIET death (layDownCorpse → prone corpse, rig
+ * intact), NOT the extreme cell-dissolve (revised death model, GDD §5.1).
  *
  * AUTO-OVERRIDE (p5-t4, GDD §6.1 / §13): crossing a need threshold DROPS wander
  * and self-preserves. Each tick we pick a behaviour by priority —
@@ -56,6 +60,10 @@ import {
   FOOD_PER_GATHER,
   HUNGER_RATE,
   THIRST_RATE,
+  WARMTH_RATE,
+  WARMTH_RESTORE_RATE,
+  FIRE_WARMTH_RADIUS,
+  AMBIENT_COLD,
   EXERTION_RATE_MULT,
   HEAT_THIRST_MULT,
   HUNGER_THRESHOLD,
@@ -115,7 +123,7 @@ export interface Survivor {
   // a survivor (main.ts). Lives on the controller because the hand-off is a
   // controller-swap concept; the Body stays alive===true throughout.
   turned: boolean;
-  needs: { hunger: number; thirst: number };
+  needs: { hunger: number; thirst: number; warmth: number };
   home: { x: number; y: number };
   role: RoleName;
   behaviour: Behaviour;
@@ -168,7 +176,7 @@ export function createSurvivor(x: number, y: number): Survivor {
   return {
     body: createBody(x, y),
     turned: false,
-    needs: { hunger: NEED_MAX, thirst: NEED_MAX },
+    needs: { hunger: NEED_MAX, thirst: NEED_MAX, warmth: NEED_MAX },
     home: { x, y },
     role: 'none',
     behaviour: 'wander',
@@ -217,6 +225,25 @@ function nearFire(body: Body): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Is a FIRE cell within FIRE_WARMTH_RADIUS of the body anchor? (Task W1, GDD
+ * §6.1/§10 warmth restored near a heat source.) A WIDER probe than nearFire
+ * (which is a tight footprint-adjacency test for thirst-from-heat): warmth is
+ * PASSIVE PROXIMITY, and FIRE_WARMTH_RADIUS ≥ FLEE_FIRE_RADIUS by invariant, so
+ * the ring a survivor is pushed back to when fleeing fire still counts as warm.
+ * Reuses the bounded ring-scan nearestMaterial probe over the live grid.
+ */
+function nearWarmth(body: Body): boolean {
+  return (
+    nearestMaterial(
+      Math.round(body.x),
+      Math.round(body.y),
+      FIRE,
+      FIRE_WARMTH_RADIUS,
+    ) !== null
+  );
 }
 
 /** Inclusive random integer in [lo, hi]. */
@@ -965,6 +992,18 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   s.needs.hunger = Math.max(0, s.needs.hunger - HUNGER_RATE * exertion);
   s.needs.thirst = Math.max(0, s.needs.thirst - THIRST_RATE * exertion * heat);
 
+  // 2a. Warmth (Task W1, GDD §6.1/§10): under AMBIENT_COLD a survivor that is
+  //     COLD & EXPOSED (no heat source within FIRE_WARMTH_RADIUS, not sheltered)
+  //     loses warmth; otherwise (by a fire, or sheltered) it warms back up fast.
+  //     Warmth is mainly cold-vs-heat — no exertion factor (you don't freeze
+  //     faster by walking). Shelter is W2/W3; W1 treats it as always false.
+  const sheltered = false; // W2/W3 wires real shelter
+  if (AMBIENT_COLD && !nearWarmth(body) && !sheltered) {
+    s.needs.warmth = Math.max(0, s.needs.warmth - WARMTH_RATE);
+  } else {
+    s.needs.warmth = Math.min(NEED_MAX, s.needs.warmth + WARMTH_RESTORE_RATE);
+  }
+
   // 3. Death (GDD §6.1 failure states): a need at 0 kills the survivor. This is
   //    a QUIET death — the rig LIES DOWN as a prone corpse (layDownCorpse),
   //    NOT the extreme cell-dissolve (revised death model, GDD §5.1: starvation
@@ -974,6 +1013,10 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
     s.deathCause = 'starvation';
   } else if (s.needs.thirst <= 0) {
     s.deathCause = 'thirst';
+  } else if (s.needs.warmth <= 0) {
+    // GDD §6.1 warmth failure → FREEZE. Still a QUIET death: layDownCorpse
+    // (below) lies the rig down as a corpse — never dissolveBody.
+    s.deathCause = 'frozen';
   }
   if (s.deathCause !== null) {
     console.log(`Survivor died: ${s.deathCause}`);
