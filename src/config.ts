@@ -584,6 +584,15 @@ export const WAVE_INTERVAL = 2400;  // ticks between waves (~40s @60Hz) — play
 export const ZOMBIE_SPAWN_STAGGER = 30;
 
 // ---------------------------------------------------------------------------
+// Builder feature — BQ-1: global blueprint queue
+// ---------------------------------------------------------------------------
+
+// Hard cap on the number of simultaneously-queued blueprints. At 256 the queue
+// fits entirely in a small array and keeps addBlueprint's O(n) length guard
+// cheap. Raise only if the player clearly needs more pending build jobs.
+export const BUILD_QUEUE_MAX = 256;
+
+// ---------------------------------------------------------------------------
 // Phase 8 — Player building & fire-as-tool (GDD §8, §7.4)
 // ---------------------------------------------------------------------------
 
