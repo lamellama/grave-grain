@@ -24,7 +24,7 @@ import {
   resetStockpile,
   setStockpilePoint,
 } from '../src/game/resources';
-import { WORLD_W, WORLD_H, WORLDGEN_SEED, NEED_MAX } from '../src/config';
+import { WORLD_W, WORLD_H, WORLDGEN_SEED, NEED_MAX, CAMP_HALF_WIDTH } from '../src/config';
 
 declare const process: any;
 
@@ -89,8 +89,12 @@ console.log('\n=== 1. Forage natural worldgen foliage ===');
   resetStockpile();
   const res = generateWorld(WORLDGEN_SEED);
   rebuildNavgrid();
-  const sr = surfaceRow(res.spawnX);
-  const s = createSurvivor(res.spawnX, sr - 1);
+  // Task W5: worldgen now builds a sealed starter camp ON res.spawnX, so spawn
+  // on OPEN ground just left of the camp (toward the guaranteed grove) to test
+  // foraging a natural worldgen bush from a free-roaming survivor.
+  const forageX = res.spawnX - (CAMP_HALF_WIDTH + 34);
+  const sr = surfaceRow(forageX);
+  const s = createSurvivor(forageX, sr - 1);
   s.needs.hunger = 30; // below HUNGER_THRESHOLD → seekFood auto-override
   const before = s.needs.hunger;
   const foliageBefore = countMat(FOLIAGE);
@@ -105,7 +109,7 @@ console.log('\n=== 1. Forage natural worldgen foliage ===');
   }
   const foliageAfter = countMat(FOLIAGE);
   console.log(
-    `  spawnX=${res.spawnX} surfaceRow=${sr} | hunger ${before} → peak ${peak.toFixed(1)} | ` +
+    `  forageX=${forageX} surfaceRow=${sr} | hunger ${before} → peak ${peak.toFixed(1)} | ` +
       `foliage ${foliageBefore} → ${foliageAfter} | ticks-to-eat=${ate} | alive=${s.body.alive}`,
   );
   check(switched, '1: auto-override to seekFood fired');
@@ -122,8 +126,11 @@ console.log('\n=== 2a. Drink reachable spawn pond (generated world) ===');
   resetStockpile();
   const res = generateWorld(WORLDGEN_SEED);
   rebuildNavgrid();
-  const sr = surfaceRow(res.spawnX);
-  const s = createSurvivor(res.spawnX, sr - 1);
+  // Task W5: spawn on OPEN ground just right of the sealed starter camp (toward
+  // the guaranteed surface pond) so a free-roaming survivor drinks it.
+  const drinkX = res.spawnX + (CAMP_HALF_WIDTH + 34);
+  const sr = surfaceRow(drinkX);
+  const s = createSurvivor(drinkX, sr - 1);
   s.needs.thirst = 30;
   const before = s.needs.thirst;
   let peak = before;

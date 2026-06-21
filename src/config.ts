@@ -809,3 +809,29 @@ export const AMBIENT_COLD = true;
 // Total worst-case reads per call: SHELTER_ROOF_SCAN + 2*SHELTER_SIDE_SCAN = 20.
 export const SHELTER_ROOF_SCAN = 6;
 export const SHELTER_SIDE_SCAN = 7;
+
+// ---------------------------------------------------------------------------
+// Task W5 — Starter camp (GDD §8 camp/shelter as retreat, §10 ambient cold).
+// ---------------------------------------------------------------------------
+// Worldgen lays a small roofed WOOD/WALL nook at the spawn column so the colony
+// LIVES inside a shelter and stays warm on the cold world. The geometry is
+// dictated by the W2/W3 shelter probe + the 6-wide body (see survivor.ts):
+//   - Side WALL columns sit at spawnX ± CAMP_HALF_WIDTH. They must be ≥4 cells
+//     from the body centre (the figure is 6 wide → arms at ±3) so a body can
+//     STAND at the centre without clipping a wall, and ≤ SHELTER_SIDE_SCAN (7)
+//     so isShelteredAt reads them at mid-torso. 6 satisfies both: the central
+//     cells [spawnX-1 .. spawnX+1] are BOTH standable and sheltered, with
+//     ~11 cells of open interior to move in (brief: "leave floor room").
+//   - The WOOD roof sits CAMP_ROOF_CLEARANCE cells above the head: high enough
+//     to clear the body (headroom for standability/navgrid) and the locomotion
+//     burial-pin probe (a roof TOUCHING the head pins+freezes the body), low
+//     enough to fall within SHELTER_ROOF_SCAN. With BODY_H=12 the head top is 11
+//     cells above the feet; clearance 4 puts the roof 15 cells up (in the 6-cell
+//     roof-scan window above the head, and 3 cells clear of the pin row).
+// NOTE: full-height side walls necessarily SEAL the nook (a 2-D sheltered cell
+// is unreachable from open ground — a wall at mid-torso blocks a passing body),
+// so survivors LIVE inside and walk between interior cells; they are spawned
+// inside (main.ts uses shelterPoint). See the W5 report for the water-access
+// caveat this implies for a later phase.
+export const CAMP_HALF_WIDTH = 6;
+export const CAMP_ROOF_CLEARANCE = 4;

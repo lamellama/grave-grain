@@ -21,6 +21,8 @@ import {
   DIRT,
   ORE,
   FOLIAGE,
+  WOOD,
+  WALL,
   MATERIALS,
 } from '../src/engine/materials';
 import {
@@ -32,6 +34,7 @@ import {
   SPAWN_ZONE_MARGIN,
   SPAWN_GUARANTEE_WOOD_CELLS,
   RESOURCE_SCAN_RADIUS,
+  CAMP_HALF_WIDTH,
 } from '../src/config';
 
 declare const process: any;
@@ -76,7 +79,12 @@ function surfaceRow(x: number): number {
 }
 
 // --- 2. Layering -----------------------------------------------------------
-const sampleCols = [120, 400, 700, res.spawnX, 1000];
+// NOTE (Task W5): worldgen now builds a starter camp (roofed WOOD/WALL nook)
+// centred on res.spawnX, so that column legitimately has a WOOD roof as its
+// topmost solid — it is NOT natural layered terrain. The layering check samples
+// only OPEN columns away from the camp; the camp column is verified separately
+// below (camp-shelter coverage).
+const sampleCols = [120, 400, 700, 1000];
 let layeringOk = true;
 for (const cx of sampleCols) {
   const top = surfaceRow(cx);
@@ -144,6 +152,23 @@ const distFromEdge = res.zombieEdge === 'left' ? res.spawnX : WORLD_W - 1 - res.
 console.log(`\n[4] spawnX=${res.spawnX}, spawnY=${res.spawnY}, zombieEdge=${res.zombieEdge}, distFromEdge=${distFromEdge}`);
 console.log(`    stockpilePoint=(${res.stockpilePoint.x},${res.stockpilePoint.y})`);
 assert(distFromEdge >= SPAWN_ZONE_MARGIN, `spawnX ≥ ${SPAWN_ZONE_MARGIN} from zombie edge (got ${distFromEdge})`);
+
+// --- 5. Starter camp (Task W5) ---------------------------------------------
+// The camp centres on spawnX with WALL side-posts at spawnX ± CAMP_HALF_WIDTH
+// and a WOOD roof above; res.shelterPoint names a feet-cell inside it.
+{
+  const cx = res.spawnX;
+  let roofWood = 0;
+  for (let y = 0; y < res.spawnY; y++) if (material[idx(cx, y)] === WOOD) roofWood++;
+  const leftWall = material[idx(cx - CAMP_HALF_WIDTH, res.shelterPoint.y - 4)];
+  const rightWall = material[idx(cx + CAMP_HALF_WIDTH, res.shelterPoint.y - 4)];
+  console.log(
+    `\n[5] Camp @${cx}: roofWood=${roofWood} | leftWall=${name(leftWall)} rightWall=${name(rightWall)} | shelterPoint=(${res.shelterPoint.x},${res.shelterPoint.y})`,
+  );
+  assert(roofWood >= 1, 'camp has a WOOD roof above the spawn column');
+  assert(leftWall === WALL && rightWall === WALL, 'camp has WALL side-posts at spawnX ± CAMP_HALF_WIDTH');
+  assert(res.shelterPoint.x === cx, 'shelterPoint is the camp centre column');
+}
 
 // --- sanity: STONE exists at depth, water/ore present somewhere -------------
 let totalStone = 0, totalOre = 0, totalSand = 0, totalWater = 0, totalFol = 0;

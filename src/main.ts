@@ -22,7 +22,6 @@ import {
   WORLD_W,
   WORLD_H,
   SURVIVOR_COUNT,
-  SURVIVOR_SPAWN_SPREAD,
   STARTING_WOOD,
   STARTING_STONE,
   STARTING_AMMO,
@@ -176,10 +175,15 @@ setAmmo(STARTING_AMMO); // limited bullets for the Shoot tool (playtest)
 const survivors: Survivor[] = [];
 
 for (let i = 0; i < SURVIVOR_COUNT; i++) {
-  // Spread survivors symmetrically around the spawn column so they don't stack.
-  const offsetX = (i - Math.floor(SURVIVOR_COUNT / 2)) * SURVIVOR_SPAWN_SPREAD;
-  const spawnX = world.spawnX + offsetX;
-  survivors.push(createSurvivor(spawnX, world.spawnY));
+  // Task W5: the colony LIVES inside the starter camp. The nook interior is
+  // narrow (the wide SURVIVOR_SPAWN_SPREAD would land survivors outside the
+  // walls), so cluster them tightly around the shelter point — within the
+  // standable interior, where the central cells are sheltered and the rest
+  // walk one cell to retreat into the warm nook (GDD §8/§10).
+  const offsetX = i - Math.floor(SURVIVOR_COUNT / 2); // -2..+1 for 4 survivors
+  survivors.push(
+    createSurvivor(world.shelterPoint.x + offsetX, world.shelterPoint.y),
+  );
 }
 
 // Register all survivor bodies with per-role tints so they are drawn each frame

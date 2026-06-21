@@ -41,8 +41,10 @@ import {
   RESOURCE_SCAN_RADIUS,
   ZOMBIE_SPAWN_EDGE,
   BODY_H,
+  CAMP_HALF_WIDTH,
+  CAMP_ROOF_CLEARANCE,
 } from '../config';
-import { material, integrity, idx, inBounds } from '../engine/grid';
+import { material, integrity, idx, inBounds, placeMaterial } from '../engine/grid';
 import {
   AIR,
   SAND,
@@ -51,7 +53,10 @@ import {
   DIRT,
   ORE,
   FOLIAGE,
+  WOOD,
+  WALL,
   MATERIALS,
+  isSolidForBody,
 } from '../engine/materials';
 
 // ---------------------------------------------------------------------------
@@ -67,6 +72,12 @@ export interface WorldGenResult {
   stockpilePoint: { x: number; y: number };
   /** Which horizontal edge the zombies stream in from (GDD §5.3 edge zones). */
   zombieEdge: 'left' | 'right';
+  /**
+   * A standable, SHELTERED feet-cell inside the starter camp (Task W5, GDD §8).
+   * main.ts clusters the colony here so survivors live in the warm nook on the
+   * cold world. `x` is the camp centre (= spawnX); `y` is the camp floor feet row.
+   */
+  shelterPoint: { x: number; y: number };
 }
 
 // ---------------------------------------------------------------------------
@@ -225,8 +236,11 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
       : SPAWN_ZONE_MARGIN + SPAWN_FAR_INSET;
   spawnX = clampX(spawnX);
   const spawnSurface = surfaceY[spawnX];
-  // Drop survivors a body-height above ground so they fall onto the surface.
-  const spawnY = Math.max(0, spawnSurface - BODY_H);
+  // The starter camp flattens the floor to spawnSurface, so the colony stands
+  // with its feet on the row just above it (Task W5). Survivors are spawned
+  // STANDING inside the camp (no long fall onto a roof), so spawnY is the feet
+  // row, not a drop row above the surface.
+  const spawnY = Math.max(0, spawnSurface - 1);
   const stockpilePoint = { x: spawnX, y: spawnSurface };
 
   // 9. Spawn-zone guarantees (GDD §5.3): a survivor must always be able to chop
@@ -250,7 +264,65 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     carveSurfacePond(waterX, surfaceY[waterX]);
   }
 
-  return { spawnX, spawnY, stockpilePoint, zombieEdge };
+  // 10. Starter camp (Task W5, GDD §8/§10): a roofed WOOD/WALL nook centred on
+  //     the spawn column so the colony LIVES in a warm shelter on the cold
+  //     world. Built LAST so it overwrites any woodland/surface noise inside its
+  //     footprint with a clean, flat, sheltered interior.
+  const shelterPoint = buildStarterCamp(spawnX, spawnSurface);
+
+  return { spawnX, spawnY, stockpilePoint, zombieEdge, shelterPoint };
+}
+
+/**
+ * Build the starter-camp shelter (Task W5, GDD §8/§10): a small roofed WOOD/WALL
+ * nook centred at (cx) whose floor sits at `groundRow`. Returns a standable,
+ * SHELTERED feet-cell inside it (the camp centre at feet height).
+ *
+ * Geometry (see CAMP_* in config and the W2/W3 shelter probe in survivor.ts):
+ *   feetRow  = groundRow - 1            (a body stands here, floor below it)
+ *   headRow  = feetRow - (BODY_H - 1)   (top of the figure)
+ *   roofRow  = headRow - CAMP_ROOF_CLEARANCE
+ *   walls    : columns cx ± CAMP_HALF_WIDTH, rows roofRow+1 .. feetRow (WALL)
+ *   roof     : row roofRow, columns cx-HALF .. cx+HALF (WOOD)
+ * The interior is cleared to AIR and the floor filled solid so a body stands
+ * cleanly; the roof clears the head + the burial-pin probe but stays inside
+ * SHELTER_ROOF_SCAN, and the side walls clear the 6-wide body yet are read at
+ * mid-torso by isShelteredAt. placeMaterial seeds WOOD/WALL integrity so the
+ * camp is breachable later (GDD §7.4 / §8 "must hold against breaching").
+ */
+function buildStarterCamp(cx: number, groundRow: number): { x: number; y: number } {
+  const feetRow = groundRow - 1;
+  const headRow = feetRow - (BODY_H - 1);
+  const roofRow = headRow - CAMP_ROOF_CLEARANCE;
+  const leftWallX = cx - CAMP_HALF_WIDTH;
+  const rightWallX = cx + CAMP_HALF_WIDTH;
+
+  for (let x = leftWallX; x <= rightWallX; x++) {
+    if (x < 0 || x >= WORLD_W) continue;
+    // Clear the interior (and any surface bump/foliage inside it) down to the
+    // feet row, so the nook is open and standable up to the roof.
+    for (let y = roofRow + 1; y <= feetRow; y++) put(x, y, AIR);
+    // Fill a solid DIRT floor from the floor row down to the first natural solid
+    // cell, so the camp floor is always supported (never a floating slab that
+    // the falling-sand sim would drop) even where the local surface dips.
+    for (let y = groundRow; y < WORLD_H; y++) {
+      if (isSolidForBody(material[idx(x, y)])) break; // reached natural ground
+      put(x, y, DIRT);
+    }
+  }
+
+  // Side walls (full interior height) — placeMaterial seeds WALL integrity.
+  for (let y = roofRow + 1; y <= feetRow; y++) {
+    placeMaterial(leftWallX, y, WALL);
+    placeMaterial(rightWallX, y, WALL);
+  }
+  // WOOD roof spanning the nook, a few cells above the head.
+  for (let x = leftWallX; x <= rightWallX; x++) {
+    if (x < 0 || x >= WORLD_W) continue;
+    placeMaterial(x, roofRow, WOOD);
+  }
+
+  return { x: cx, y: feetRow };
 }
 
 // ---------------------------------------------------------------------------
