@@ -54,6 +54,8 @@ import {
   pushToast,
   getSimSpeed,
   directionToWorldX,
+  drawHitFlashes,
+  advanceHitFlashes,
 } from './game/ui';
 
 // ============================================================================
@@ -262,6 +264,9 @@ function simulationTick(): void {
 
   // Phase 1/2: advance the falling-sand cellular update one tick (GDD §5.2).
   simulation.step();
+  // Advance hit-flash timers once per sim tick so rings expand at sim rate
+  // regardless of the getSimSpeed() multiplier (task 11-7, GDD §12 UX).
+  advanceHitFlashes();
 
   // Body LOD (task 11-3, GDD §13): a body that is BOTH far off-screen AND idle
   // (and grounded, not being attacked) runs its controller only every
@@ -428,6 +433,8 @@ function renderLoop(): void {
   flushDeathToasts();
   const vpW = renderer.viewportWidthPx;
   const vpH = renderer.viewportHeightPx;
+  // task 11-7: brief expanding ring at hit locations (GDD §12 UX readability).
+  drawHitFlashes(ctx, camera, vpW, vpH);
   drawNeedsBars(ctx, survivors);
   drawEdgeArrows(ctx, zombies, camera, vpW, vpH);
   // task 11-4: off-screen breach alert (GDD §12.1 / §7.4).

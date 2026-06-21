@@ -12,6 +12,7 @@
 
 import type { Body, BoneName } from '../characters/body';
 import { applyDamage } from '../characters/damage';
+import { registerHit } from './ui';
 import { ATTACK_REACH, BODY_W, BODY_H } from '../config';
 
 /**
@@ -91,4 +92,7 @@ export function pickAttackRegion(
  */
 export function meleeAttack(target: Body, region: BoneName): void {
   applyDamage(target, region);
+  // Register a brief hit-flash ring at the target's world position (task 11-7,
+  // GDD §12 UX readability). registerHit is bounded and non-blocking.
+  registerHit(target.x, target.y);
 }

@@ -581,3 +581,113 @@ export function drawEndScreen(
 
   ctx.restore();
 }
+
+// ---------------------------------------------------------------------------
+// Hit-flash registry (task 11-7, GDD §12 UX readability)
+//
+// A tiny time-bounded juice layer. registerHit() records the world position of
+// a fresh damage event; drawHitFlashes() renders a brief expanding ring there
+// via the ctx overlay (NEVER the ImageData path — putImageData invariant kept).
+// The array is hard-capped at MAX_HIT_FLASHES: when full the OLDEST entry is
+// evicted so the count never grows unboundedly. Flashes expire after exactly
+// HIT_FLASH_TICKS ticks via advanceHitFlashes().
+// ---------------------------------------------------------------------------
+import { HIT_FLASH_TICKS, MAX_HIT_FLASHES } from '../config';
+
+interface HitFlash {
+  worldX: number;
+  worldY: number;
+  age: number; // ticks since creation (0 = fresh; expires when >= HIT_FLASH_TICKS)
+}
+
+const _hitFlashes: HitFlash[] = [];
+
+/**
+ * Record a hit at the given world position so drawHitFlashes can render the
+ * brief ring this and subsequent frames. If MAX_HIT_FLASHES are already active
+ * the oldest entry is evicted (array stays bounded — NEVER grows past the cap).
+ * Safe to call from the sim (pure data write, no DOM or ctx access).
+ */
+export function registerHit(worldX: number, worldY: number): void {
+  if (_hitFlashes.length >= MAX_HIT_FLASHES) {
+    _hitFlashes.shift(); // evict oldest — O(n) but n≤24, negligible
+  }
+  _hitFlashes.push({ worldX, worldY, age: 0 });
+}
+
+/**
+ * Advance all active hit-flash timers by one tick and prune expired entries.
+ * Call once per simulation tick (BEFORE drawHitFlashes) so the ring expands
+ * frame-consistently regardless of the sim-speed multiplier.
+ */
+export function advanceHitFlashes(): void {
+  for (let i = _hitFlashes.length - 1; i >= 0; i--) {
+    _hitFlashes[i].age++;
+    if (_hitFlashes[i].age >= HIT_FLASH_TICKS) {
+      _hitFlashes.splice(i, 1);
+    }
+  }
+}
+
+/**
+ * Expose the internal hit-flash array length for unit tests.
+ * @internal
+ */
+export function _hitFlashCount(): number {
+  return _hitFlashes.length;
+}
+
+/**
+ * Draw brief expanding rings for each active hit flash. Must be called AFTER
+ * renderer.render() and BEFORE the end-screen dim so the rings appear above the
+ * world but below any full-screen overlays. Guard-safe for zero-sized canvas.
+ *
+ * Ring design: starts small (radius=2 cells) and expands linearly to ~5 cells
+ * over HIT_FLASH_TICKS, fading from opaque white → transparent. Costs one
+ * ctx.arc + ctx.stroke per active flash — bounded by MAX_HIT_FLASHES.
+ */
+export function drawHitFlashes(
+  ctx: CanvasRenderingContext2D,
+  _camera: { x: number; y: number },
+  _vpW: number,
+  _vpH: number,
+): void {
+  if (_hitFlashes.length === 0) return;
+
+  const canvas = ctx.canvas;
+  if (!canvas) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  if (cw === 0 || ch === 0) return;
+
+  const cellPx = effectiveCellPx(); // screen px per world cell (zoom-aware)
+
+  ctx.save();
+  ctx.lineWidth = 1.5;
+
+  for (const f of _hitFlashes) {
+    const progress = f.age / HIT_FLASH_TICKS; // 0 → 1
+    const alpha = 1 - progress;               // fade out
+    const radiusCells = 2 + progress * 3;     // 2→5 cells
+    const radiusPx = radiusCells * cellPx;
+
+    // Convert world anchor to screen pixels.
+    const sc = worldToScreen(f.worldX, f.worldY);
+    const sx = sc.x;
+    const sy = sc.y;
+
+    // Cull off-screen rings (not mandatory — canvas clips anyway, but avoids
+    // needless arc calls for distant flashes).
+    if (sx + radiusPx < -4 || sx - radiusPx > cw + 4) continue;
+    if (sy + radiusPx < -4 || sy - radiusPx > ch + 4) continue;
+
+    ctx.globalAlpha = Math.max(0, alpha);
+    ctx.strokeStyle = '#ffffff';
+    ctx.beginPath();
+    ctx.arc(sx, sy, radiusPx, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}

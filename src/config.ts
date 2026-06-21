@@ -648,3 +648,20 @@ export const TAP_CYCLE_RESET_MS = 800;
 // Fraction (0–1) that each pixel is pulled toward the role's tint colour.
 // 0 = no tint (original colour); 1 = fully replaced by tint.
 export const ROLE_TINT_MIX = 0.45;
+
+// ---------------------------------------------------------------------------
+// Phase 11 (task 11-7) — Hit-flash juice (GDD §12 UX readability)
+// A small time-bounded visual cue when a body takes damage. Drawn as a
+// brief expanding ring at the hit world location via the ctx overlay layer
+// (NEVER the ImageData path — the renderer's putImageData invariant is kept).
+//
+// HIT_FLASH_TICKS : how many sim ticks the ring expands before expiring.
+// MAX_HIT_FLASHES : hard cap on simultaneous active flashes — old ones are
+//   dropped when the cap is reached so the array NEVER grows unboundedly.
+// SCREEN_SHAKE_PX : max pixel offset for optional screen shake on a big event
+//   (death/dissolve). Kept ≤2 px and decaying so it is purely subliminal;
+//   set to 0 to disable.
+// ---------------------------------------------------------------------------
+export const HIT_FLASH_TICKS = 18;
+export const MAX_HIT_FLASHES = 24;
+export const SCREEN_SHAKE_PX = 2;
