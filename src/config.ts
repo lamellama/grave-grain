@@ -584,6 +584,23 @@ export const WAVE_INTERVAL = 2400;  // ticks between waves (~40s @60Hz) — play
 export const ZOMBIE_SPAWN_STAGGER = 30;
 
 // ---------------------------------------------------------------------------
+// Builder feature — BQ-2: builder role constants (GDD §6.2)
+// ---------------------------------------------------------------------------
+
+// Wood cost to craft a hammer (BQ-2, builder role gate).
+export const HAMMER_WOOD_COST = 2;
+
+// Hammer durability: more than WOOD_TOOL_DURABILITY so a builder can finish a
+// wall line (12 actions before the hammer breaks vs 5 for other wood tools).
+export const HAMMER_DURABILITY = 12;
+
+// Ticks to build one cell — slightly slower than chopping (CHOP_TICKS=90).
+export const BUILD_TICKS = 120;
+
+// Amber/tan tint for builder survivors — distinct from lumberjack brown.
+export const BUILDER_TINT: [number, number, number] = [205, 170, 95];
+
+// ---------------------------------------------------------------------------
 // Builder feature — BQ-1: global blueprint queue
 // ---------------------------------------------------------------------------
 

@@ -33,6 +33,10 @@ import {
   PICKAXE_WOOD_COST,
   WEAPON_WOOD_COST,
   BASKET_WOOD_COST,
+  HAMMER_WOOD_COST,
+  HAMMER_DURABILITY,
+  BUILD_TICKS,
+  BUILDER_TINT,
 } from '../config';
 
 // ---------------------------------------------------------------------------
@@ -40,7 +44,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** MVP roles (GDD §6.2 subset); 'none' is the unassigned default. */
-export type RoleName = 'none' | 'miner' | 'lumberjack' | 'forager' | 'guard';
+export type RoleName = 'none' | 'miner' | 'lumberjack' | 'forager' | 'guard' | 'builder';
 
 // ---------------------------------------------------------------------------
 // Role tints (GDD §12 UX readability, task 11-5 — render-only)
@@ -57,6 +61,7 @@ export const ROLE_TINT: Record<RoleName, [number, number, number]> = {
   lumberjack: [150,  90,  40], // brown / orange
   forager:    [ 60, 140,  60], // forest green
   guard:      [ 70, 110, 170], // steel-blue
+  builder:    BUILDER_TINT,    // amber/tan (GDD §6.2 builder role)
 };
 
 /**
@@ -79,7 +84,7 @@ export function tintForRole(
 }
 
 /** Wood-tier tool kinds. Weapons are tools too (GDD §6.3). */
-export type ToolKind = 'pickaxe' | 'axe' | 'basket' | 'weapon';
+export type ToolKind = 'pickaxe' | 'axe' | 'basket' | 'weapon' | 'hammer';
 
 /** A held tool: a kind plus remaining durability (counts down to break). */
 export interface Tool {
@@ -107,7 +112,9 @@ export interface RoleDef {
 
 /** Fresh tool of the given kind at full wood-tier durability. */
 export function makeTool(kind: ToolKind): Tool {
-  return { kind, durability: WOOD_TOOL_DURABILITY };
+  // Hammer uses its own higher durability so a builder can finish a wall line.
+  const durability = kind === 'hammer' ? HAMMER_DURABILITY : WOOD_TOOL_DURABILITY;
+  return { kind, durability };
 }
 
 /**
@@ -124,6 +131,14 @@ export function useTool(tool: Tool): boolean {
 // ---------------------------------------------------------------------------
 
 export const ROLES: Record<RoleName, RoleDef> = {
+  // BQ-3 will add the driving behaviour loop for builder; role data is here.
+  builder: {
+    requiredTool: 'hammer',
+    output: null,
+    harvestMaterial: null,
+    workTicks: BUILD_TICKS,
+    craftCost: { wood: HAMMER_WOOD_COST },
+  },
   none: {
     requiredTool: null,
     output: null,
@@ -258,6 +273,7 @@ function nearestExposedRock(
  *   lumberjack/forager → nearest FOLIAGE (tree/bush) within RESOURCE_SCAN_RADIUS.
  *   miner             → nearest EXPOSED stone/ore (skips fully-buried rock).
  *   guard             → the stockpile hold point (MVP "hold a point", GDD §6.2).
+ *   builder           → null (target acquisition is queue-driven — BQ-3 in survivor.ts).
  *   none              → null.
  */
 export function findTarget(
@@ -273,6 +289,10 @@ export function findTarget(
       return nearestExposedRock(fromX, fromY, RESOURCE_SCAN_RADIUS);
     case 'guard':
       return { x: stockpilePoint.x, y: stockpilePoint.y };
+    case 'builder':
+      // Builder targets are pulled from the blueprint queue (BQ-3), not
+      // grid-scanned here. Return null; survivor.ts drives the pick.
+      return null;
     case 'none':
     default:
       return null;
