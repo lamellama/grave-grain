@@ -37,11 +37,13 @@ export interface GameState {
 }
 
 // ---------------------------------------------------------------------------
-// Internal tracking — module-level set keyed on Survivor objects so we can
-// detect the alive→dead transition without mutating the Survivor.
-// WeakSet so garbage-collected survivors don't leak memory.
+// Internal tracking — module-level sets keyed on Survivor objects so we can
+// detect the alive→dead and NOT-turned→turned transitions without mutating
+// the Survivor. WeakSet so GC'd survivors don't leak memory.
 // ---------------------------------------------------------------------------
 const _prevAlive = new WeakSet<Survivor>();
+/** Tracks which survivors have already been logged as turned (once-only). */
+const _prevTurned = new WeakSet<Survivor>();
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -73,6 +75,9 @@ export interface UpdateCtx {
  * - Mirrors wave number and alive survivor count.
  * - Death watcher: detects alive→dead transitions and pushes a DeathEvent;
  *   caps the log at the last 8 entries (oldest dropped).
+ * - Turn watcher: detects NOT-turned→turned transitions and pushes a DeathEvent
+ *   with cause 'bitten — turned'; excludes that survivor from the alive-watcher
+ *   so the same body cannot also fire an alive→dead event (GDD §7.2 / §12.2).
  * - Win: allWavesCleared(waveState, aliveZombieCount) && survivorsAlive > 0.
  * - Lose: survivors.length > 0 && survivorsAlive === 0.
  */
@@ -85,12 +90,44 @@ export function updateGameState(state: GameState, ctx: UpdateCtx): void {
   // --- Mirror wave number ---
   state.wave = waveState.waveNumber;
 
-  // --- Death watcher (GDD §12.2) ---
-  // For every survivor, check whether it has just transitioned alive->dead.
-  // We use the WeakSet to track who was alive last tick.
+  // --- Death / turn watcher (GDD §12.2) ---
+  // Two transitions are tracked:
+  //   (a) Alive→Dead: survivor.body.alive flips false (starvation, thirst, zombie kill …).
+  //   (b) NOT-turned→Turned: survivor.turned flips true (bitten → reanimate, GDD §7.2).
+  // Turned survivors are excluded from the alive-watcher going forward — their Body is
+  // now driven as a zombie and may later be killed, but that is a zombie death, not a
+  // colony-member death.
   let lastDeathCause: string | null = null;
 
+  function capLog(): void {
+    if (state.deathLog.length > 8) {
+      state.deathLog.splice(0, state.deathLog.length - 8);
+    }
+  }
+
   for (const s of survivors) {
+    const wasTurned = _prevTurned.has(s);
+
+    // --- Turn-watcher: fires ONCE when survivor.turned flips true (GDD §7.2). ---
+    if (!wasTurned && s.turned) {
+      _prevTurned.add(s);
+      // Remove from alive-watcher — zombie body should not also fire a death event.
+      _prevAlive.delete(s);
+      const event: DeathEvent = {
+        cause: 'bitten — turned',
+        x: Math.round(s.body.x),
+        y: Math.round(s.body.y),
+        tick,
+      };
+      state.deathLog.push(event);
+      capLog();
+      lastDeathCause = event.cause;
+      continue; // skip alive-watcher for this survivor this tick
+    }
+
+    // --- Alive-watcher: skip turned survivors (their body is now a zombie). ---
+    if (s.turned) continue;
+
     const wasAlive = _prevAlive.has(s);
     const isAlive = s.body.alive;
 
@@ -105,10 +142,7 @@ export function updateGameState(state: GameState, ctx: UpdateCtx): void {
         tick,
       };
       state.deathLog.push(event);
-      // Cap to last 8 entries (drop oldest).
-      if (state.deathLog.length > 8) {
-        state.deathLog.splice(0, state.deathLog.length - 8);
-      }
+      capLog();
       // Remove from set so we don't log the same death twice next tick.
       _prevAlive.delete(s);
     } else if (isAlive) {

@@ -419,7 +419,13 @@ function flushDeathToasts(): void {
     const e = gameState.deathLog[deathToastCursor];
     const dir = directionToWorldX(e.x, camera, vpW);
     const prefix = dir ? dir + ' ' : '';
-    pushToast(prefix + 'Survivor died: ' + e.cause);
+    // GDD §12.2: show a natural-language message per death cause.
+    // 'bitten — turned' gets a distinct warning; all other causes use the
+    // generic 'Survivor died: <cause>' format (starvation, thirst, etc.).
+    const msg = e.cause.includes('turned')
+      ? prefix + '\u26a0 A survivor was bitten and turned!'
+      : prefix + 'Survivor died: ' + e.cause;
+    pushToast(msg);
     deathToastCursor++;
   }
 }
