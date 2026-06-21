@@ -9,7 +9,7 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 ## Current state
 
 - **🎉 THE MVP IS COMPLETE** (Phases 0–11 all done, planner-verified). Phase 11: 11-1 deterministic RNG, 11-2 chunked/dirty-rect sim (byte-identical), 11-3 LOD+gore settle, 11-4 breach feedback, 11-5 role outfits, 11-6 react-earlier-needs, 11-7 balance+juice — all ✅ & committed.
-- **Current work:** post-MVP **Authorized backlog** (user greenlit). Next: backlog #2 (bite-to-turn death model per revised GDD), then zombie ladder-climb, plant-a-seed growth, Warmth+camp vertical slice, cooperative building, then GDD §14 Beyond.
+- **Current work:** post-MVP **Authorized backlog** (user greenlit). ✅ DONE: revised death model (extreme→dissolve / quiet→corpse / bite→turn-into-zombie + counterplay + win/lose, T1–T6, all invariants green). **NEXT: zombie ladder-climb** (crowded zombies climb walls using each other), then plant-a-seed growth, Warmth+camp vertical slice, cooperative building, GDD §14 Beyond.
 - **USER AUTHORIZATION (this session):** after the MVP, **continue with ALL deferred + added tasks** (the vertical-slice tier is now greenlit). See “Authorized backlog” below and the PLAN.md “Deferred” + playtest sections.
 - **NOTE:** GDD was revised externally (commit 6af1cbf — death model: extreme→dissolve, quiet→corpse, bite→turn). Re-read GDD §5.1/§7 before building the death/turn work; it may add a ‘bitten survivor turns into a zombie’ mechanic to the backlog.
 
