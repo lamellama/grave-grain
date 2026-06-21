@@ -263,10 +263,10 @@ export const EXERTION_RATE_MULT = 2.0;
 export const HEAT_THIRST_MULT = 3.0;
 
 // Hunger level below which the autonomy AI auto-overrides to seek food (GDD §6.1).
-export const HUNGER_THRESHOLD = 35;
+export const HUNGER_THRESHOLD = 50; // below this -> auto-seek food (raised 35->50 for more buffer; playtest: "go get it rather than die")
 
 // Thirst level below which the autonomy AI auto-overrides to seek water (GDD §6.1).
-export const THIRST_THRESHOLD = 35;
+export const THIRST_THRESHOLD = 50; // below this -> auto-seek water (raised 35->50 for more buffer; playtest)
 
 // Idle wander bound: max cell distance from the survivor's home point
 // that the random wander goal may be placed (GDD §6.1).
