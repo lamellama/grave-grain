@@ -47,7 +47,7 @@ import { updateBody } from './locomotion';
 import type { Survivor } from './survivor';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
-import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
+import { bodiesAdjacent, biteAttack } from '../game/combat';
 import {
   SENSE_RADIUS,
   ATTACK_COOLDOWN,
@@ -288,12 +288,16 @@ export function updateZombie(z: Zombie, survivors: Survivor[]): void {
     speed = ZOMBIE_IDLE_SPEED;
   }
 
-  // 4b. Melee strike (GDD §7.2, THE GATE): an adjacent attacking zombie whose
-  //     cooldown is ready wounds its target — meleeAttack → applyDamage RELEASES
-  //     the chosen region's pixels into the live sim (real limb loss / head→
-  //     torso death). While adjacent we HOLD (moveDir 0) so the strike replaces
-  //     movement and the zombie never walks into the target. Cooldown gates the
-  //     cadence so it can't hit every tick.
+  // 4b. Bite (GDD §7.2 "bite & turning" / §5.1 outcome 3): a zombie's signature
+  //     melee is a BITE that INFECTS — NOT the guard's dismembering meleeAttack.
+  //     An adjacent attacking zombie whose cooldown is ready bites its target,
+  //     marking it infected (biteAttack); it releases NO cells, destroys NO
+  //     bones and never trips THE GATE/dissolve (the acting→prone→turn that
+  //     follows is Task 4). While adjacent we HOLD (moveDir 0) so the bite
+  //     replaces movement and the zombie never walks into the target. Cooldown
+  //     gates the cadence so it can't bite every tick; we re-arm it even when
+  //     the target is already infected (a re-bite is wasted, but the zombie
+  //     still gnaws in place rather than shoving past).
   if (
     z.state === 'attack' &&
     z.target &&
@@ -302,8 +306,7 @@ export function updateZombie(z: Zombie, survivors: Survivor[]): void {
   ) {
     z.body.moveDir = 0; // hold position while in reach
     if (z.attackCooldown <= 0) {
-      const region = pickAttackRegion(z.target, 'auto');
-      if (region) meleeAttack(z.target, region);
+      biteAttack(z.target); // bite → infect (no dismember / no GATE)
       z.attackCooldown = ATTACK_COOLDOWN;
     }
   }

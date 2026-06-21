@@ -81,6 +81,20 @@ export interface Body {
   // toward decay/fade (GDD §13) and is seeded to CORPSE_DECAY_TICKS on lay-down.
   corpse: boolean;
   corpseTicks: number;
+  // Bite-infection state (revised death model, GDD §5.1 outcome 3 / §7.2 "bite
+  // & turning"). A zombie's BITE marks the body `infected` rather than
+  // dismembering it (that is the guard's path); the body keeps acting briefly,
+  // then drops `prone`, then reanimates as a zombie. `infectionTicks` counts up
+  // from the bite toward INFECTION_ACTING_TICKS (drop prone) and TURN_DELAY_TICKS
+  // (turn). SCOPE: the bite (this task) only SETS `infected`/`infectionTicks=0`;
+  // the progression/turn that consumes these is Task 4. Kept on the Body (not
+  // the controller) so combat.ts stays body-only and either side can query it.
+  infected: boolean;
+  infectionTicks: number;
+  // True once an infected body has dropped to a downed state (GDD §7.2 "prone/
+  // downed"). Seeded false here; Task-4 progression sets it. Locomotion/AI can
+  // query it cheaply to stop work/fight and (optionally) slow-crawl.
+  prone: boolean;
   // Consecutive ticks the head bone has sat in WATER (p4-t5, THE GATE gate
   // point 4). Incremented while ANY head cell is WATER, reset to 0 the instant
   // the head clears the surface; at DROWN_TICKS the body drowns and dissolves
@@ -234,6 +248,9 @@ export function createBody(x: number, y: number): Body {
     alive: true,
     corpse: false,
     corpseTicks: 0,
+    infected: false,
+    infectionTicks: 0,
+    prone: false,
     drownTicks: 0,
     lLegLost: false,
     rLegLost: false,

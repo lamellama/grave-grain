@@ -13,7 +13,7 @@
 import type { Body, BoneName } from '../characters/body';
 import { applyDamage } from '../characters/damage';
 import { registerHit } from './ui';
-import { ATTACK_REACH, BODY_W, BODY_H } from '../config';
+import { ATTACK_REACH, BODY_W, BODY_H, TURN_FROM_BITE } from '../config';
 
 /**
  * Footprint proximity test (GDD §7.2 melee reach). Two rigged bodies are
@@ -94,5 +94,29 @@ export function meleeAttack(target: Body, region: BoneName): void {
   applyDamage(target, region);
   // Register a brief hit-flash ring at the target's world position (task 11-7,
   // GDD §12 UX readability). registerHit is bounded and non-blocking.
+  registerHit(target.x, target.y);
+}
+
+/**
+ * The ZOMBIE's signature melee (GDD §7.2 "bite & turning" / §5.1 outcome 3): a
+ * BITE that INFECTS rather than dismembers. Unlike meleeAttack (the guard's
+ * path), a bite does NOT call applyDamage — it releases no cells, destroys no
+ * bones, and never triggers THE GATE/dissolve. It simply marks an un-infected
+ * body `infected` (with TURN_FROM_BITE probability — the optional balance knob:
+ * not every bite need infect) and resets its infection clock to 0. The
+ * acting→prone→turn progression that consumes these is Task 4; here the bite
+ * only starts the process.
+ *
+ * NOTE: the Math.random() below lives in the BODY/AI layer (combat), never
+ * inside simulation.step()/the chunked CA, so it can't perturb chunk
+ * byte-equivalence (GDD §13 determinism).
+ */
+export function biteAttack(target: Body): void {
+  if (!target.infected && Math.random() < TURN_FROM_BITE) {
+    target.infected = true;
+    target.infectionTicks = 0;
+  }
+  // Brief hit-flash for feedback — a bite still reads as a hit (GDD §12), even
+  // though it sheds no cells.
   registerHit(target.x, target.y);
 }

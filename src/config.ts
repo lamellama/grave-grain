@@ -410,6 +410,22 @@ export const ATTACK_REACH = 2;
 // survivor). Prevents the same attacker landing hits every tick.
 export const ATTACK_COOLDOWN = 45;
 
+// §7.2 / §5.1 outcome 3 — Bite & turning. Probability that a single zombie BITE
+// infects an un-infected survivor (the optional balance knob: "not every bite
+// need infect"). 1.0 = every bite infects. Consumed by biteAttack (combat.ts) —
+// this Math.random() lives in the BODY/AI layer, never inside the chunked CA.
+export const TURN_FROM_BITE = 1.0;
+
+// §7.2 — Ticks after a bite during which the infected survivor KEEPS ACTING
+// before it drops to a prone/downed state. (Seeded for Task 4 progression; the
+// bite itself only sets `infected` + `infectionTicks=0`.)
+export const INFECTION_ACTING_TICKS = 120;
+
+// §7.2 — Total ticks from bite to REANIMATION as a zombie (same body, controller
+// swapped). Must exceed INFECTION_ACTING_TICKS (act, then lie prone, then turn).
+// (Seeded for Task 4 progression; unused by the bite itself.)
+export const TURN_DELAY_TICKS = 300;
+
 // §7.2 — Radius (cells) from a guard's assigned hold point within which it
 // will leave position to engage a zombie. Beyond this radius it returns home.
 export const GUARD_ENGAGE_RADIUS = 40;
