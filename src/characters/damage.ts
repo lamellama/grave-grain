@@ -249,6 +249,11 @@ export function applyDamage(body: Body, boneName: BoneName): void {
  */
 export function dissolveBody(body: Body): void {
   body.alive = false;
+  // Counterplay (revised death model, GDD §5.1/§7.2): an EXTREME hit that
+  // dissolves an infected/prone body before its turn timer kills it for good —
+  // clear the infection so updateInfection can never reanimate a dissolved body.
+  body.infected = false;
+  body.prone = false;
   for (const bone of body.rig) {
     releaseBone(body, bone);
   }
@@ -274,9 +279,8 @@ export function layDownCorpse(body: Body, _cause?: string): void {
   body.alive = false;
   body.corpse = true;
   body.corpseTicks = CORPSE_DECAY_TICKS;
-  // Forward-compat: a corpse from a quiet death must never reanimate (bite/turn
-  // is a separate outcome). Clear any infection state if those fields exist yet.
-  if ('infected' in body) {
-    (body as unknown as { infected: boolean }).infected = false;
-  }
+  // A corpse from a quiet death must never reanimate (bite/turn is a separate
+  // outcome) — clear any infection/downed state (revised death model, GDD §5.1).
+  body.infected = false;
+  body.prone = false;
 }

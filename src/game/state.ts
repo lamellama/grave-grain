@@ -119,7 +119,10 @@ export function updateGameState(state: GameState, ctx: UpdateCtx): void {
   }
 
   // --- Mirror survivors alive ---
-  const survivorsAlive = survivors.filter(s => s.body.alive).length;
+  // A TURNED survivor (its body reanimated as a zombie, GDD §7.2) is NOT a living
+  // survivor even though its Body stays alive===true (the zombie controller drives
+  // it). So the colony is lost when every survivor is dead OR turned.
+  const survivorsAlive = survivors.filter(s => s.body.alive && !s.turned).length;
   state.survivorsAlive = survivorsAlive;
 
   // --- Lose condition (GDD §11) ---

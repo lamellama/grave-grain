@@ -116,6 +116,33 @@ export function createZombie(x: number, y: number): Zombie {
   };
 }
 
+/**
+ * Reanimate an EXISTING body as a zombie (revised death model, GDD §5.1 outcome
+ * 3 / §7.2 turning). Unlike createZombie this does NOT createBody — it WRAPS the
+ * passed-in (infected, downed) Body so the reanimated zombie reuses the SAME rig
+ * and the controller-swap is seamless (THE GATE: the intact reused rig means a
+ * later headshot/dissolve on this zombie still releases real cells). The body is
+ * left as-is (alive===true); only fresh idle/steering bookkeeping is created,
+ * identical to createZombie's defaults.
+ */
+export function reanimateAsZombie(body: Body): Zombie {
+  return {
+    body,
+    state: 'idle',
+    target: null,
+    senseRadius: SENSE_RADIUS,
+    attackCooldown: 0,
+    tick: 0,
+    // Negative so the very first pursuit repaths immediately (no cooldown wait).
+    lastRepath: -PATH_REPATH_COOLDOWN,
+    path: null,
+    waypointIndex: 0,
+    idleGoalX: null,
+    idleTicks: 0,
+    moveAccum: 0,
+  };
+}
+
 /** Inclusive random integer in [lo, hi]. */
 function randInt(lo: number, hi: number): number {
   return lo + Math.floor(Math.random() * (hi - lo + 1));
@@ -135,6 +162,10 @@ function nearestSurvivor(z: Zombie, survivors: Survivor[]): Body | null {
   let bestD = Infinity;
   for (const s of survivors) {
     if (!s.body.alive) continue;
+    // Skip the doomed/turned (revised death model, GDD §7.2): don't re-bite an
+    // already-infected or downed survivor (it's turning anyway), and never
+    // target a survivor whose body has already reanimated into the horde.
+    if (s.body.infected || s.body.prone || s.turned) continue;
     const dx = s.body.x - bx;
     const dy = s.body.y - by;
     const d = dx * dx + dy * dy;

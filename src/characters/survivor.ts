@@ -107,6 +107,14 @@ export type Behaviour =
  */
 export interface Survivor {
   body: Body;
+  // Revised death model (GDD §5.1 outcome 3 / §7.2 turning): true once this
+  // survivor's INFECTED body has reanimated as a zombie. The SAME Body is now
+  // driven by a Zombie controller (reanimateAsZombie), so this controller must
+  // stop driving it (updateSurvivor no-ops), it no longer counts as a living
+  // survivor (state.ts), and it must not be re-targeted/re-bitten or rendered as
+  // a survivor (main.ts). Lives on the controller because the hand-off is a
+  // controller-swap concept; the Body stays alive===true throughout.
+  turned: boolean;
   needs: { hunger: number; thirst: number };
   home: { x: number; y: number };
   role: RoleName;
@@ -159,6 +167,7 @@ export interface Survivor {
 export function createSurvivor(x: number, y: number): Survivor {
   return {
     body: createBody(x, y),
+    turned: false,
     needs: { hunger: NEED_MAX, thirst: NEED_MAX },
     home: { x, y },
     role: 'none',
@@ -926,6 +935,22 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
 
   // 1. Dead-survivor guard: a dissolved body's cells belong to the sim now.
   if (!body.alive) {
+    return;
+  }
+  // 1a. Turned guard (GDD §7.2): the body has reanimated as a zombie and is now
+  //     driven by a Zombie controller. This survivor controller must not touch
+  //     it (no needs, no drive, no body step — the zombie owns updateBody now).
+  if (s.turned) {
+    return;
+  }
+  // 1b. Prone/downed guard (GDD §7.2): an infected body that has dropped to a
+  //     downed state (pre-turn) acts no more — no needs-seek, no fight, no
+  //     drive. It is still alive (the turn timer runs in updateInfection); we
+  //     hold it still and let locomotion settle it (gravity/grounding only).
+  //     MVP: no prone crawl (PRONE_CRAWL stays absent).
+  if (body.prone) {
+    body.moveDir = 0;
+    updateBody(body);
     return;
   }
   s.tick++;

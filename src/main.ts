@@ -38,6 +38,7 @@ import { createSurvivor, updateSurvivor, assignRole } from './characters/survivo
 import type { Survivor } from './characters/survivor';
 import { updateZombie } from './characters/zombie';
 import type { Zombie } from './characters/zombie';
+import { updateInfection } from './characters/infection';
 import { resolveBreaching } from './game/breaching';
 import { createWaveState, updateWaves } from './game/waves';
 import { makeTool, ROLE_TINT } from './game/roles';
@@ -311,6 +312,13 @@ function simulationTick(): void {
     }
   }
 
+  // Infection progression (revised death model, GDD §5.1/§7.2): tick each
+  // infected survivor's turn clock — act → prone → REANIMATE as a zombie that
+  // reuses the same body and joins the horde (pushed onto `zombies`). Runs after
+  // the survivor updates so a body downed this tick is honoured, and before the
+  // prune/state pass so a freshly reanimated zombie is counted/rendered.
+  updateInfection(survivors, zombies, tickCount);
+
   // Zombies gnaw through structures they're pressing (GDD §7.4). After
   // updateZombie so moveDir/facing reflect this tick's intent.
   resolveBreaching(zombies);
@@ -343,7 +351,9 @@ function simulationTick(): void {
   // Re-register survivor bodies with up-to-date role tints each tick so that
   // a role re-assignment (Assign tool) is reflected in the next rendered frame
   // (p11-5, GDD §12 readability — draw-time only, no body/grid mutation).
-  setSurvivorRender(survivors.map((s) => ({
+  // EXCLUDE turned survivors (GDD §7.2): their body now renders via the green
+  // zombie layer (setZombieBodies), not as a survivor.
+  setSurvivorRender(survivors.filter((s) => !s.turned).map((s) => ({
     body: s.body,
     tint: s.role === 'none' ? null : ROLE_TINT[s.role],
   })));
