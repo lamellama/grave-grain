@@ -454,6 +454,23 @@ export const ZOMBIE_SPAWN_EDGE: 'left' | 'right' = 'left';
 // they land immediately and begin walking without a long drop.
 export const ZOMBIE_SPAWN_Y = P3_GROUND_Y - 1;
 
+// Post-MVP backlog (playtest v0.5 #A) — Zombie ladder-climb (GDD §7.1 funnel /
+// §7.4 breach / §13 perf). When a zombie is blocked by an obstacle TALLER than
+// STEP_UP_MAX and one or more ALLY zombie bodies are piled at it, the blocked
+// zombie steps UP onto an ally body (treating the ally's occupied cells as
+// standable footing) and over the wall — so a crowd naturally piles and climbs.
+// A LONE zombie at a tall wall still can't climb (no ally footing → it breaches
+// instead). This is an ADDITIVE zombie-AI behaviour layered on top of the shared
+// GATE locomotion (updateBody is never changed): zombie.ts owns the climb check
+// and the ephemeral per-tick "body footing" set.
+//   ZOMBIE_CLIMB_MAX: max cells a zombie rises in ONE step-up onto a pile.
+//     Bounded so the climb can never let a single zombie levitate — it must find
+//     ally (or grid) footing under its raised feet at each step, and the raised
+//     position is rejected if it would overlap a GRID solid (no-tunnel).
+//   ZOMBIE_CLIMB_ENABLED: master switch for the behaviour.
+export const ZOMBIE_CLIMB_MAX = 4;
+export const ZOMBIE_CLIMB_ENABLED = true;
+
 // §13 — Hard cap on simultaneously-active zombie entities (performance).
 // Mobile budget (task 10-8): this is the concurrent-zombie ceiling enforced in
 // waves.ts (aliveZombieCount < MAX_ZOMBIES gates every spawn). 24 chunky rigged

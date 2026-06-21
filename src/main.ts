@@ -37,6 +37,7 @@ import * as simulation from './engine/simulation';
 import { createSurvivor, updateSurvivor, assignRole } from './characters/survivor';
 import type { Survivor } from './characters/survivor';
 import { updateZombie } from './characters/zombie';
+import { rebuildZombieFooting } from './characters/zombieFooting';
 import type { Zombie } from './characters/zombie';
 import { updateInfection } from './characters/infection';
 import { resolveBreaching } from './game/breaching';
@@ -286,6 +287,12 @@ function simulationTick(): void {
   );
   const survivorBodies = survivors.map((s) => s.body);
   const zombieBodiesNow = zombies.map((z) => z.body);
+
+  // Rebuild the ephemeral zombie "body footing" set (post-MVP ladder-climb,
+  // playtest v0.5 #A) from the tick-start positions BEFORE any zombie moves, so
+  // every zombie's climb check this tick reads the same order-independent
+  // snapshot of where ally bodies are piled (GDD §7.1 funnel / §13 perf).
+  rebuildZombieFooting(zombies);
 
   // Drive zombies FIRST so survivor combat + breaching read fresh zombie state.
   for (let i = 0; i < zombies.length; i++) {
