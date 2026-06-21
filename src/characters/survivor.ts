@@ -83,7 +83,6 @@ import {
   REACH_MAX_PATH_ATTEMPTS,
   FLEE_FIRE_RADIUS,
   SHELTER_ROOF_SCAN,
-  SHELTER_SIDE_SCAN,
   PATH_REPATH_COOLDOWN,
   GUARD_ENGAGE_RADIUS,
   ATTACK_COOLDOWN,
@@ -232,23 +231,17 @@ function nearFire(body: Body): boolean {
 }
 
 /**
- * Is the body inside an enclosed/roofed PLAYER-BUILT shelter? (Task W2, GDD
- * §8 / §6.1). Cheap bounded probe over the live grid — read-only, no autonomy
- * or simulation change. Keys ONLY on WOOD and WALL (player structures), so
- * natural DIRT/STONE hillsides never count as shelter (MVP: built shelter only).
+ * Is the body under a player-built ROOF? (Task W2, revised for the open-camp
+ * shelter model — GDD §8 "enclosed space that provides warmth AND a retreat
+ * point"). Cheap bounded probe over the live grid — read-only, no autonomy or
+ * simulation change. Keys ONLY on WOOD and WALL (player structures), so natural
+ * DIRT/STONE hillsides never count as shelter (MVP: built shelter only).
  *
- * Detection logic:
- *   - head row  = round(body.y) − (BODY_H−1)   (top of the figure)
- *   - mid row   = round(body.y) − ⌊Body_H/2⌋  (mid-torso, where walls are read)
- *   - center col = round(body.x)
- *   Roof:      any of the SHELTER_ROOF_SCAN cells directly above the head
- *              (headRow-1 … headRow-SHELTER_ROOF_SCAN) is WOOD or WALL.
- *   Left wall: any of the SHELTER_SIDE_SCAN cells left at mid-row is WOOD/WALL.
- *   Right wall: same, rightward.
- *   Return: roof && leftWall && rightWall.
- *
- * Worst-case reads: SHELTER_ROOF_SCAN + 2×SHELTER_SIDE_SCAN = 14 cells.
- * All scans early-exit on the first match, so the common hot-path is cheaper.
+ * ROOF-ONLY (the open-camp fix): shelter = a WOOD/WALL covering overhead, OPEN
+ * SIDES. The old both-side-walls requirement sealed survivors into a box they
+ * could not walk out of, so a warm colony died of THIRST (no path to water).
+ * Dropping the side walls makes a roofed-but-open area count as shelter, so a
+ * survivor warms under the canopy and freely walks IN/OUT for water and food.
  */
 export function isSheltered(body: Body): boolean {
   return isShelteredAt(Math.round(body.x), Math.round(body.y));
@@ -256,33 +249,27 @@ export function isSheltered(body: Body): boolean {
 
 /**
  * Shelter test for a HYPOTHETICAL body whose feet rest at (rx, ry) — the same
- * bounded WOOD/WALL roof+walls probe as isSheltered, evaluated for a CANDIDATE
- * stand cell rather than the live body. W3's seekWarmth uses this to pick a
- * sheltered stand cell to retreat to (test the destination BEFORE walking there).
+ * bounded WOOD/WALL ROOF probe as isSheltered, evaluated for a CANDIDATE stand
+ * cell rather than the live body. W3's seekWarmth uses this to pick a sheltered
+ * stand cell to retreat to (test the destination BEFORE walking there).
+ *
+ * Detection logic:
+ *   - head row  = round(ry) − (BODY_H−1)   (top of the figure)
+ *   - center col = round(rx)
+ *   Roof: any of the SHELTER_ROOF_SCAN cells DIRECTLY ABOVE the head
+ *         (headRow-1 … headRow-SHELTER_ROOF_SCAN) is WOOD or WALL.
+ *   Return: roof present (open sides — no wall requirement).
+ *
+ * Worst-case reads: SHELTER_ROOF_SCAN = 6 cells. Early-exits on first match.
+ * NOTE the small clearance: the roof is detected even a few cells above the head
+ * (so it reads as a roof, not a head-adjacent burial — burial-pin is a separate
+ * locomotion concern at head-touching solids, handled by CAMP_ROOF_CLEARANCE).
  */
-function isShelteredAt(rx: number, ry: number): boolean {
+export function isShelteredAt(rx: number, ry: number): boolean {
   const headRow = ry - (BODY_H - 1);
-  const midRow  = ry - Math.floor(BODY_H / 2);
-
-  // Roof: scan upward from just above the head.
-  let roof = false;
+  // Roof: scan upward from just above the head. WOOD/WALL only (open sides).
   for (let dy = 1; dy <= SHELTER_ROOF_SCAN; dy++) {
     const m = get(rx, headRow - dy);
-    if (m === WOOD || m === WALL) { roof = true; break; }
-  }
-  if (!roof) return false;
-
-  // Left wall: scan left at mid-torso row.
-  let leftWall = false;
-  for (let dx = 1; dx <= SHELTER_SIDE_SCAN; dx++) {
-    const m = get(rx - dx, midRow);
-    if (m === WOOD || m === WALL) { leftWall = true; break; }
-  }
-  if (!leftWall) return false;
-
-  // Right wall: scan right at mid-torso row.
-  for (let dx = 1; dx <= SHELTER_SIDE_SCAN; dx++) {
-    const m = get(rx + dx, midRow);
     if (m === WOOD || m === WALL) return true;
   }
   return false;
@@ -1167,7 +1154,7 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   //     loses warmth; otherwise (by a fire, or sheltered) it warms back up fast.
   //     Warmth is mainly cold-vs-heat — no exertion factor (you don't freeze
   //     faster by walking). W3 wires REAL shelter: a sheltered survivor (under a
-  //     WOOD/WALL roof with side walls) stops losing warmth and warms back up.
+  //     WOOD/WALL ROOF, OPEN sides) stops losing warmth and warms back up — and\n  //     can still walk OUT from under the canopy for water/food (open-camp fix).
   const sheltered = isSheltered(body); // GDD §8/§6.1 shelter blocks the cold
   if (AMBIENT_COLD && !nearWarmth(body) && !sheltered) {
     s.needs.warmth = Math.max(0, s.needs.warmth - WARMTH_RATE);

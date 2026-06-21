@@ -95,18 +95,24 @@ console.log('\n=== 1. Camp shelter is usable ===');
   const atSpawn = createSurvivor(res.spawnX, res.spawnY);
   check(isSheltered(atSpawn.body), '1: survivor spawned at spawnX/spawnY is sheltered');
 
-  // A survivor on a NON-sheltered interior cell can PATH to a sheltered cell
-  // (walk to the nook). The left-edge interior cell (spawnX-2) sees only the
-  // near wall within scan, so it is standable but not sheltered.
-  const offX = shelterPoint.x - (CAMP_HALF_WIDTH - 4); // spawnX-2 for HALF=6
-  const offBody = createSurvivor(offX, shelterPoint.y);
+  // OPEN-CAMP model (NOT SEALED): a cell OUTSIDE the roof canopy on open ground
+  // is NOT sheltered, and a survivor standing there can freely PATH back UNDER
+  // the roof (open sides). Use the real surface row a few cols past the canopy
+  // edge (outside the flattened camp span).
+  const offX = shelterPoint.x + (CAMP_HALF_WIDTH + 3); // a few cols past the roof edge
+  const offY = surfaceRow(offX) - 1; // standable feet row on the natural surface
+  const offBody = createSurvivor(offX, offY);
   const offSheltered = isSheltered(offBody.body);
-  const path = findPath(offX, shelterPoint.y, aShelteredCell!.x, aShelteredCell!.y);
+  const pathOut = findPath(aShelteredCell!.x, aShelteredCell!.y, offX, offY); // shelter → open
+  const pathIn = findPath(offX, offY, aShelteredCell!.x, aShelteredCell!.y); // open → shelter
   console.log(
-    `  non-sheltered interior cell x=${offX} sheltered=${offSheltered} | path to nook = ${path ? 'FOUND' : 'none'}`,
+    `  open cell beyond canopy x=${offX},y=${offY} sheltered=${offSheltered} | path OUT=${pathOut ? 'FOUND' : 'none'} | path IN=${pathIn ? 'FOUND' : 'none'}`,
   );
-  check(!offSheltered, '1: the off-centre interior cell is NOT sheltered (must walk in)');
-  check(path !== null, '1: a path exists from the non-sheltered cell to a sheltered cell');
+  check(!offSheltered, '1: a cell beyond the roof canopy is NOT sheltered (open sides)');
+  check(
+    pathOut !== null && pathIn !== null,
+    '1: survivors can PATH out of AND back under the roof (open camp, not sealed)',
+  );
 }
 
 // ===========================================================================

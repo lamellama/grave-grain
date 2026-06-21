@@ -12,6 +12,7 @@
  *  5. (build green checked separately via `npm run build`.)
  */
 import { generateWorld } from '../src/game/worldgen';
+import { isShelteredAt } from '../src/characters/survivor';
 import { material, idx } from '../src/engine/grid';
 import {
   AIR,
@@ -154,19 +155,19 @@ console.log(`    stockpilePoint=(${res.stockpilePoint.x},${res.stockpilePoint.y}
 assert(distFromEdge >= SPAWN_ZONE_MARGIN, `spawnX ≥ ${SPAWN_ZONE_MARGIN} from zombie edge (got ${distFromEdge})`);
 
 // --- 5. Starter camp (Task W5) ---------------------------------------------
-// The camp centres on spawnX with WALL side-posts at spawnX ± CAMP_HALF_WIDTH
-// and a WOOD roof above; res.shelterPoint names a feet-cell inside it.
+// The camp is an OPEN-SIDED WOOD roof canopy centred on spawnX (no side walls,
+// so survivors walk in/out underneath). res.shelterPoint names a sheltered
+// feet-cell beneath the roof.
 {
   const cx = res.spawnX;
   let roofWood = 0;
   for (let y = 0; y < res.spawnY; y++) if (material[idx(cx, y)] === WOOD) roofWood++;
-  const leftWall = material[idx(cx - CAMP_HALF_WIDTH, res.shelterPoint.y - 4)];
-  const rightWall = material[idx(cx + CAMP_HALF_WIDTH, res.shelterPoint.y - 4)];
+  const sheltered = isShelteredAt(res.shelterPoint.x, res.shelterPoint.y);
   console.log(
-    `\n[5] Camp @${cx}: roofWood=${roofWood} | leftWall=${name(leftWall)} rightWall=${name(rightWall)} | shelterPoint=(${res.shelterPoint.x},${res.shelterPoint.y})`,
+    `\n[5] Camp @${cx}: roofWood=${roofWood} | shelterPoint=(${res.shelterPoint.x},${res.shelterPoint.y}) sheltered=${sheltered}`,
   );
   assert(roofWood >= 1, 'camp has a WOOD roof above the spawn column');
-  assert(leftWall === WALL && rightWall === WALL, 'camp has WALL side-posts at spawnX ± CAMP_HALF_WIDTH');
+  assert(sheltered, 'shelterPoint is sheltered (under the roof canopy)');
   assert(res.shelterPoint.x === cx, 'shelterPoint is the camp centre column');
 }
 

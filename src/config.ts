@@ -794,44 +794,44 @@ export const FIRE_WARMTH_RADIUS = 8;
 // fields are deferred to a later warmth task.
 export const AMBIENT_COLD = true;
 
-// Task W2 — Shelter detection (GDD §8 / §6.1): isSheltered() bounded scan limits.
+// Shelter detection (GDD §8 / §6.1): isSheltered() bounded scan limit.
 // SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
 //   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).
-// SHELTER_SIDE_SCAN: cells scanned LEFT and RIGHT at the body's mid-row to find
-//   WOOD/WALL walls. 7 cells (W3 tuning, was 4): a 6-wide body collides with any
-//   wall inside its footprint, so with side-scan 4 the ONLY cells that satisfy
-//   isSheltered are a tight 7–8-wide pocket the body is TRAPPED in (≤1 approach
-//   cell) — making the "retreat to shelter when too cold" override (GDD §6.1)
-//   barely demonstrable and unusable for a real walled camp. Widening to 7 lets a
-//   roofed nook inside a ~12-wide enclosure be BOTH sheltered AND walk-into-able
-//   from non-sheltered standable cells in the same camp. Kept so worst-case reads
-//   stay ≤ 20 (6 + 2×7 = 20) — W2's bounded-scan invariant holds.
-// Total worst-case reads per call: SHELTER_ROOF_SCAN + 2*SHELTER_SIDE_SCAN = 20.
+//
+// OPEN-CAMP MODEL (shelter = ROOF overhead, OPEN sides): shelter is now a
+// covering ROOF only — the old both-side-walls requirement sealed survivors into
+// a box they could not path out of, so a warm colony died of THIRST (no route to
+// water). isSheltered keys purely on a WOOD/WALL roof within SHELTER_ROOF_SCAN
+// directly above the head, leaving the sides open so survivors warm under the
+// canopy and freely walk in/out for water/food.
+// Worst-case reads per call: SHELTER_ROOF_SCAN = 6 (early-exit on first match).
 export const SHELTER_ROOF_SCAN = 6;
+// DEPRECATED / UNUSED (open-camp model): formerly the LEFT/RIGHT mid-torso wall
+// scan distance. Shelter is now roof-only (no side-wall requirement), so this is
+// no longer read by isShelteredAt. Kept (not deleted) only to avoid churn for
+// any external reference; safe to remove once nothing imports it.
 export const SHELTER_SIDE_SCAN = 7;
 
 // ---------------------------------------------------------------------------
 // Task W5 — Starter camp (GDD §8 camp/shelter as retreat, §10 ambient cold).
 // ---------------------------------------------------------------------------
-// Worldgen lays a small roofed WOOD/WALL nook at the spawn column so the colony
-// LIVES inside a shelter and stays warm on the cold world. The geometry is
-// dictated by the W2/W3 shelter probe + the 6-wide body (see survivor.ts):
-//   - Side WALL columns sit at spawnX ± CAMP_HALF_WIDTH. They must be ≥4 cells
-//     from the body centre (the figure is 6 wide → arms at ±3) so a body can
-//     STAND at the centre without clipping a wall, and ≤ SHELTER_SIDE_SCAN (7)
-//     so isShelteredAt reads them at mid-torso. 6 satisfies both: the central
-//     cells [spawnX-1 .. spawnX+1] are BOTH standable and sheltered, with
-//     ~11 cells of open interior to move in (brief: "leave floor room").
+// Worldgen lays an OPEN-SIDED roofed WOOD canopy at the spawn column so the
+// colony LIVES under a roof and stays warm on the cold world — yet can freely
+// walk OUT for water/food (the open-camp fix). The geometry is dictated by the
+// roof-only shelter probe + the 6-wide body (see survivor.ts):
+//   - The WOOD roof spans columns spawnX ± CAMP_HALF_WIDTH (a ~13-wide canopy),
+//     so every interior cell has roof directly overhead → standable AND
+//     sheltered. CAMP_HALF_WIDTH 6 gives ~11 cells of open floor to move on and
+//     a wide warm span; the SIDES are OPEN (no continuous side walls), so a body
+//     walks straight out from under the canopy toward the pond/grove.
 //   - The WOOD roof sits CAMP_ROOF_CLEARANCE cells above the head: high enough
 //     to clear the body (headroom for standability/navgrid) and the locomotion
 //     burial-pin probe (a roof TOUCHING the head pins+freezes the body), low
 //     enough to fall within SHELTER_ROOF_SCAN. With BODY_H=12 the head top is 11
-//     cells above the feet; clearance 4 puts the roof 15 cells up (in the 6-cell
-//     roof-scan window above the head, and 3 cells clear of the pin row).
-// NOTE: full-height side walls necessarily SEAL the nook (a 2-D sheltered cell
-// is unreachable from open ground — a wall at mid-torso blocks a passing body),
-// so survivors LIVE inside and walk between interior cells; they are spawned
-// inside (main.ts uses shelterPoint). See the W5 report for the water-access
-// caveat this implies for a later phase.
+//     cells above the feet; clearance 4 puts the roof 3 cells clear of the head
+//     (within the 6-cell roof-scan window).
+//   - Corner posts (a couple of WOOD cells) hang from each roof END, kept in the
+//     clearance gap ABOVE the head so they support/read as roof structure but
+//     never span the body height → they do NOT seal the side or block exit.
 export const CAMP_HALF_WIDTH = 6;
 export const CAMP_ROOF_CLEARANCE = 4;

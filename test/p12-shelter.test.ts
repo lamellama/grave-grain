@@ -1,29 +1,28 @@
 /**
- * Headless verification for Task W2 — isSheltered() bounded grid-read helper
- * (GDD §8 shelter / §6.1 warmth). Pure read-only helper; NOT wired into
- * updateSurvivor here (that is W3).
+ * Headless verification for isSheltered() — the ROOF-ONLY shelter probe (GDD §8
+ * shelter / §6.1 warmth), revised for the OPEN-CAMP model. Pure read-only helper.
+ *
+ * THE FIX (open-camp): shelter is a ROOF overhead with OPEN SIDES. The old model
+ * required WOOD/WALL walls on BOTH sides at mid-torso, which sealed survivors
+ * into a box they could not walk out of (a warm colony then died of THIRST). The
+ * both-side-walls requirement is GONE: sheltered = a WOOD/WALL roof within
+ * SHELTER_ROOF_SCAN directly above the head, regardless of the sides.
  *
  * Geometry (body at x=200, y=149, feet anchor):
  *   feet   row (ry)     = 149
  *   head   row          = ry - (BODY_H-1) = 149 - 11 = 138
- *   mid    row          = ry - floor(BODY_H/2) = 149 - 6 = 143
  *   center col (rx)     = 200
- *
  *   SHELTER_ROOF_SCAN = 6  → roof cells probed: y ∈ [132, 137] (above row 138)
- *   SHELTER_SIDE_SCAN = 4  → left  cells: x ∈ [196, 199] at y=143
- *                           → right cells: x ∈ [201, 204] at y=143
  *
  * Tests:
- *   1. Sheltered (WOOD roof + WALL left + WALL right) → true
- *   2. Open (no structures)                          → false
- *   3a. Roof only, no side walls                     → false
- *   3b. Roof + left wall, no right wall              → false
- *   4. Natural terrain (DIRT/STONE overhang)         → false
- *   5. Bounded scan constant check (code-reasoning)  → logged
- *   6. npm run build green (verified after the above)
+ *   1. Roof = shelter (WOOD or WALL roof overhead, OPEN sides) → true
+ *   2. Open (no structures)                                    → false
+ *   3. Natural DIRT/STONE roof                                 → false
+ *   4. Roof beyond SHELTER_ROOF_SCAN                           → false
+ *   5. Bounded scan constant check (code-reasoning)            → logged
  */
 
-import { BODY_H, SHELTER_ROOF_SCAN, SHELTER_SIDE_SCAN } from '../src/config';
+import { BODY_H, SHELTER_ROOF_SCAN } from '../src/config';
 import { material, set } from '../src/engine/grid';
 import { WOOD, WALL, DIRT, STONE } from '../src/engine/materials';
 import { createSurvivor } from '../src/characters/survivor';
@@ -46,57 +45,54 @@ function clearGrid(): void {
 // Standard body position for all tests.
 const BX = 200;
 const BY = 149;
-// Derived geometry constants (mirrors isSheltered internals exactly).
-const RY   = BY;               // Math.round(BY)
-const RX   = BX;               // Math.round(BX)
+const RY = BY;
+const RX = BX;
 const HEAD = RY - (BODY_H - 1); // 138
-const MID  = RY - Math.floor(BODY_H / 2); // 143
 
 // A WOOD roof cell just 1 row above the head (within SHELTER_ROOF_SCAN).
 const ROOF_X = RX;
 const ROOF_Y = HEAD - 1; // 137
 
-// WALL cells at the extreme edge of SHELTER_SIDE_SCAN (worst-case, still detected).
-const LEFT_X  = RX - SHELTER_SIDE_SCAN; // 196
-const RIGHT_X = RX + SHELTER_SIDE_SCAN; // 204
-const WALL_Y  = MID;                    // 143
-
 // ---------------------------------------------------------------------------
 // 5. Bounded scan — log the bound so the CI run shows it.
 // ---------------------------------------------------------------------------
-const maxReadsPerCall = SHELTER_ROOF_SCAN + 2 * SHELTER_SIDE_SCAN;
+const maxReadsPerCall = SHELTER_ROOF_SCAN;
 console.log(
-  `BOUND: worst-case grid reads per isSheltered call = ` +
-  `SHELTER_ROOF_SCAN(${SHELTER_ROOF_SCAN}) + 2×SHELTER_SIDE_SCAN(${SHELTER_SIDE_SCAN}) = ${maxReadsPerCall}`,
+  `BOUND: worst-case grid reads per isSheltered call = SHELTER_ROOF_SCAN(${SHELTER_ROOF_SCAN}) = ${maxReadsPerCall} (roof-only, open sides)`,
 );
-if (maxReadsPerCall > 20) fail(`reads per call (${maxReadsPerCall}) unexpectedly large`);
+if (maxReadsPerCall > 12) fail(`reads per call (${maxReadsPerCall}) unexpectedly large`);
 ok(`bounded: isSheltered reads at most ${maxReadsPerCall} cells per call — no world scan`);
 
 // ---------------------------------------------------------------------------
-// 1. Sheltered: WOOD roof + WALL left + WALL right → true
+// 1. Roof = shelter (WOOD/WALL roof overhead, OPEN sides) → true
 // ---------------------------------------------------------------------------
 clearGrid();
-set(ROOF_X, ROOF_Y, WOOD);   // roof (WOOD)
-set(LEFT_X,  WALL_Y, WALL);   // left wall (WALL)
-set(RIGHT_X, WALL_Y, WALL);   // right wall (WALL)
-
+set(ROOF_X, ROOF_Y, WOOD); // roof only — NO side walls
 {
   const s = createSurvivor(BX, BY);
   const result = isSheltered(s.body);
-  if (result !== true) fail(`sheltered=true expected; got ${result}`);
-  ok(`sheltered (WOOD roof + WALL left + WALL right) → true`);
+  if (result !== true) fail(`roof-only (WOOD, open sides) → true expected; got ${result}`);
+  ok(`roof-only (WOOD roof overhead, OPEN sides) → true (THE FIX — no side walls needed)`);
 }
 
-// Mix materials: WALL roof + WOOD walls.
+// WALL roof also counts.
 clearGrid();
 set(ROOF_X, ROOF_Y, WALL);
-set(LEFT_X,  WALL_Y, WOOD);
-set(RIGHT_X, WALL_Y, WOOD);
 {
   const s = createSurvivor(BX, BY);
   const result = isSheltered(s.body);
-  if (result !== true) fail(`sheltered (WALL roof + WOOD walls) → true expected; got ${result}`);
-  ok(`sheltered (WALL roof + WOOD walls) → true`);
+  if (result !== true) fail(`WALL roof (open sides) → true expected; got ${result}`);
+  ok(`WALL roof overhead (open sides) → true`);
+}
+
+// Roof at the far edge of SHELTER_ROOF_SCAN (worst-case, still detected).
+clearGrid();
+set(ROOF_X, HEAD - SHELTER_ROOF_SCAN, WOOD); // top of the scan window
+{
+  const s = createSurvivor(BX, BY);
+  const result = isSheltered(s.body);
+  if (result !== true) fail(`roof at SHELTER_ROOF_SCAN edge → true expected; got ${result}`);
+  ok(`roof ${SHELTER_ROOF_SCAN} cells above head (edge of scan window) → true`);
 }
 
 // ---------------------------------------------------------------------------
@@ -107,103 +103,51 @@ clearGrid();
   const s = createSurvivor(BX, BY);
   const result = isSheltered(s.body);
   if (result !== false) fail(`open → false expected; got ${result}`);
-  ok(`open (no structures) → false`);
+  ok(`open (no roof) → false`);
 }
 
-// ---------------------------------------------------------------------------
-// 3a. Roof only, no side walls → false
-// ---------------------------------------------------------------------------
+// Side walls but NO roof → false (open sides do not shelter; roof is required).
 clearGrid();
-set(ROOF_X, ROOF_Y, WOOD);
+set(RX - 5, RY - Math.floor(BODY_H / 2), WALL);
+set(RX + 5, RY - Math.floor(BODY_H / 2), WALL);
 {
   const s = createSurvivor(BX, BY);
   const result = isSheltered(s.body);
-  if (result !== false) fail(`roof-only → false expected; got ${result}`);
-  ok(`roof only (no walls) → false`);
+  if (result !== false) fail(`walls-but-no-roof → false expected; got ${result}`);
+  ok(`side walls but NO roof → false (a roof is what shelters, not walls)`);
 }
 
 // ---------------------------------------------------------------------------
-// 3b. Roof + left wall only (missing right wall) → false
+// 3. Natural terrain roof (DIRT / STONE) → false
+//    isSheltered only keys on WOOD/WALL; hillsides/overhangs must NOT count.
 // ---------------------------------------------------------------------------
 clearGrid();
-set(ROOF_X, ROOF_Y, WOOD);
-set(LEFT_X,  WALL_Y, WALL);
-// No right wall.
+set(ROOF_X, ROOF_Y, DIRT);
 {
   const s = createSurvivor(BX, BY);
   const result = isSheltered(s.body);
-  if (result !== false) fail(`roof + left wall only → false expected; got ${result}`);
-  ok(`roof + left wall only (missing right wall) → false`);
+  if (result !== false) fail(`DIRT roof → false expected; got ${result}`);
+  ok(`natural DIRT roof → false (only WOOD/WALL count)`);
 }
-
-// ---------------------------------------------------------------------------
-// 3c. Roof + right wall only (missing left wall) → false
-// ---------------------------------------------------------------------------
-clearGrid();
-set(ROOF_X, ROOF_Y, WOOD);
-set(RIGHT_X, WALL_Y, WALL);
-// No left wall.
-{
-  const s = createSurvivor(BX, BY);
-  const result = isSheltered(s.body);
-  if (result !== false) fail(`roof + right wall only → false expected; got ${result}`);
-  ok(`roof + right wall only (missing left wall) → false`);
-}
-
-// ---------------------------------------------------------------------------
-// 4. Natural terrain (DIRT roof + STONE walls) → false
-//    isSheltered only keys on WOOD/WALL; hillsides must NOT count.
-// ---------------------------------------------------------------------------
-clearGrid();
-set(ROOF_X, ROOF_Y, DIRT);     // "roof" made of DIRT
-set(LEFT_X,  WALL_Y, STONE);   // "wall" made of STONE
-set(RIGHT_X, WALL_Y, STONE);
-{
-  const s = createSurvivor(BX, BY);
-  const result = isSheltered(s.body);
-  if (result !== false) fail(`natural terrain (DIRT/STONE) → false expected; got ${result}`);
-  ok(`natural terrain (DIRT roof + STONE walls) → false (only WOOD/WALL count)`);
-}
-
-// Also: STONE roof + DIRT walls → false
 clearGrid();
 set(ROOF_X, ROOF_Y, STONE);
-set(LEFT_X,  WALL_Y, DIRT);
-set(RIGHT_X, WALL_Y, DIRT);
 {
   const s = createSurvivor(BX, BY);
   const result = isSheltered(s.body);
-  if (result !== false)
-    fail(`STONE roof + DIRT walls → false expected; got ${result}`);
-  ok(`STONE roof + DIRT walls → false`);
+  if (result !== false) fail(`STONE roof → false expected; got ${result}`);
+  ok(`natural STONE roof → false`);
 }
 
 // ---------------------------------------------------------------------------
-// 4b. Roof just BEYOND SHELTER_ROOF_SCAN range → false (boundary)
+// 4. Roof just BEYOND SHELTER_ROOF_SCAN range → false (boundary, too high)
 // ---------------------------------------------------------------------------
 clearGrid();
 set(ROOF_X, HEAD - SHELTER_ROOF_SCAN - 1, WOOD); // one cell TOO FAR above head
-set(LEFT_X,  WALL_Y, WALL);
-set(RIGHT_X, WALL_Y, WALL);
 {
   const s = createSurvivor(BX, BY);
   const result = isSheltered(s.body);
-  if (result !== false)
-    fail(`roof beyond SHELTER_ROOF_SCAN → false expected; got ${result}`);
-  ok(`roof ${SHELTER_ROOF_SCAN + 1} cells above head (beyond scan range) → false`);
-}
-
-// Wall just BEYOND SHELTER_SIDE_SCAN range → false (boundary)
-clearGrid();
-set(ROOF_X, ROOF_Y, WOOD);
-set(RX - SHELTER_SIDE_SCAN - 1, WALL_Y, WALL); // one cell too far left
-set(RIGHT_X, WALL_Y, WALL);
-{
-  const s = createSurvivor(BX, BY);
-  const result = isSheltered(s.body);
-  if (result !== false)
-    fail(`left wall beyond SHELTER_SIDE_SCAN → false expected; got ${result}`);
-  ok(`left wall ${SHELTER_SIDE_SCAN + 1} cells away (beyond scan range) → false`);
+  if (result !== false) fail(`roof beyond SHELTER_ROOF_SCAN → false expected; got ${result}`);
+  ok(`roof ${SHELTER_ROOF_SCAN + 1} cells above head (too high, beyond scan) → false`);
 }
 
 // ---------------------------------------------------------------------------
@@ -211,9 +155,10 @@ set(RIGHT_X, WALL_Y, WALL);
 // ---------------------------------------------------------------------------
 console.log('\nALL PASS');
 console.log(
-  `SUMMARY: isSheltered() correctly returns true only when WOOD/WALL roof is ` +
-  `within ${SHELTER_ROOF_SCAN} cells above head AND WOOD/WALL walls within ` +
-  `${SHELTER_SIDE_SCAN} cells on BOTH sides at mid-torso. Natural DIRT/STONE ` +
-  `terrain returns false. Bounded at ≤${maxReadsPerCall} cell reads per call. ` +
-  `Read-only; NOT wired into updateSurvivor (W3 handles that).`,
+  `SUMMARY: isSheltered() (ROOF-ONLY, open-camp model) returns true iff a ` +
+    `WOOD/WALL roof is within ${SHELTER_ROOF_SCAN} cells directly above the head — ` +
+    `regardless of the sides (open). No roof / natural DIRT-STONE roof / roof too ` +
+    `high → false. Bounded at ≤${maxReadsPerCall} cell reads per call. The dropped ` +
+    `both-side-walls requirement is THE FIX: survivors warm under a roof and walk ` +
+    `freely out for water/food.`,
 );

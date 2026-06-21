@@ -96,23 +96,20 @@ rebuildNavgrid();
 }
 
 // ===========================================================================
-// 2. COLD SURVIVOR RETREATS TO SHELTER. Camp: WALL columns at 194 & 206 (12
-//    wide), WOOD roof over the whole span. Standable interior anchors 198..203;
-//    with SIDE_SCAN=7 cells 199,200,201 are sheltered, 202/203 are NOT. Spawn at
-//    203 (not sheltered) and cold → it must walk left into the sheltered nook.
+// 2. COLD SURVIVOR RETREATS TO SHELTER (OPEN-CAMP model). An OPEN-SIDED WOOD
+//    roof CANOPY spans cols 240..252 a few cells above the head (rows 132..137,
+//    within SHELTER_ROOF_SCAN; row 137 left clear so the burial-pin probe does
+//    not freeze a body under its own roof). NO side walls. The survivor spawns
+//    in the OPEN at x=200 (no roof overhead → not sheltered) and cold → it must
+//    walk RIGHT under the canopy to warm up. That the same open sides let it
+//    walk IN is exactly what lets it later walk OUT for water/food (THE FIX).
 // ===========================================================================
 clearGrid();
 floor(150, 260);
-vwall(194, 138, 149, WALL);
-vwall(206, 138, 149, WALL);
-// Roof a few cells ABOVE the head (head row 138). It stays within SHELTER_ROOF_SCAN
-// (rows 132..137) so isSheltered detects it, but the cell DIRECTLY above the head
-// (row 137) is left clear so locomotion's burial-pin probe does not freeze the
-// body under its own roof (a roof touching the head would pin it in place).
-hroof(194, 206, 134, WOOD);
+hroof(240, 252, 134, WOOD); // open-sided roof canopy, a few cells above the head
 rebuildNavgrid();
 {
-  const s = createSurvivor(203, 149);
+  const s = createSurvivor(200, 149);
   s.needs.warmth = 30; // below WARMTH_THRESHOLD (50) → auto-override
   const before = s.needs.warmth;
   const shelteredAtStart = isSheltered(s.body);

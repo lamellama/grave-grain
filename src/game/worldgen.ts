@@ -54,7 +54,6 @@ import {
   ORE,
   FOLIAGE,
   WOOD,
-  WALL,
   MATERIALS,
   isSolidForBody,
 } from '../engine/materials';
@@ -264,43 +263,53 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     carveSurfacePond(waterX, surfaceY[waterX]);
   }
 
-  // 10. Starter camp (Task W5, GDD §8/§10): a roofed WOOD/WALL nook centred on
-  //     the spawn column so the colony LIVES in a warm shelter on the cold
-  //     world. Built LAST so it overwrites any woodland/surface noise inside its
-  //     footprint with a clean, flat, sheltered interior.
+  // 10. Starter camp (Task W5, GDD §8/§10): an OPEN-SIDED roofed WOOD canopy
+  //     centred on the spawn column so the colony LIVES under a warm roof on the
+  //     cold world AND can freely walk out for water/food. Built LAST so it
+  //     overwrites any woodland/surface noise inside its footprint with a clean,
+  //     flat, sheltered span.
   const shelterPoint = buildStarterCamp(spawnX, spawnSurface);
 
   return { spawnX, spawnY, stockpilePoint, zombieEdge, shelterPoint };
 }
 
 /**
- * Build the starter-camp shelter (Task W5, GDD §8/§10): a small roofed WOOD/WALL
- * nook centred at (cx) whose floor sits at `groundRow`. Returns a standable,
- * SHELTERED feet-cell inside it (the camp centre at feet height).
+ * Build the starter-camp shelter (Task W5, revised for the OPEN-CAMP model —
+ * GDD §8 "enclosed space that provides warmth AND a retreat point"): a WOOD
+ * ROOF CANOPY centred at (cx) whose floor sits at `groundRow`, with OPEN SIDES
+ * so the colony warms under the roof yet freely walks OUT for water/food.
+ * Returns a standable, SHELTERED feet-cell under the canopy (camp centre).
  *
- * Geometry (see CAMP_* in config and the W2/W3 shelter probe in survivor.ts):
+ * THE FIX: the old model walled BOTH sides of the nook, sealing survivors into
+ * a box they could not path out of — so a warm colony died of THIRST (no route
+ * to the pond/grove). A roof-only canopy keeps them warm (isSheltered reads the
+ * roof overhead) while leaving every side open to walk through.
+ *
+ * Geometry (see CAMP_* in config and the roof-only shelter probe in survivor.ts):
  *   feetRow  = groundRow - 1            (a body stands here, floor below it)
  *   headRow  = feetRow - (BODY_H - 1)   (top of the figure)
- *   roofRow  = headRow - CAMP_ROOF_CLEARANCE
- *   walls    : columns cx ± CAMP_HALF_WIDTH, rows roofRow+1 .. feetRow (WALL)
- *   roof     : row roofRow, columns cx-HALF .. cx+HALF (WOOD)
+ *   roofRow  = headRow - CAMP_ROOF_CLEARANCE   (a few cells ABOVE the head)
+ *   roof     : row roofRow, columns cx-HALF .. cx+HALF (WOOD span)
+ *   posts    : a FEW WOOD cells hanging from each roof END, ABOVE the head row
+ *              only — decorative/structural corner posts that do NOT span the
+ *              body height, so they never block horizontal exit (open sides).
  * The interior is cleared to AIR and the floor filled solid so a body stands
- * cleanly; the roof clears the head + the burial-pin probe but stays inside
- * SHELTER_ROOF_SCAN, and the side walls clear the 6-wide body yet are read at
- * mid-torso by isShelteredAt. placeMaterial seeds WOOD/WALL integrity so the
- * camp is breachable later (GDD §7.4 / §8 "must hold against breaching").
+ * cleanly on a flat span; the roof clears the head + the burial-pin probe but
+ * stays inside SHELTER_ROOF_SCAN so isShelteredAt detects it. placeMaterial
+ * seeds WOOD integrity so the camp is breachable later (GDD §7.4 / §8 "must
+ * hold against breaching").
  */
 function buildStarterCamp(cx: number, groundRow: number): { x: number; y: number } {
   const feetRow = groundRow - 1;
   const headRow = feetRow - (BODY_H - 1);
   const roofRow = headRow - CAMP_ROOF_CLEARANCE;
-  const leftWallX = cx - CAMP_HALF_WIDTH;
-  const rightWallX = cx + CAMP_HALF_WIDTH;
+  const leftX = cx - CAMP_HALF_WIDTH;
+  const rightX = cx + CAMP_HALF_WIDTH;
 
-  for (let x = leftWallX; x <= rightWallX; x++) {
+  for (let x = leftX; x <= rightX; x++) {
     if (x < 0 || x >= WORLD_W) continue;
     // Clear the interior (and any surface bump/foliage inside it) down to the
-    // feet row, so the nook is open and standable up to the roof.
+    // feet row, so the canopy is open and standable from the roof to the floor.
     for (let y = roofRow + 1; y <= feetRow; y++) put(x, y, AIR);
     // Fill a solid DIRT floor from the floor row down to the first natural solid
     // cell, so the camp floor is always supported (never a floating slab that
@@ -311,16 +320,18 @@ function buildStarterCamp(cx: number, groundRow: number): { x: number; y: number
     }
   }
 
-  // Side walls (full interior height) — placeMaterial seeds WALL integrity.
-  for (let y = roofRow + 1; y <= feetRow; y++) {
-    placeMaterial(leftWallX, y, WALL);
-    placeMaterial(rightWallX, y, WALL);
-  }
-  // WOOD roof spanning the nook, a few cells above the head.
-  for (let x = leftWallX; x <= rightWallX; x++) {
+  // WOOD roof spanning the canopy, a few cells above the head — placeMaterial
+  // seeds WOOD integrity (breachable).
+  for (let x = leftX; x <= rightX; x++) {
     if (x < 0 || x >= WORLD_W) continue;
     placeMaterial(x, roofRow, WOOD);
   }
+
+  // No body-height posts: a clean WOOD canopy with OPEN sides. (Earlier corner
+  // posts at rows roofRow+1..headRow-2 wedged a body that did a step-up near the
+  // edge — a raised head at headRow-STEP_UP_MAX collides them — stranding the
+  // colony. The roof alone (a few cells above the head) is what `isSheltered`
+  // keys on, so survivors walk freely in/out underneath it.)
 
   return { x: cx, y: feetRow };
 }
