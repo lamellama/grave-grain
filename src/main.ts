@@ -29,7 +29,8 @@ import {
   SURFACE_BASE_Y,
 } from './config';
 import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons } from './input';
-import { initRenderer, getRenderer, setBodies, setZombieBodies, setSurvivorRender } from './render/renderer';
+import { initRenderer, getRenderer, setBodies, setZombieBodies, setSurvivorRender, setCorpseBodies } from './render/renderer';
+import { tickCorpseDecay, buildCorpseRenderList } from './characters/corpseLifecycle';
 import { camera, clampCamera, effectiveCellPx } from './camera';
 import { lodWindow, survivorShouldRun, zombieShouldRun } from './game/lod';
 import * as simulation from './engine/simulation';
@@ -211,6 +212,7 @@ const waveState = createWaveState();
 
 setZombies(zombies); // Shoot tool can headshot zombies
 setZombieBodies([]); // renderer's green-tinted zombie layer (empty at start)
+setCorpseBodies([]); // corpse layer (empty at start — revised death model, task 2)
 
 // ============================================================================
 // Game state machine (GDD §11/§12.2): win/lose, wave mirror, death log.
@@ -329,6 +331,14 @@ function simulationTick(): void {
 
   // Register the (possibly changed) zombie bodies with the renderer.
   setZombieBodies(zombies.map((z) => z.body));
+
+  // Corpse lifecycle (task 2, revised death model, GDD §5.1/§13):
+  //   1. Decay: decrement corpseTicks; retire (corpse=false) when reaching 0.
+  //   2. Cap: if >MAX_CORPSES active corpses, retire oldest (lowest corpseTicks).
+  //   3. Hand the active corpse list to the renderer for grey-tinted drawing.
+  const allBodies = survivors.map((s) => s.body);
+  tickCorpseDecay(allBodies);
+  setCorpseBodies(buildCorpseRenderList(allBodies));
 
   // Re-register survivor bodies with up-to-date role tints each tick so that
   // a role re-assignment (Assign tool) is reflected in the next rendered frame

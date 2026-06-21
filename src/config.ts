@@ -681,3 +681,7 @@ export const SCREEN_SHAKE_PX = 2;
 //     the oldest are retired when the cap is exceeded (consumed by later tasks).
 export const CORPSE_DECAY_TICKS = 1800;
 export const MAX_CORPSES = 16;
+// Render-only grey tint applied to corpse bodies (task 2 revised death model).
+// RGB values produce a desaturated grey-blue that reads as "cold/dead" without
+// being pure grey (which would clash with stone). Blended via ROLE_TINT_MIX.
+export const CORPSE_TINT: [number, number, number] = [110, 110, 118];

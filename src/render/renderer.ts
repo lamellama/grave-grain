@@ -4,7 +4,7 @@
  * Honour devicePixelRatio; keep cells chunky.
  */
 
-import { WORLD_W, WORLD_H, BREACH_DARKEN_MAX, CHIP_FLASH_TICKS, ROLE_TINT_MIX } from '../config';
+import { WORLD_W, WORLD_H, BREACH_DARKEN_MAX, CHIP_FLASH_TICKS, ROLE_TINT_MIX, CORPSE_TINT } from '../config';
 import { camera, clampCamera, effectiveCellPx } from '../camera';
 import * as grid from '../engine/grid';
 import { MATERIALS } from '../engine/materials';
@@ -106,6 +106,10 @@ class Renderer {
   // p7-t7: render-only zombie bodies, drawn with a green tint over the cell layer.
   private zombieBodies: Body[] = [];
 
+  // Task 2 revised death model: corpse bodies drawn UNDER live bodies with a grey
+  // tint. Bodies are pre-filtered to corpse===true && corpseTicks>0 by main.ts.
+  private corpseBodyList: Body[] = [];
+
   // p11-5: survivor bodies with per-body role tints (render-only, GDD §12 readability).
   // Each entry pairs a Body with a nullable RGB tint; null = draw with authored colours.
   private survivorRenderList: { body: Body; tint: [number, number, number] | null }[] = [];
@@ -157,6 +161,16 @@ class Renderer {
    */
   setZombieBodies(bodies: Body[]): void {
     this.zombieBodies = [...bodies];
+  }
+
+  /**
+   * Replace the corpse render list (task 2, revised death model, GDD §5.1/§13).
+   * Pre-filtered by main.ts to bodies where corpse===true && corpseTicks>0
+   * (and capped to MAX_CORPSES). Drawn under live survivors with a grey tint.
+   * Draw-time only — body.rig pixels and the grid are NEVER mutated here.
+   */
+  setCorpseBodies(bodies: Body[]): void {
+    this.corpseBodyList = [...bodies];
   }
 
   /**
@@ -315,6 +329,13 @@ class Renderer {
     this.ctx.putImageData(imageData, 0, 0);
 
     // GDD §5.1 / §14 Milestone 0: draw the hybrid body over the cell layer.
+    // Draw order: corpses (greyed, on the ground) → live survivors → zombies.
+    // Corpses drawn FIRST so live bodies occlude them ("bodies lying under feet").
+
+    // Task 2: draw corpse bodies with grey tint BEFORE live survivors.
+    // bypassAlive=true so alive===false bodies are NOT skipped.
+    this.drawBodyList(this.corpseBodyList, this.makeTintFn(CORPSE_TINT), true);
+
     // Survivors are drawn with per-body role tints (p11-5) when survivorRenderList
     // is populated; otherwise fall back to this.bodies with no tint (backwards compat
     // for shims / tests that still call setBodies directly).
@@ -346,7 +367,16 @@ class Renderer {
    * identical top-left as the ImageData loop above (same formula), so the bodies
    * sit exactly on the grid and stay locked to the world while panning.
    */
-  private drawBodyList(bodies: Body[], tint: ((color: string) => string) | null): void {
+  /**
+   * Draw all hybrid bodies' bone pixels over the cell layer.
+   * `bypassAlive`: when true the `!body.alive` guard is skipped, allowing
+   * corpse bodies (alive===false, corpse===true) to be drawn (task 2).
+   */
+  private drawBodyList(
+    bodies: Body[],
+    tint: ((color: string) => string) | null,
+    bypassAlive = false,
+  ): void {
     const vw = this.viewportWidthPx;
     const vh = this.viewportHeightPx;
     const ctx = this.ctx;
@@ -355,7 +385,7 @@ class Renderer {
     const effCell = effectiveCellPx();
 
     for (const body of bodies) {
-      if (!body.alive) continue;
+      if (!bypassAlive && !body.alive) continue;
 
       const bx = Math.round(body.x);
       const by = Math.round(body.y);
@@ -448,6 +478,16 @@ export function setBodies(bodies: Body[]): void {
  */
 export function setZombieBodies(bodies: Body[]): void {
   getRenderer().setZombieBodies(bodies);
+}
+
+/**
+ * Replace the corpse render list (task 2, revised death model). Module-level
+ * wrapper; call after initRenderer(). Bodies are pre-filtered (corpse===true,
+ * corpseTicks>0, count ≤ MAX_CORPSES) by main.ts before being passed here.
+ * Draw-time only — body.rig pixels and the grid are NEVER mutated.
+ */
+export function setCorpseBodies(bodies: Body[]): void {
+  getRenderer().setCorpseBodies(bodies);
 }
 
 /**
