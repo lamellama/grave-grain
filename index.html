@@ -186,14 +186,14 @@
        pointer-events:none so the game canvas keeps running underneath — no JS needed. -->
   <div id="rotate-prompt">&#8635; Rotate your device to landscape</div>
 
-  <!-- Toolbar: Pan, Sand, Stone, Water, Dirt, Wood, Foliage, Ignite, Erase -->
+  <!-- Toolbar: Pan, Sand, Stone, Water, Dirt, Wood, Plant (sapling), Ignite, Erase -->
   <!-- GDD §12.3: persistent, thumb-reachable toolbar. GDD §12.4: big, no hover dependence -->
   <div id="toolbar">
     <button class="tool-btn" data-tool="pan" title="Pan mode: drag to scroll">Pan</button>
     <button class="tool-btn" data-tool="paint" data-material="1" title="Paint sand (free terraforming)">Sand</button>
     <button class="tool-btn" data-tool="paint" data-material="3" title="Paint water (free terraforming)">Water</button>
     <button class="tool-btn" data-tool="paint" data-material="4" title="Paint dirt (free terraforming)">Dirt</button>
-    <button class="tool-btn" data-tool="paint" data-material="7" title="Paint foliage (free)">Foliage</button>
+    <button class="tool-btn" data-tool="paint" data-material="15" title="Plant a seed — grows into foliage">Plant</button>
     <!-- Wood/Stone are NOT free paints: place them as costed, breachable structures (playtest #6/#7). -->
     <button class="tool-btn" data-tool="build" data-structure="fence" title="Place wood (costs 1 wood/cell; a flammable fence, zombies breach it fast)">Wood</button>
     <button class="tool-btn" data-tool="build" data-structure="wall" title="Place stone (costs 1 stone/cell; a wall, zombies breach it slowly)">Stone</button>

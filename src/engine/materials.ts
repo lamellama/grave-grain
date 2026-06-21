@@ -57,6 +57,8 @@ export const BONE = 12;
 export const BLOOD = 13;
 // Material IDs — Phase 8 player building (GDD §8; do NOT renumber above)
 export const WALL = 14;
+// Material ID — plant-a-seed growth (post-MVP backlog, GDD §9; do NOT renumber)
+export const SAPLING = 15;
 
 /**
  * MATERIALS — indexed lookup table of material properties.
@@ -250,6 +252,27 @@ export const MATERIALS: Material[] = [
     permeableToBodies: false,
     hasIntegrity: true,
     baseIntegrity: WALL_INTEGRITY,
+  },
+  // SAPLING (id=15) — a planted seed that grows UPWARD into FOLIAGE over time
+  // (post-MVP backlog, GDD §9: "plants grow over time on suitable soil; water
+  // accelerates growth"). It does NOT fall like a powder and is NOT a static
+  // structure: it stays pinned in place and matures via the growth rule
+  // (simulation.updateSapling), which reuses the integrity slot as a growth
+  // countdown. A young yellow-green sprout colour, distinct from grown FOLIAGE's
+  // deeper green (#3a7a2a). permeableToBodies so survivors/zombies walk straight
+  // through it like foliage (isSolidForBody → false). flammable (a sapling can
+  // burn). No structural integrity: the integrity slot is the growth timer, not
+  // a breach value, so hasIntegrity:false / baseIntegrity:0.
+  {
+    name: 'sapling',
+    color: '#9ccb5a', // young yellow-green sprout (distinct from foliage green)
+    density: DENSITY_ASH, // light; never used to displace (it doesn't fall/swap)
+    isFluid: false,
+    isStatic: false, // pinned by the growth rule, NOT by the static fast-path
+    flammable: true,
+    permeableToBodies: true, // walk through like foliage (GDD §5.2 / §9)
+    hasIntegrity: false,
+    baseIntegrity: 0,
   },
 ];
 

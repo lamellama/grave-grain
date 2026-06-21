@@ -35,6 +35,11 @@ import {
   GORE_SETTLE_TICKS,
   GORE_AGE_FADE_PER_TICK,
   SIM_RNG_SEED,
+  GROW_TICKS,
+  GROW_JITTER,
+  GROW_WATER_SPEEDUP,
+  FOLIAGE_GROW_MAX_HEIGHT,
+  FOLIAGE_INTEGRITY,
 } from '../config';
 import { material, integrity, idx, set, setIntegrity } from './grid';
 import { reactions } from './reactions';
@@ -70,6 +75,8 @@ import {
   FLESH,
   BONE,
   BLOOD,
+  FOLIAGE,
+  SAPLING,
   density,
   isStatic,
   isFluid,
@@ -127,6 +134,7 @@ const SALT_WATER = 3; // water/blood: L/R flow order
 const SALT_GAS_DISS = 4; // smoke/steam: dissipate-to-air roll
 const SALT_GAS_DIAG = 5; // smoke/steam: up-diagonal / drift L/R order
 const SALT_SMOKE_EMIT = 6; // fire expiry: puff SMOKE vs leave ASH
+const SALT_GROW = 7; // sapling: per-cell growth-countdown seeding jitter (GDD §9)
 // Fire spread rolls ONCE PER NEIGHBOUR, so the per-neighbour index (0..8) is
 // added to this base — each of the 8 neighbour rolls gets its own salt and so
 // its own independent stream (no correlation between neighbours at one cell).
@@ -421,6 +429,8 @@ function updateCell(x: number, y: number): void {
     updateBone(x, y);
   } else if (m === BLOOD) {
     updateBlood(x, y);
+  } else if (m === SAPLING) {
+    updateSapling(x, y);
   }
   // AIR is the empty target; STONE is static — neither has a rule.
 }
@@ -481,6 +491,130 @@ function updateBlood(x: number, y: number): void {
   // Reuse the water flow primitive: trySwap is density-generic, so BLOOD (1)
   // falls/seeks-level identically without any blood-specific code path.
   updateWater(x, y);
+}
+
+/**
+ * Is any of the four orthogonal neighbours of (x, y) WATER? (GDD §9 "water
+ * accelerates growth".) A bounds-safe grid query — no randomness, so it is
+ * chunk-equivalence-safe.
+ */
+function waterAdjacent(x: number, y: number): boolean {
+  return (
+    (x > 0 && material[idx(x - 1, y)] === WATER) ||
+    (x < WORLD_W - 1 && material[idx(x + 1, y)] === WATER) ||
+    (y > 0 && material[idx(x, y - 1)] === WATER) ||
+    (y < WORLD_H - 1 && material[idx(x, y + 1)] === WATER)
+  );
+}
+
+/**
+ * SAPLING rule (post-MVP backlog, playtest v0.6 #G; GDD §9 ecology). A planted
+ * seed that does NOT fall — it stays pinned and MATURES into FOLIAGE over time,
+ * sprouting a new sapling above so a plant grows UPWARD into a bush.
+ *
+ * GROWTH TIMER via the integrity slot: exactly the FIRE-lifetime trick. A
+ * sapling has no structural integrity, so it REUSES its `integrity` slot as a
+ * per-cell countdown. integrity == 0 means "unseeded" (e.g. just placed by the
+ * Plant tool, whose placeMaterial leaves a hasIntegrity:false cell at 0): on the
+ * first visit we seed the countdown to GROW_TICKS plus a small simRand jitter so
+ * neighbouring saplings don't mature in lockstep. Each tick we decrement it
+ * (faster beside WATER — GDD §9), and rewrite the slot, which WAKES the chunk —
+ * so the chunked/dirty-rect scan keeps visiting this cell every tick and stays
+ * byte-identical to a full scan (the chunk-equivalence guarantee).
+ *
+ * DETERMINISM: the ONLY randomness is the seeding jitter, drawn from
+ * simRand(x, y, SALT_GROW) (NOT Math.random) — a pure function of
+ * (x, y, tick, seed). The decrement, the water-speedup and the maturation are
+ * deterministic grid queries. So a chunked run draws the exact same jitter as a
+ * full scan and the two remain byte-identical.
+ *
+ * Per tick:
+ *   1) Seed the countdown if unseeded (integrity == 0).
+ *   2) Decrement by 1, or GROW_WATER_SPEEDUP beside water.
+ *   3) On expiry: if the cell below is soil (DIRT) or already-grown FOLIAGE,
+ *      mature into FOLIAGE and (if there is AIR above and the foliage column is
+ *      under FOLIAGE_GROW_MAX_HEIGHT) sprout a fresh sapling above. If there is
+ *      NO soil below (a floating sapling) it WITHERS to AIR instead of growing —
+ *      so a sapling planted in mid-air can never build an infinite tower.
+ */
+function updateSapling(x: number, y: number): void {
+  const s = idx(x, y);
+  let g = integrity[s];
+
+  // 1) Seed an unseeded countdown (GROW_TICKS + deterministic simRand jitter).
+  if (g === 0) {
+    g = GROW_TICKS + Math.floor(simRand(x, y, SALT_GROW) * GROW_JITTER);
+  }
+
+  // 2) Decrement — water accelerates growth (GDD §9).
+  const dec = waterAdjacent(x, y) ? GROW_WATER_SPEEDUP : 1;
+
+  // 3) Expiry → mature or wither.
+  if (g <= dec) {
+    growSapling(x, y);
+    return;
+  }
+
+  integrity[s] = g - dec;
+  // Per-tick countdown change → keep the chunk live so the chunked scan keeps
+  // visiting this sapling (Phase 11 dirty-rect, same as FIRE's ageing).
+  markCellActive(x, y);
+}
+
+/**
+ * Mature a sapling at (x, y) (GDD §9). The countdown has expired: if the cell is
+ * standing on soil it becomes FOLIAGE and may sprout a new sapling above;
+ * otherwise (no soil below) it withers to AIR. Called only from updateSapling.
+ */
+function growSapling(x: number, y: number): void {
+  const s = idx(x, y);
+
+  // Validity: a sapling grows only on suitable soil — DIRT directly below, or
+  // already-grown FOLIAGE (so the plant stacks upward). Out-of-bounds below
+  // (bottom row) counts as no soil. (GDD §9 "grow over time on suitable soil".)
+  const belowM = y < WORLD_H - 1 ? material[idx(x, y + 1)] : AIR;
+  const onSoil = belowM === DIRT || belowM === FOLIAGE;
+
+  if (!onSoil) {
+    // No soil → wither (bounded; a floating sapling never towers — Done-when #3).
+    material[s] = AIR;
+    integrity[s] = 0; // AIR carries no integrity / growth timer
+    moved[s] = 1; // claim the cell so the freed AIR isn't re-processed this tick
+    markCellActive(x, y); // SAPLING→AIR is a change → wake the chunk (P11)
+    return;
+  }
+
+  // Mature this cell into FOLIAGE (seed FOLIAGE's baseIntegrity so it is
+  // choppable/breachable exactly like worldgen-grown foliage).
+  material[s] = FOLIAGE;
+  integrity[s] = FOLIAGE_INTEGRITY;
+  markCellActive(x, y);
+
+  // Sprout a new sapling directly above, if there is room and the plant is still
+  // under its max height (GDD §9 grows upward; capped so it never towers).
+  const above = y - 1;
+  if (above < 0) return;
+  const a = idx(x, above);
+  if (material[a] !== AIR) return;
+
+  // Count the contiguous FOLIAGE column below this newly-matured cell to measure
+  // the plant's height (this cell now counts as 1). Stop at the cap.
+  let height = 1;
+  for (let yy = y + 1; yy < WORLD_H && material[idx(x, yy)] === FOLIAGE; yy++) {
+    height++;
+  }
+  if (height >= FOLIAGE_GROW_MAX_HEIGHT) return; // capped — top stage, no sprout
+
+  // Place the new sapling above. Leave its integrity at 0 (auto-seeded on its
+  // first visit) and CLAIM it in the moved-guard so it does NOT age this tick.
+  // This is the cross-chunk-safe pattern FIRE uses on spread: the full scan
+  // (which would otherwise visit the cell again higher in this same pass) skips
+  // it, matching the chunked scan, so the two stay byte-identical. markCellActive
+  // wakes its chunk for NEXT tick, when it begins its own countdown.
+  material[a] = SAPLING;
+  integrity[a] = 0;
+  moved[a] = 1;
+  markCellActive(x, above);
 }
 
 /**

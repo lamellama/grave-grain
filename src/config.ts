@@ -127,6 +127,44 @@ export const DIRT_SPILL_CHANCE = 0.3;
 export const WOOD_INTEGRITY = 60;
 export const FOLIAGE_INTEGRITY = 10;
 
+// ---------------------------------------------------------------------------
+// Plant-a-seed foliage growth (post-MVP backlog, playtest v0.6 #G; GDD §9)
+// ---------------------------------------------------------------------------
+// The player plants a SAPLING (material id 15) on soil; it matures into FOLIAGE
+// over time and sprouts a new sapling above so a plant grows UPWARD into a
+// multi-cell bush, capped at FOLIAGE_GROW_MAX_HEIGHT. Growth is a per-cell
+// COUNTDOWN stored in the sapling's `integrity` slot (the same slot-reuse trick
+// FIRE uses for its lifetime — see simulation.updateSapling). The cell rewrites
+// that slot every tick, which keeps its chunk ACTIVE, so the chunked/dirty-rect
+// scan visits it every tick and stays byte-identical to a full scan.
+//
+// NOTE on GROW_TICKS: the `integrity` array is a Uint8Array (max 255), so a
+// literal ~600-tick countdown (the backlog's 10s/stage suggestion) does NOT
+// fit in one slot. GROW_TICKS is therefore set to 240 (~4s/stage @60Hz, 6
+// stages ≈ 24s for a full bush), the largest round value that fits the slot
+// with the seeding jitter below. This is the documented deviation from the
+// suggested 600; the mechanic is otherwise exactly as briefed.
+export const GROW_TICKS = 240;
+
+// Small deterministic jitter (ticks) added to each sapling's seeded countdown so
+// neighbouring saplings don't mature in perfect lockstep. Drawn from simRand
+// (NOT Math.random) so it stays a pure function of (x, y, tick, seed) and the
+// chunk-equivalence guarantee holds. Kept small so GROW_TICKS + GROW_JITTER
+// (240 + up to 11 = 251) stays inside the Uint8 integrity slot (≤ 255).
+export const GROW_JITTER = 12;
+
+// Per-tick decrement applied to the growth countdown when the sapling is
+// orthogonally adjacent to WATER (GDD §9 "water accelerates growth"). 1 = normal
+// speed; 2 = grows twice as fast beside water. Deterministic (a grid query, no
+// randomness), so it never threatens chunk-equivalence.
+export const GROW_WATER_SPEEDUP = 2;
+
+// Max number of FOLIAGE cells a single planted sapling grows into, stacking
+// upward from the soil (GDD §9 bushes/trees grow over time). Once the foliage
+// column reaches this height the top stage matures WITHOUT sprouting a new
+// sapling, so the plant stops growing — never an infinite tower.
+export const FOLIAGE_GROW_MAX_HEIGHT = 6;
+
 // Phase 4 — Body materials (GDD §5.2 FLESH/BONE/BLOOD rows). Densities keep the
 // gore pile readable: bone is heaviest (sinks/structures), flesh middling, blood
 // is a thin near-weightless fluid that seeks its level and douses NOTHING.
