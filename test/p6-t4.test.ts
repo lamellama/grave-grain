@@ -101,6 +101,11 @@ addResource('wood', AXE_WOOD_COST);
   let woodAtFirstDeposit = 0;
 
   for (let i = 0; i < 20000; i++) {
+    // Keep needs topped up: this scenario isolates the chop/deposit/break loop,
+    // not survival. (Threshold was raised to 50 in 11-6, so without water the
+    // lumberjack would correctly divert to drink and die — covered by scenario 3.)
+    s.needs.thirst = NEED_MAX;
+    s.needs.hunger = NEED_MAX;
     updateSurvivor(s);
     if (bodyInSolid(s)) tunneled = true;
     const f = countMat(FOLIAGE);
