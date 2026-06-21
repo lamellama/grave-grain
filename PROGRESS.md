@@ -8,8 +8,22 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 
 ## Current state
 
-- **Current phase:** Phase 11 — Performance & feel pass (FINAL)
-- **Status:** not started (Phase 10 complete & committed)
+- **Current phase:** Phase 11 — Performance & feel pass (FINAL MVP phase) — IN PROGRESS
+- **Status (paused, quota out; clean committed checkpoint):** 11-1 deterministic sim RNG ✅, 11-2 chunked/dirty-rect sim (byte-identical) ✅, 11-3 body LOD + gore settle ✅, 11-4 breach visual feedback ✅. **REMAINING in Phase 11:** 11-5 role outfits (render tint by role), 11-6 react-earlier-to-needs (raise HUNGER/THIRST_THRESHOLD 35→50), 11-7 balance + juice pass. Completing 11-5..11-7 = **MVP COMPLETE**.
+- **USER AUTHORIZATION (this session):** after the MVP, **continue with ALL deferred + added tasks** (the vertical-slice tier is now greenlit). See “Authorized backlog” below and the PLAN.md “Deferred” + playtest sections.
+- **NOTE:** GDD was revised externally (commit 6af1cbf — death model: extreme→dissolve, quiet→corpse, bite→turn). Re-read GDD §5.1/§7 before building the death/turn work; it may add a ‘bitten survivor turns into a zombie’ mechanic to the backlog.
+
+## Authorized backlog (post-MVP — do after Phase 11, in roughly this order)
+
+1. **Finish Phase 11:** 11-5 role outfits, 11-6 react-earlier needs, 11-7 balance/juice. (cheap)
+2. **Bite-to-turn death model (NEW, GDD 6af1cbf):** re-read revised GDD §5.1/§7; implement extreme-damage→dissolve / quiet-death→corpse / bite→survivor turns zombie. (expensive — touches damage/zombie/survivor.)
+3. **Zombie ladder-climb (v0.5 #A):** crowded zombies use each other as standable ground to climb walls; keep no-tunnel + perf cap. (expensive — zombie AI/locomotion, Phase-7 follow-up.)
+4. **Plant-a-seed foliage growth (v0.6 #G):** SAPLING material the player plants → grows into FOLIAGE over GROW_TICKS on soil; replace free Foliage paint with a Plant tool. (expensive — new sim rule.)
+5. **Vertical slice — Warmth + camp (deferred):** Warmth need + temperature + fire-as-warmth + Shelter structure (GDD §6.1/§10/§8). (expensive, multi-task.)
+6. **Vertical slice — cooperative base-building:** survivor-driven construction / Builder-Hauler role (GDD §6.2). (expensive, multi-task.)
+7. **Further vertical-slice/Beyond (GDD §14):** Diggers/Fisherman roles, iron tool tier + upgrades, herd dynamics, dual-edge spawns, tree reproduction, day/night, weather — prioritize with the user.
+
+_Process for the backlog: same loop — planner decomposes each item into testable tasks; route per policy; verify Done-when; commit per item. Re-read the (revised) GDD sections each item names. THE GATE stays cleared; keep regression suites + smoke green._
 - **Last passed Done-when:** Phase 10 — landscape prompt + touch-sized UI + pinch/wheel zoom (correct screen↔world, no hi-DPI regression) + tap/drag/long-press + long-press/right-click role menu + tap-to-cycle + responsive resize + gore/zombie perf caps. Planner-verified PASS; Phases 3–9 not regressed. MANUAL on-device framerate check still recommended.
 - **Phase 11 should fold in the deferred playtest items:** v0.5 #C breach VISUAL feedback (crack/darken cells by integrity), v0.5 #D wave pacing (done), v0.6 #E role outfits (tint body by role for readability), v0.5 #B ammo (done), in-scope 'react earlier to needs' sliver, plus chunking/LOD/juice/balance. Deferred vertical-slice (camp/shelter/warmth, cooperative building, plant-a-seed growth) stays OUT unless authorised.
 - **v0.4b playtest patches (committed, between Phase 9 and 10):** hi-DPI viewport corner FIXED (render CSS px); blank-view/empty-sky FIXED (vertical surface framing + horizontal center on colony); zombies-don't-move FIXED (idle drift toward colony, idle speed 0.12→0.2); zombies-buried-at-edge FIXED (spawn inset + on actual surface); sand/dirt-stratify FIXED (powders only displace AIR/fluid). Commits e777873, eabd9b1, 6371130, 590931e, d0b1bf3.

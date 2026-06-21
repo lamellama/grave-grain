@@ -4,3 +4,4 @@ dist/
 *.log
 .npm-cache/
 .test-out/
+.gitconfig

@@ -470,7 +470,7 @@ These phases start **only after the MVP (Phases 0–11) is complete and fun.** T
 
 ---
 
-### Also deferred to the vertical slice (flagged, NOT in MVP — GDD §14)
+### Vertical slice — AUTHORIZED (do after Phase 11 / MVP) — GDD §14 (user greenlit; sequenced in PROGRESS.md Authorized backlog)
 - **Plant/tree growth + reproduction (plant-a-seed foliage)** (GDD §9 ecology) — vertical-slice; MVP-light SAPLING→FOLIAGE grow rule possible if authorised (playtest v0.6 #G).
 - **In-scope sliver (do in the Phase 11 balance pass, not deferred):** make survivors react EARLIER to hunger/thirst (bigger buffer) so they “go get it rather than just dying,” and keep the on-screen death-cause prominent.
 
