@@ -29,7 +29,7 @@
 import type { Body } from './body';
 import { createBody } from './body';
 import { updateBody } from './locomotion';
-import { dissolveBody } from './damage';
+import { layDownCorpse } from './damage';
 import type { Zombie } from './zombie';
 import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
 import { get, set } from '../engine/grid';
@@ -940,9 +940,11 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   s.needs.hunger = Math.max(0, s.needs.hunger - HUNGER_RATE * exertion);
   s.needs.thirst = Math.max(0, s.needs.thirst - THIRST_RATE * exertion * heat);
 
-  // 3. Death (GDD §6.1 failure states): a need at 0 kills the survivor through
-  //    the Phase-4 death-collapse (dissolveBody releases every bone into the
-  //    live sim). Log the cause (UI is Phase 9) and do NOT re-drive the corpse.
+  // 3. Death (GDD §6.1 failure states): a need at 0 kills the survivor. This is
+  //    a QUIET death — the rig LIES DOWN as a prone corpse (layDownCorpse),
+  //    NOT the extreme cell-dissolve (revised death model, GDD §5.1: starvation
+  //    / thirst → "lies down dead (corpse)"). Log the cause (UI is Phase 9) and
+  //    do NOT re-drive the corpse.
   if (s.needs.hunger <= 0) {
     s.deathCause = 'starvation';
   } else if (s.needs.thirst <= 0) {
@@ -950,7 +952,7 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   }
   if (s.deathCause !== null) {
     console.log(`Survivor died: ${s.deathCause}`);
-    dissolveBody(body);
+    layDownCorpse(body, s.deathCause);
     return;
   }
 

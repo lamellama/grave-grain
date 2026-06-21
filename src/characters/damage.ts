@@ -18,7 +18,11 @@
  * DOM-free pure logic so it stays headless-testable.
  */
 
-import { BLOOD_PER_HIT, TORSO_DISINTEGRATE_THRESHOLD } from '../config';
+import {
+  BLOOD_PER_HIT,
+  TORSO_DISINTEGRATE_THRESHOLD,
+  CORPSE_DECAY_TICKS,
+} from '../config';
 import { material, idx, inBounds, placeMaterial } from '../engine/grid';
 import { AIR, BLOOD, isFluid } from '../engine/materials';
 import type { Body, Bone, BoneName } from './body';
@@ -247,5 +251,32 @@ export function dissolveBody(body: Body): void {
   body.alive = false;
   for (const bone of body.rig) {
     releaseBone(body, bone);
+  }
+}
+
+/**
+ * Lie-down/settle (revised death model, GDD §5.1 "Quiet/needs → lie down as a
+ * corpse"): a QUIET death — starvation, thirst, freezing, drowning, slow
+ * bleed-out — lays the rig down as a PRONE CORPSE BODY rather than spraying it
+ * into the live sim. This is DISTINCT from dissolveBody (the EXTREME death):
+ *
+ *   - The body is marked dead (alive=false) so every existing dead-body guard
+ *     (locomotion/survivor/zombie) keeps it from being driven — a corpse is inert.
+ *   - It is flagged a corpse and given CORPSE_DECAY_TICKS to decay/fade (GDD §13).
+ *   - The rig is LEFT INTACT: no bone is released, NO cells are written. The
+ *     figure stays whole and prone (cell release is the dissolve path's job).
+ *
+ * Forward-compat (later death-model tasks): if the body ever carries infection
+ * flags, clear them here so a corpse can never "turn". Guarded by an `in` check
+ * so this stays correct before those fields exist.
+ */
+export function layDownCorpse(body: Body, _cause?: string): void {
+  body.alive = false;
+  body.corpse = true;
+  body.corpseTicks = CORPSE_DECAY_TICKS;
+  // Forward-compat: a corpse from a quiet death must never reanimate (bite/turn
+  // is a separate outcome). Clear any infection state if those fields exist yet.
+  if ('infected' in body) {
+    (body as unknown as { infected: boolean }).infected = false;
   }
 }

@@ -665,3 +665,19 @@ export const ROLE_TINT_MIX = 0.45;
 export const HIT_FLASH_TICKS = 18;
 export const MAX_HIT_FLASHES = 24;
 export const SCREEN_SHAKE_PX = 2;
+
+// ---------------------------------------------------------------------------
+// Revised death model (post-MVP) — corpses (GDD §5.1 "Quiet/needs → lie down as
+// a corpse", §13 decay)
+// ---------------------------------------------------------------------------
+
+// A QUIET death (starvation, thirst, drowning, slow bleed-out) lays the rig down
+// as a PRONE CORPSE BODY rather than dissolving it into cells (the EXTREME
+// death). The corpse is inert and decays/fades over time.
+//   CORPSE_DECAY_TICKS: ticks a fresh corpse persists before it has fully
+//     decayed/faded (seeded into Body.corpseTicks on lay-down). At SIM_HZ=60
+//     this is ~30 s — long enough to read on the battlefield, then it clears.
+//   MAX_CORPSES: hard cap on simultaneously-tracked corpse bodies (perf/LOD);
+//     the oldest are retired when the cap is exceeded (consumed by later tasks).
+export const CORPSE_DECAY_TICKS = 1800;
+export const MAX_CORPSES = 16;

@@ -22,7 +22,7 @@
  */
 
 import type { Body, Bone } from './body';
-import { dissolveBody, applyDamage } from './damage';
+import { layDownCorpse, applyDamage } from './damage';
 import { get } from '../engine/grid';
 import { isSolidForBody, isFluid, WATER, FIRE } from '../engine/materials';
 import {
@@ -43,8 +43,9 @@ import {
  *
  *   - DROWN: if ANY head cell is WATER the body holds its breath (drownTicks++);
  *     the instant the head clears the surface the counter resets. When it
- *     reaches DROWN_TICKS the body drowns → dissolveBody (death-collapse, App. B,
- *     possibly underwater) and we report it so the caller bails.
+ *     reaches DROWN_TICKS the body drowns → lays down as a prone CORPSE (revised
+ *     death model, GDD §5.1: drowning is a QUIET death, not the cell-dissolve)
+ *     and we report it so the caller bails.
  *   - PIN: if solid NON-fluid terrain (sand/dirt/stone) sits directly on top of
  *     the head, the body is buried/pinned — its horizontal walk is suppressed
  *     this tick (falling/settling still resolves below).
@@ -77,7 +78,9 @@ function reactToEnvironment(body: Body): { dead: boolean; pinned: boolean } {
   if (headInWater) {
     body.drownTicks++;
     if (body.drownTicks >= DROWN_TICKS) {
-      dissolveBody(body); // death-collapse into the live sim, even underwater
+      // GDD §5.1: drowning is a QUIET death — the rig lies down as a prone
+      // corpse (inert, decays over time), NOT the extreme cell-dissolve.
+      layDownCorpse(body, 'drowned');
       return { dead: true, pinned: false };
     }
   } else {

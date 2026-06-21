@@ -72,6 +72,15 @@ export interface Body {
   moveDir: -1 | 0 | 1;
   rig: Bone[];
   alive: boolean;
+  // Corpse state (revised death model, GDD §5.1 "Quiet/needs → lie down as a
+  // corpse"). A QUIET death (starvation/thirst/drown/slow bleed-out) lays the
+  // rig down as a PRONE CORPSE BODY rather than spraying its cells (that is the
+  // EXTREME → dissolveBody path). `corpse` is true while the body is an inert
+  // settled corpse; `alive` stays false so existing dead-body guards still
+  // prevent any controller from driving it. `corpseTicks` counts the body down
+  // toward decay/fade (GDD §13) and is seeded to CORPSE_DECAY_TICKS on lay-down.
+  corpse: boolean;
+  corpseTicks: number;
   // Consecutive ticks the head bone has sat in WATER (p4-t5, THE GATE gate
   // point 4). Incremented while ANY head cell is WATER, reset to 0 the instant
   // the head clears the surface; at DROWN_TICKS the body drowns and dissolves
@@ -223,6 +232,8 @@ export function createBody(x: number, y: number): Body {
     moveDir: 0,
     rig,
     alive: true,
+    corpse: false,
+    corpseTicks: 0,
     drownTicks: 0,
     lLegLost: false,
     rLegLost: false,
