@@ -37,7 +37,7 @@ import { layDownCorpse } from './damage';
 import type { Zombie } from './zombie';
 import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
 import { get, set } from '../engine/grid';
-import { FIRE, WATER, FOLIAGE, AIR, isFluid, isSolidForBody } from '../engine/materials';
+import { FIRE, WATER, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
@@ -81,6 +81,8 @@ import {
   RESOURCE_SCAN_RADIUS,
   REACH_MAX_PATH_ATTEMPTS,
   FLEE_FIRE_RADIUS,
+  SHELTER_ROOF_SCAN,
+  SHELTER_SIDE_SCAN,
   PATH_REPATH_COOLDOWN,
   GUARD_ENGAGE_RADIUS,
   ATTACK_COOLDOWN,
@@ -223,6 +225,55 @@ function nearFire(body: Body): boolean {
     for (let x = x0; x <= x1; x++) {
       if (get(x, y) === FIRE) return true;
     }
+  }
+  return false;
+}
+
+/**
+ * Is the body inside an enclosed/roofed PLAYER-BUILT shelter? (Task W2, GDD
+ * §8 / §6.1). Cheap bounded probe over the live grid — read-only, no autonomy
+ * or simulation change. Keys ONLY on WOOD and WALL (player structures), so
+ * natural DIRT/STONE hillsides never count as shelter (MVP: built shelter only).
+ *
+ * Detection logic:
+ *   - head row  = round(body.y) − (BODY_H−1)   (top of the figure)
+ *   - mid row   = round(body.y) − ⌊Body_H/2⌋  (mid-torso, where walls are read)
+ *   - center col = round(body.x)
+ *   Roof:      any of the SHELTER_ROOF_SCAN cells directly above the head
+ *              (headRow-1 … headRow-SHELTER_ROOF_SCAN) is WOOD or WALL.
+ *   Left wall: any of the SHELTER_SIDE_SCAN cells left at mid-row is WOOD/WALL.
+ *   Right wall: same, rightward.
+ *   Return: roof && leftWall && rightWall.
+ *
+ * Worst-case reads: SHELTER_ROOF_SCAN + 2×SHELTER_SIDE_SCAN = 14 cells.
+ * All scans early-exit on the first match, so the common hot-path is cheaper.
+ */
+export function isSheltered(body: Body): boolean {
+  const rx = Math.round(body.x);
+  const ry = Math.round(body.y);
+  const headRow = ry - (BODY_H - 1);
+  const midRow  = ry - Math.floor(BODY_H / 2);
+
+  // Roof: scan upward from just above the head.
+  let roof = false;
+  for (let dy = 1; dy <= SHELTER_ROOF_SCAN; dy++) {
+    const m = get(rx, headRow - dy);
+    if (m === WOOD || m === WALL) { roof = true; break; }
+  }
+  if (!roof) return false;
+
+  // Left wall: scan left at mid-torso row.
+  let leftWall = false;
+  for (let dx = 1; dx <= SHELTER_SIDE_SCAN; dx++) {
+    const m = get(rx - dx, midRow);
+    if (m === WOOD || m === WALL) { leftWall = true; break; }
+  }
+  if (!leftWall) return false;
+
+  // Right wall: scan right at mid-torso row.
+  for (let dx = 1; dx <= SHELTER_SIDE_SCAN; dx++) {
+    const m = get(rx + dx, midRow);
+    if (m === WOOD || m === WALL) return true;
   }
   return false;
 }

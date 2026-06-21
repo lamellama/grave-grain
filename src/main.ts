@@ -427,11 +427,17 @@ function flushDeathToasts(): void {
     const dir = directionToWorldX(e.x, camera, vpW);
     const prefix = dir ? dir + ' ' : '';
     // GDD §12.2: show a natural-language message per death cause.
-    // 'bitten — turned' gets a distinct warning; all other causes use the
+    // 'bitten — turned' gets a distinct warning; 'frozen' gets its own
+    // natural-language message (Task W4); all other causes use the
     // generic 'Survivor died: <cause>' format (starvation, thirst, etc.).
-    const msg = e.cause.includes('turned')
-      ? prefix + '\u26a0 A survivor was bitten and turned!'
-      : prefix + 'Survivor died: ' + e.cause;
+    let msg: string;
+    if (e.cause.includes('turned')) {
+      msg = prefix + '\u26a0 A survivor was bitten and turned!';
+    } else if (e.cause === 'frozen') {
+      msg = prefix + 'A survivor froze';
+    } else {
+      msg = prefix + 'Survivor died: ' + e.cause;
+    }
     pushToast(msg);
     deathToastCursor++;
   }

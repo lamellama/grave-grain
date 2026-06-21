@@ -25,6 +25,7 @@ import {
   NEED_MAX,
   HUNGER_THRESHOLD,
   THIRST_THRESHOLD,
+  WARMTH_THRESHOLD,
   SIM_SPEEDS,
   CELL_SIZE,
   BODY_W,
@@ -152,9 +153,9 @@ export function drawToasts(ctx: CanvasRenderingContext2D): void {
 
 /** Width (px) of a single needs bar — matches the body's visual footprint. */
 const BAR_W = CELL_SIZE * BODY_W;
-/** Height (px) of each individual bar (hunger or thirst). */
+/** Height (px) of each individual bar (hunger, thirst, or warmth). */
 const BAR_H = 3;
-/** Vertical gap (px) between the two bars. */
+/** Vertical gap (px) between bars. */
 const BAR_GAP = 1;
 
 /**
@@ -167,6 +168,19 @@ function barColor(v: number, threshold: number): string {
   if (frac > critFrac + 0.15) return '#44cc44'; // green
   if (frac > critFrac)        return '#ddaa00'; // amber
   return '#cc2222';                              // red
+}
+
+/**
+ * Colour for the WARMTH bar — distinct from hunger/thirst so the player can
+ * tell them apart at a glance. Healthy = warm-orange (#ee8800); critical tint
+ * uses the same amber → red ladder as the other bars (GDD §12.2, Task W4).
+ */
+function warmthBarColor(v: number): string {
+  const frac = v / NEED_MAX;
+  const critFrac = WARMTH_THRESHOLD / NEED_MAX;
+  if (frac > critFrac + 0.15) return '#ee8800'; // warm-orange (healthy)
+  if (frac > critFrac)        return '#ddaa00'; // amber (approaching critical)
+  return '#cc2222';                              // red (frozen)
 }
 
 /**
@@ -218,11 +232,13 @@ export function drawNeedsBars(
     // the bar stack itself so it clears the head visually).
     const sc = worldToScreen(s.body.x - BODY_W / 2, s.body.y - 2);
     const px = sc.x;
-    const py = sc.y - (BAR_H * 2 + BAR_GAP); // stack sits just above the anchor
+    // Three-bar stack: total height = BAR_H*3 + BAR_GAP*2; sit it just above
+    // the anchor so all bars clear the head (Task W4, GDD §12.2).
+    const py = sc.y - (BAR_H * 3 + BAR_GAP * 2);
 
     // Off-screen cull: skip if clearly outside the visible area.
     if (px + BAR_W < -4 || px > cw + 4) continue;
-    if (py + BAR_H * 2 + BAR_GAP < -4 || py > ch + 4) continue;
+    if (py + BAR_H * 3 + BAR_GAP * 2 < -4 || py > ch + 4) continue;
 
     // Hunger bar (top).
     drawBar(
@@ -233,13 +249,23 @@ export function drawNeedsBars(
       barColor(s.needs.hunger, HUNGER_THRESHOLD),
     );
 
-    // Thirst bar (bottom, just below hunger).
+    // Thirst bar (middle, just below hunger).
     drawBar(
       ctx,
       px,
       py + BAR_H + BAR_GAP,
       s.needs.thirst / NEED_MAX,
       barColor(s.needs.thirst, THIRST_THRESHOLD),
+    );
+
+    // Warmth bar (bottom, distinct warm-orange hue; GDD §12.2 Task W4).
+    // Uses warmthBarColor() so it reads differently from hunger/thirst green.
+    drawBar(
+      ctx,
+      px,
+      py + (BAR_H + BAR_GAP) * 2,
+      s.needs.warmth / NEED_MAX,
+      warmthBarColor(s.needs.warmth),
     );
   }
 

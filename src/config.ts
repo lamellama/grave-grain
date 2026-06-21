@@ -793,3 +793,12 @@ export const FIRE_WARMTH_RADIUS = 8;
 // makes warmth matter; day/night temperature cycles and §10 ambient temperature
 // fields are deferred to a later warmth task.
 export const AMBIENT_COLD = true;
+
+// Task W2 — Shelter detection (GDD §8 / §6.1): isSheltered() bounded scan limits.
+// SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
+//   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).
+// SHELTER_SIDE_SCAN: cells scanned LEFT and RIGHT at the body's mid-row to find
+//   WOOD/WALL walls. 4 cells allows a little gap between body and wall.
+// Total worst-case reads per call: SHELTER_ROOF_SCAN + 2*SHELTER_SIDE_SCAN = 14.
+export const SHELTER_ROOF_SCAN = 6;
+export const SHELTER_SIDE_SCAN = 4;
