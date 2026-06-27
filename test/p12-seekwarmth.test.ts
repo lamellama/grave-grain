@@ -34,6 +34,14 @@ import { material, set } from '../src/engine/grid';
 import { STONE, WATER, WOOD, WALL, AIR } from '../src/engine/materials';
 import { rebuildNavgrid } from '../src/engine/navgrid';
 import { WORLD_W, NEED_MAX, WARMTH_THRESHOLD, THIRST_THRESHOLD } from '../src/config';
+import { __setWeatherForTest } from '../src/engine/weather';
+
+// T4 (GDD §10): warmth now depletes only under DYNAMIC cold weather
+// (isAmbientColdNow). Every scenario below models an "open cold" camp, so pin
+// the weather to SNOW (temp < COLD_THRESHOLD) to recreate the always-cold
+// regime this suite was written for. updateSurvivor never advances the weather
+// machine, so the forced cold holds across all runs.
+__setWeatherForTest('snow');
 
 let failures = 0;
 function check(cond: boolean, msg: string): void {

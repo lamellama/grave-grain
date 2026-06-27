@@ -189,6 +189,11 @@ Backlog · CB-5 · cheap · pass · blueprint overlay render (translucent ghosts
 Backlog · CB-6 · expensive · pass · live-loop integration (resetQueue on world init; overlay+builder confirmed ticking); e2e plan→assign→build→spend via main path 16/16 + regressions. commit a576e25.
 Backlog · CB-VERIFY · orchestrator · pass · cooperative base-building playable end-to-end; refreshed stale GATE test p4-t5 (death-model drowning→corpse), GATE green. commit 86ed400.
 
+VS-1 Weather (GDD §10) · T1 · expensive · pass · SNOW material (id16) + §10 config seeds (states/temps/spawn rates); 40/40 + p2-t6. commit 284a7c2.
+VS-1 Weather · T2 · expensive · pass · deterministic weather state machine (clear/rain/snow) + ambient temperature; seeded weatherRand, 30k-tick replay identical. commit e3674b0.
+VS-1 Weather · T3 · expensive · pass · sky-spawn (rain→WATER/snow→SNOW) + fire douse/snow-melt; chunk byte-equiv held, rain douses 33×, snow no-tunnel. commit e882fb9.
+VS-1 Weather · T4 · orchestrator direct · pass · wired warmth need + plant growth onto DYNAMIC weather: survivor cold gate AMBIENT_COLD→isAmbientColdNow() (engine/weather), sapling growth gains GROW_RAIN_SPEEDUP under rain (chunk-safe, global state). Refreshed 2 stale always-cold suites (p12-warmth, p12-seekwarmth) to pin SNOW via __setWeatherForTest. tsc strict clean; 9 suites green (weather ×3, p12-warmth/seekwarmth/warmthbar/grow, p11-chunk-equiv, p2-t6); seekwarmth 20/20 stable.
+
 ## Blockers
 
 _(none)_

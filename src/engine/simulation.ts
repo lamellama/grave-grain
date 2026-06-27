@@ -38,6 +38,7 @@ import {
   GROW_TICKS,
   GROW_JITTER,
   GROW_WATER_SPEEDUP,
+  GROW_RAIN_SPEEDUP,
   FOLIAGE_GROW_MAX_HEIGHT,
   FOLIAGE_INTEGRITY,
   WEATHER_SKY_ROW,
@@ -607,8 +608,12 @@ function updateSapling(x: number, y: number): void {
     g = GROW_TICKS + Math.floor(simRand(x, y, SALT_GROW) * GROW_JITTER);
   }
 
-  // 2) Decrement — water accelerates growth (GDD §9).
-  const dec = waterAdjacent(x, y) ? GROW_WATER_SPEEDUP : 1;
+  // 2) Decrement — water accelerates growth (GDD §9); RAIN accelerates it on top
+  //    (GDD §10, T4). Both are pure multipliers on the per-tick countdown step.
+  //    getWeather() is GLOBAL state, identical on chunked/unchunked scans, so the
+  //    speedup stays chunk-byte-equivalent and deterministic (no Math.random).
+  let dec = waterAdjacent(x, y) ? GROW_WATER_SPEEDUP : 1;
+  if (getWeather() === 'rain') dec *= GROW_RAIN_SPEEDUP;
 
   // 3) Expiry → mature or wither.
   if (g <= dec) {

@@ -26,6 +26,14 @@ import {
   updateSurvivor,
   type Survivor,
 } from '../src/characters/survivor';
+import { __setWeatherForTest } from '../src/engine/weather';
+
+// T4 (GDD §10): warmth depletion is now gated on DYNAMIC weather
+// (isAmbientColdNow). These scenarios model an "open cold" world, so pin the
+// weather to SNOW (temp < COLD_THRESHOLD) to recreate the always-cold regime
+// this suite was written for. Pin once at module scope; updateSurvivor never
+// advances the weather state machine, so the forced cold holds for every run.
+__setWeatherForTest('snow');
 
 function fail(msg: string): never {
   console.log('FAIL:', msg);

@@ -39,6 +39,7 @@ import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
 import { get, set } from '../engine/grid';
 import { FIRE, WATER, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
+import { isAmbientColdNow } from '../engine/weather';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
 import type { RoleName, Tool, ToolKind } from '../game/roles';
@@ -67,7 +68,6 @@ import {
   WARMTH_RESTORE_RATE,
   WARMTH_THRESHOLD,
   FIRE_WARMTH_RADIUS,
-  AMBIENT_COLD,
   EXERTION_RATE_MULT,
   HEAT_THIRST_MULT,
   HUNGER_THRESHOLD,
@@ -1342,7 +1342,9 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   //     faster by walking). W3 wires REAL shelter: a sheltered survivor (under a
   //     WOOD/WALL ROOF, OPEN sides) stops losing warmth and warms back up — and\n  //     can still walk OUT from under the canopy for water/food (open-camp fix).
   const sheltered = isSheltered(body); // GDD §8/§6.1 shelter blocks the cold
-  if (AMBIENT_COLD && !nearWarmth(body) && !sheltered) {
+  // T4 (GDD §10): the cold gate is now DYNAMIC weather (isAmbientColdNow:
+  // WEATHER_ENABLED && temp<COLD_THRESHOLD), replacing the static AMBIENT_COLD.
+  if (isAmbientColdNow() && !nearWarmth(body) && !sheltered) {
     s.needs.warmth = Math.max(0, s.needs.warmth - WARMTH_RATE);
   } else {
     s.needs.warmth = Math.min(NEED_MAX, s.needs.warmth + WARMTH_RESTORE_RATE);
