@@ -874,3 +874,69 @@ export const BLUEPRINT_FILL_WALL  = 'rgba(150,150,160,0.35)';
 // Multiplier applied to the base alpha when a blueprint is reserved. Clamp
 // the resulting alpha to ≤1.0 at draw time.
 export const BLUEPRINT_RESERVED_ALPHA_MULT = 1.6;
+
+// ---------------------------------------------------------------------------
+// Weather & Temperature (GDD §10, Beyond T1) — config seeds
+// Constants consumed by T2–T5; defined here so the full set ships once.
+// ---------------------------------------------------------------------------
+
+// Master switch — set false to disable all weather spawning and state-machine.
+export const WEATHER_ENABLED = true;
+
+// Deterministic RNG seed for the weather state machine (GDD §10). Distinct
+// from SIM_RNG_SEED (0x9e3779b1) and WORLDGEN_SEED (1337) to avoid collisions.
+export const WEATHER_RNG_SEED = 0x00C0FFEE;
+
+// Clear-weather duration bounds (ticks). A random value in [MIN, MAX] is chosen
+// when entering the clear state.
+export const WEATHER_CLEAR_MIN_TICKS = 2400;
+export const WEATHER_CLEAR_MAX_TICKS = 5400;
+
+// Rain-weather duration bounds (ticks).
+export const WEATHER_RAIN_MIN_TICKS = 1200;
+export const WEATHER_RAIN_MAX_TICKS = 3000;
+
+// Snow-weather duration bounds (ticks).
+export const WEATHER_SNOW_MIN_TICKS = 1200;
+export const WEATHER_SNOW_MAX_TICKS = 3000;
+
+// Transition probabilities FROM clear (roll once on clear expiry).
+// To rain: WEATHER_TO_RAIN_CHANCE; to snow: WEATHER_TO_SNOW_CHANCE;
+// else remains clear (1 - rain - snow = 0.2).
+export const WEATHER_TO_RAIN_CHANCE = 0.5;
+export const WEATHER_TO_SNOW_CHANCE = 0.3;
+
+// Per sky-cell per-tick spawn probabilities for precipitation particles.
+export const RAIN_SPAWN_CHANCE = 0.03;
+export const SNOW_SPAWN_CHANCE = 0.02;
+
+// Top row from which weather precipitation is spawned (row 0 = very top).
+export const WEATHER_SKY_ROW = 0;
+
+// Ambient temperature (°C, abstract units) per weather state (GDD §10).
+// COLD_THRESHOLD: ambient temps strictly below this value count as "cold" for
+// the warmth need. Sits between TEMP_RAIN (2) and TEMP_CLEAR (10).
+export const TEMP_CLEAR = 10;
+export const TEMP_RAIN  = 2;
+export const TEMP_SNOW  = -8;
+export const COLD_THRESHOLD = 5;
+
+// Density for SNOW material — lighter than SAND (3) and ASH (2), so
+// snow powder sits above other materials (GDD §5.2 density rule).
+export const DENSITY_SNOW = 2;
+
+// Chance (per tick, per SNOW cell adjacent to heat) that SNOW melts → WATER (T3).
+export const SNOW_MELT_CHANCE = 0.5;
+
+// Sapling growth speed-up multiplier while it is raining (T4).
+// Analogous to GROW_WATER_SPEEDUP but driven by weather state, not adjacency.
+export const GROW_RAIN_SPEEDUP = 2;
+
+// Canvas overlay colours for weather effects (T5 rendering).
+export const WEATHER_SKY_DARKEN_RAIN = 'rgba(20,30,50,0.25)';
+export const WEATHER_SKY_DARKEN_SNOW = 'rgba(40,45,60,0.20)';
+export const RAIN_STREAK_COLOR       = 'rgba(150,180,220,0.5)';
+export const SNOW_FLECK_COLOR        = 'rgba(235,240,255,0.8)';
+
+// Number of rain/snow flecks drawn per frame in the overlay pass (T5).
+export const WEATHER_OVERLAY_DENSITY = 120;

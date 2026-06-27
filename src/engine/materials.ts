@@ -16,6 +16,7 @@ import {
   DENSITY_FLESH,
   DENSITY_BONE,
   DENSITY_BLOOD,
+  DENSITY_SNOW,
   WOOD_INTEGRITY,
   FOLIAGE_INTEGRITY,
   WALL_INTEGRITY,
@@ -59,6 +60,8 @@ export const BLOOD = 13;
 export const WALL = 14;
 // Material ID — plant-a-seed growth (post-MVP backlog, GDD §9; do NOT renumber)
 export const SAPLING = 15;
+// Material IDs — Weather & Temperature (GDD §10, Beyond T1; do NOT renumber)
+export const SNOW = 16;
 
 /**
  * MATERIALS — indexed lookup table of material properties.
@@ -274,6 +277,21 @@ export const MATERIALS: Material[] = [
     hasIntegrity: false,
     baseIntegrity: 0,
   },
+  // SNOW (id=16) — Weather & Temperature (GDD §10, Beyond T1). A light powder
+  // that falls from the sky during snow weather (T2) and melts to WATER near
+  // heat (T3). Lighter than sand/ash so it settles above other materials.
+  // No behaviour in this task — table entry only (behaviour added in T2–T5).
+  {
+    name: 'snow',
+    color: '#ebf0ff', // pale blue-white (rgb ~235,240,255)
+    density: DENSITY_SNOW,
+    isFluid: false,
+    isStatic: false,
+    flammable: false,
+    permeableToBodies: false,
+    hasIntegrity: false,
+    baseIntegrity: 0,
+  },
 ];
 
 /**
@@ -340,3 +358,4 @@ export function isSolidForBody(id: number): boolean {
   if (MATERIALS[id].permeableToBodies) return false; // foliage et al. — walk through
   return !(id === AIR || id === WATER || id === FIRE || id === SMOKE || id === BLOOD);
 }
+
