@@ -52,6 +52,9 @@ import {
 } from '../game/roles';
 import type { ResourceKind } from '../game/resources';
 import { addResource, stockpilePoint } from '../game/resources';
+import type { Blueprint } from '../game/buildqueue';
+import { getBlueprints, blueprintAt, removeBlueprint, reserve, release } from '../game/buildqueue';
+import { placeStructure, canPlace, STRUCTURES } from '../game/building';
 import {
   NEED_MAX,
   WOOD_PER_CHOP,
@@ -135,6 +138,11 @@ export interface Survivor {
   carrying: number;
   carryKind: ResourceKind | null;
   roleState: 'toTarget' | 'working' | 'toStockpile';
+  // Builder claim (BQ-3, GDD §6.2): the queued Blueprint this builder has
+  // reserved and is walking to / working. null = no claim (the builder scans the
+  // queue for the nearest claimable job). Persists across need-overrides so a
+  // builder pulled away to drink resumes the same job on return.
+  buildTarget: Blueprint | null;
   workTarget: { x: number; y: number } | null;
   // Standable cell the role loop walks to to harvest `workTarget` (within reach
   // of it). Acquired together with a REACHABLE target so the miner/forager never
@@ -187,6 +195,7 @@ export function createSurvivor(x: number, y: number): Survivor {
     carrying: 0,
     carryKind: null,
     roleState: 'toTarget',
+    buildTarget: null,
     workTarget: null,
     workStand: null,
     workTicksLeft: 0,
@@ -821,9 +830,15 @@ function driveConsume(s: Survivor): void {
  * On success the role/tool are set and the loop restarts at 'toTarget'.
  */
 export function assignRole(s: Survivor, role: RoleName): boolean {
+  // A reassigned/cleared builder hands its claimed blueprint back to the queue,
+  // else the Blueprint stays reserved=true forever and no builder can re-claim it
+  // (orphaned job). TODO (BQ-4): also release on death/turn, which bypass
+  // assignRole entirely.
+  if (s.buildTarget !== null) release(s.buildTarget);
   if (role === 'none') {
     s.role = 'none';
     s.roleState = 'toTarget';
+    s.buildTarget = null;
     s.workTarget = null;
     s.workStand = null;
     s.workTicksLeft = 0;
@@ -842,6 +857,7 @@ export function assignRole(s: Survivor, role: RoleName): boolean {
   s.role = role;
   s.tool = tool;
   s.roleState = 'toTarget';
+  s.buildTarget = null;
   s.workTarget = null;
   s.workStand = null;
   s.workTicksLeft = 0;
@@ -943,6 +959,16 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
     } else {
       steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
     }
+    return;
+  }
+
+  // Builder (GDD §6.2 / §8, BQ-3): a queue-driven role, NOT a harvest role — it
+  // claims a player blueprint, walks to it, builds it (BUILD_TICKS), then calls
+  // placeStructure() to actualise the cell (atomic stockpile spend). Branch out
+  // before the harvest switch (which only knows lumberjack/forager/miner and
+  // would spin harvesting nothing for a builder).
+  if (role === 'builder') {
+    driveBuilder(s);
     return;
   }
 
@@ -1059,6 +1085,166 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
         return;
       }
       steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
+      return;
+    }
+  }
+}
+
+/**
+ * Nearest REACHABLE, CLAIMABLE blueprint for a builder (BQ-3, GDD §6.2/§8).
+ * The queue is a small overlay list (not a grid), so we scan it directly rather
+ * than ring-by-ring: filter to jobs that are (a) unreserved, (b) still pending
+ * (the cell doesn't already hold the target material), and (c) affordable RIGHT
+ * NOW (canPlace) — a builder never claims a job the colony can't pay for, so it
+ * can't deadlock walking to an unbuildable cell. Then, nearest-first, return the
+ * first job with a standable bank (findStandCell, same footprint as harvesting)
+ * AND a route to it. A* calls are capped at REACH_MAX_PATH_ATTEMPTS like the
+ * harvest scan. Returns null when nothing is claimable/reachable (→ wander).
+ */
+function reachableBlueprint(
+  s: Survivor,
+): { bp: Blueprint; standCell: { x: number; y: number }; path: Path } | null {
+  const bx = Math.round(s.body.x);
+  const by = Math.round(s.body.y);
+  const cands = getBlueprints()
+    .filter(
+      bp =>
+        !bp.reserved &&
+        get(bp.x, bp.y) !== STRUCTURES[bp.kind].material &&
+        canPlace(bp.kind),
+    )
+    .map(bp => ({ bp, d: (bp.x - bx) * (bp.x - bx) + (bp.y - by) * (bp.y - by) }))
+    .sort((a, b) => a.d - b.d);
+  let attempts = 0;
+  for (const { bp } of cands) {
+    const stand = findStandCell(bp.x, bp.y, bx);
+    if (!stand) continue; // no standable bank → can't reach this cell
+    if (attempts >= REACH_MAX_PATH_ATTEMPTS) return null; // give up this scan
+    attempts++;
+    const path = findPath(bx, by, stand.x, stand.y);
+    if (path) return { bp, standCell: stand, path };
+  }
+  return null;
+}
+
+/**
+ * True iff the builder's claimed blueprint is no longer a valid job: it was
+ * cancelled (removed from the queue, so blueprintAt no longer returns THIS
+ * object) or already built (the cell now holds the target material — e.g. the
+ * player painted it, or another builder finished it). Either way the claim is
+ * stale and the builder should drop it and re-scan.
+ */
+function buildTargetStale(bp: Blueprint): boolean {
+  return (
+    blueprintAt(bp.x, bp.y) !== bp || get(bp.x, bp.y) === STRUCTURES[bp.kind].material
+  );
+}
+
+/** Drop the builder's current claim WITHOUT releasing (the job is gone). */
+function clearBuildClaim(s: Survivor): void {
+  s.buildTarget = null;
+  s.workTarget = null;
+  s.workStand = null;
+  s.path = null;
+}
+
+/**
+ * Builder loop (BQ-3, GDD §6.2/§8): the queue-driven sibling of driveRole's
+ * harvest machine. Two states reusing roleState ('toStockpile' is never entered
+ * — a builder spends FROM the stockpile, it doesn't deposit):
+ *
+ *   toTarget → claim the nearest reachable blueprint (reserve it), walk to the
+ *     standable bank beside it, enter 'working' once within reach. The claim
+ *     PERSISTS across need-overrides (drink/eat pull the builder away; it walks
+ *     back to the SAME job), and is dropped only when the job goes stale.
+ *   working → stand still, count down BUILD_TICKS, then placeStructure() to
+ *     actualise the cell (atomic stockpile spend) and removeBlueprint(). Hammer
+ *     wear (useTool) may break the tool → idle. If the spend fails (raced
+ *     unaffordable), release the claim and re-scan WITHOUT spending durability.
+ */
+function driveBuilder(s: Survivor): void {
+  const body = s.body;
+  switch (s.roleState) {
+    case 'toTarget': {
+      if (s.buildTarget === null) {
+        const claim = reachableBlueprint(s);
+        if (claim === null) {
+          driveWander(s); // nothing claimable/reachable → idle drift this tick
+          return;
+        }
+        s.buildTarget = claim.bp;
+        reserve(claim.bp);
+        s.workTarget = { x: claim.bp.x, y: claim.bp.y };
+        s.workStand = claim.standCell;
+        s.path = claim.path;
+        s.waypointIndex = 0;
+      }
+      const bp = s.buildTarget;
+      // Cancelled / built out from under us while walking → drop & re-scan.
+      if (buildTargetStale(bp)) {
+        clearBuildClaim(s);
+        return;
+      }
+      const t = s.workTarget!;
+      if (cellWithinReach(body, t.x, t.y)) {
+        s.roleState = 'working';
+        s.workTicksLeft = ROLES['builder'].workTicks;
+        s.path = null;
+        body.moveDir = 0;
+        return;
+      }
+      const stand = s.workStand;
+      if (stand) {
+        steerToCell(s, stand.x, stand.y, t.x);
+      } else {
+        const side = Math.round(body.x) <= t.x ? -1 : 1;
+        steerToCell(s, t.x + side, t.y, t.x);
+      }
+      return;
+    }
+
+    case 'working': {
+      body.moveDir = 0;
+      const bp = s.buildTarget;
+      const t = s.workTarget;
+      // An override (drinking) pulled us off the job → walk back to the SAME bp.
+      if (bp === null || t === null || !cellWithinReach(body, t.x, t.y)) {
+        s.roleState = 'toTarget';
+        driveBuilder(s);
+        return;
+      }
+      // Job invalidated (cancelled / built) while we worked → drop & re-scan.
+      if (buildTargetStale(bp)) {
+        clearBuildClaim(s);
+        s.roleState = 'toTarget';
+        return;
+      }
+      if (s.workTicksLeft > 0) {
+        s.workTicksLeft--;
+        return;
+      }
+      // Build complete — actualise the blueprint (atomic stockpile spend).
+      if (!placeStructure(bp.x, bp.y, bp.kind)) {
+        // Raced unaffordable (another build/place drained the stockpile since we
+        // claimed): keep the blueprint, hand the claim back, re-scan next tick.
+        // Don't burn hammer durability on a no-op placement.
+        release(bp);
+        clearBuildClaim(s);
+        s.roleState = 'toTarget';
+        return;
+      }
+      removeBlueprint(bp);
+      clearBuildClaim(s);
+      // GDD §6.3: the build consumed one hammer use; the breaking use still did
+      // its work above — then discard the tool and drop to idle.
+      if (useTool(s.tool!)) {
+        console.log('Tool broke: builder hammer — returning to idle');
+        s.tool = null;
+        s.role = 'none';
+        s.roleState = 'toTarget';
+        return;
+      }
+      s.roleState = 'toTarget';
       return;
     }
   }
