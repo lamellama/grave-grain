@@ -58,8 +58,10 @@ const sandDensity = MATERIALS[SAND].density;
 assert(snowMat.density < sandDensity, `SNOW density (${snowMat.density}) < SAND density (${sandDensity})`);
 assert(DENSITY_SNOW < DENSITY_SAND,   `config DENSITY_SNOW (${DENSITY_SNOW}) < DENSITY_SAND (${DENSITY_SAND})`);
 
-// SNOW id should be one past the previous max (SAPLING=15)
-assert(SNOW === MATERIALS.length - 1, 'SNOW is last entry in MATERIALS table (no gaps)');
+// SNOW id should be one past the previous max (SAPLING=15) and within bounds.
+// (No longer the LAST entry: VS-2 added CAMPFIRE at id 17 after it.)
+assert(SNOW === 16, 'SNOW id === 16 (contiguous, one past SAPLING=15)');
+assert(SNOW < MATERIALS.length, 'SNOW id within MATERIALS bounds (CAMPFIRE=17 now follows)');
 
 // ---------------------------------------------------------------------------
 // 2. Config constants — values and types

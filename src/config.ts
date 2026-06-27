@@ -896,6 +896,27 @@ export const WARMTH_COLD_SPAN = 13;
 export const WARMTH_COLD_FACTOR_MIN = 0.4;
 export const WARMTH_COLD_FACTOR_MAX = 2.5;
 
+// Campfire (post-MVP, VS-2 Task T-C, GDD 8/6.1) - a MANAGED contained fire.
+// ---------------------------------------------------------------------------
+// A CAMPFIRE cell is a long-burning HEAT SOURCE (counts toward survivor warmth
+// like FIRE) that, unlike raw spreading FIRE, NEVER spreads to flammable
+// neighbours and NEVER ignites bodies - so it warms a camp without eating your
+// structures (the flee/ignition detectors all key on FIRE only). It burns down
+// over a long fuel life and then leaves ASH.
+
+// Fuel units a fresh campfire starts with, stored in the cell's integrity slot
+// (Uint8 -> must be <= 255, like every baseIntegrity). One unit is consumed per
+// successful burn roll (CAMPFIRE_BURN_CHANCE), so the EXPECTED lifetime is
+// CAMPFIRE_FUEL / CAMPFIRE_BURN_CHANCE ticks (~ 200 / 0.04 = 5000) - far longer
+// than a raw FIRE_LIFETIME (60), the "burns long for warmth" promise.
+export const CAMPFIRE_FUEL = 200;
+
+// Per-tick probability a campfire consumes one fuel unit. Low -> a slow burn.
+// The probabilistic countdown (vs FIRE's -1/tick) lets a Uint8 fuel seed yield a
+// multi-thousand-tick life; it is deterministic per (x,y,tick) via simRand, so
+// chunk byte-equivalence + replay hold.
+export const CAMPFIRE_BURN_CHANCE = 0.04;
+
 // Shelter detection (GDD 8 / 6.1): isSheltered() bounded scan limit.
 // SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
 //   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).

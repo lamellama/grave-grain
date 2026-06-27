@@ -62,6 +62,8 @@ export const WALL = 14;
 export const SAPLING = 15;
 // Material IDs - Weather & Temperature (GDD 10, Beyond T1; do NOT renumber)
 export const SNOW = 16;
+// Material ID - VS-2 campfire (managed contained fire, GDD 8/6.1; do NOT renumber)
+export const CAMPFIRE = 17;
 
 /**
  * MATERIALS - indexed lookup table of material properties.
@@ -287,6 +289,27 @@ export const MATERIALS: Material[] = [
     density: DENSITY_SNOW,
     isFluid: false,
     isStatic: false,
+    flammable: false,
+    permeableToBodies: false,
+    hasIntegrity: false,
+    baseIntegrity: 0,
+  },
+  // CAMPFIRE (id=17) - VS-2 Task T-C: a MANAGED contained fire (GDD 8/6.1).
+  // A long-burning HEAT SOURCE that warms survivors (the warmth detectors count
+  // it) but, unlike raw spreading FIRE (id=8), NEVER spreads and NEVER ignites
+  // bodies - the flee/ignition checks all key on FIRE, so a CAMPFIRE warms a camp
+  // without eating structures. Density DENSITY_FIRE (static-in-place like fire;
+  // its rule never moves it). flammable:false (it doesn't itself catch). No
+  // structural integrity: the integrity slot is REUSED as a fuel countdown
+  // (simulation.updateCampfire), exactly the FIRE-lifetime / SAPLING-growth
+  // trick, so hasIntegrity:false / baseIntegrity:0 (seeded to CAMPFIRE_FUEL on
+  // first visit). A deeper ember-red than fire orange, to read as a hearth.
+  {
+    name: 'campfire',
+    color: '#e0571a', // ember red-orange, distinct from fire #ff7016
+    density: DENSITY_FIRE,
+    isFluid: false,
+    isStatic: false, // pinned by its rule (never moved), NOT the static fast-path
     flammable: false,
     permeableToBodies: false,
     hasIntegrity: false,

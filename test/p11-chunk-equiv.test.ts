@@ -100,6 +100,19 @@ function seedGore(s: Sim): void {
     for (let x = 138; x < 152; x++) grid.set(x, y, mats.BLOOD);
 }
 
+// (e) CAMPFIRE (VS-2 T-C): a managed contained fire next to WOOD. It must burn
+//     (probabilistic fuel countdown via simRand) WITHOUT spreading - and stay
+//     byte-identical chunked vs full (deterministic per x,y,tick + markCellActive
+//     keeps its chunk live every tick, same invariant as FIRE).
+function seedCampfire(s: Sim): void {
+  floor(s);
+  const { grid, mats } = s;
+  for (let x = 140; x < 161; x++) grid.placeMaterial(x, FLOOR_Y - 1, mats.CAMPFIRE);
+  // Flammable WOOD touching the campfires - proves no-spread holds under both modes.
+  for (let y = FLOOR_Y - 4; y < FLOOR_Y - 1; y++)
+    for (let x = 162; x < 168; x++) grid.placeMaterial(x, y, mats.WOOD);
+}
+
 function snapshot(s: Sim): Uint8Array {
   const n = s.grid.material.length;
   const snap = new Uint8Array(n * 2);
@@ -142,6 +155,7 @@ const SCENARIOS: Array<{ name: string; seed: (s: Sim) => void }> = [
   { name: 'WATER column seeks level', seed: seedWater },
   { name: 'FIRE through WOOD → ash+smoke', seed: seedFire },
   { name: 'GORE pile (flesh/bone/blood) settle', seed: seedGore },
+  { name: 'CAMPFIRE burns next to WOOD (no spread)', seed: seedCampfire },
 ];
 
 const W = freshSim().config.WORLD_W;
@@ -166,7 +180,7 @@ for (const { name, seed } of SCENARIOS) {
   else console.log(`FAIL: equivalence: ${name} — DIVERGED (see above)`);
 }
 if (!allEqual) fail('chunked run diverged from full-scan reference');
-ok('EQUIVALENCE BATTERY: all 4 scenarios byte-identical at 50/150/300 (OFF == ON)');
+ok('EQUIVALENCE BATTERY: all 5 scenarios byte-identical at 50/150/300 (OFF == ON)');
 
 // ===========================================================================
 // 2. NO-TUNNEL — nothing falls through the stone floor (checked on chunked run).
@@ -264,7 +278,7 @@ function noTunnel(seed: (s: Sim) => void, mats: number[], label: string): void {
 
 console.log('\nALL PASS');
 console.log(
-  `SUMMARY: equivalence=${allEqual ? 'EQUAL' : 'NOTEQUAL'} (4 scenarios × 3 checkpoints), ` +
+  `SUMMARY: equivalence=${allEqual ? 'EQUAL' : 'NOTEQUAL'} (5 scenarios × 3 checkpoints), ` +
   `no-tunnel=OK, perf settled=0 chunks, locality+reactivation OK`,
 );
 if (typeof process !== 'undefined' && !allEqual) process.exit(1);

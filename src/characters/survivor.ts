@@ -37,7 +37,7 @@ import { layDownCorpse } from './damage';
 import type { Zombie } from './zombie';
 import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
 import { get, set } from '../engine/grid';
-import { FIRE, WATER, SNOW, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
+import { FIRE, CAMPFIRE, WATER, SNOW, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
 import { getWeather, getTemperature } from '../engine/weather';
 import type { Path } from '../game/pathfinding';
@@ -350,22 +350,26 @@ export function isShelteredAt(rx: number, ry: number): boolean {
 }
 
 /**
- * Is a FIRE cell within FIRE_WARMTH_RADIUS of the body anchor? (Task W1, GDD
- * 6.1/10 warmth restored near a heat source.) A WIDER probe than nearFire
- * (which is a tight footprint-adjacency test for thirst-from-heat): warmth is
- * PASSIVE PROXIMITY, and FIRE_WARMTH_RADIUS >= FLEE_FIRE_RADIUS by invariant, so
- * the ring a survivor is pushed back to when fleeing fire still counts as warm.
- * Reuses the bounded ring-scan nearestMaterial probe over the live grid.
+ * Is a heat source (FIRE or CAMPFIRE) within FIRE_WARMTH_RADIUS of the body
+ * anchor? (Task W1 / VS-2 T-C, GDD 6.1/10/8 warmth restored near a heat source.)
+ * A WIDER probe than nearFire (which is a tight footprint-adjacency test for
+ * thirst-from-heat): warmth is PASSIVE PROXIMITY, and FIRE_WARMTH_RADIUS >=
+ * FLEE_FIRE_RADIUS by invariant, so the ring a survivor is pushed back to when
+ * fleeing fire still counts as warm. Counts CAMPFIRE too (VS-2 T-C): a managed
+ * campfire warms without being fled (nearestFire/flee keys on FIRE only), so a
+ * camp huddles by its hearth. Cheap bounded Chebyshev box scan, early-exit.
  */
 function nearWarmth(body: Body): boolean {
-  return (
-    nearestMaterial(
-      Math.round(body.x),
-      Math.round(body.y),
-      FIRE,
-      FIRE_WARMTH_RADIUS,
-    ) !== null
-  );
+  const rx = Math.round(body.x);
+  const ry = Math.round(body.y);
+  const R = FIRE_WARMTH_RADIUS;
+  for (let dy = -R; dy <= R; dy++) {
+    for (let dx = -R; dx <= R; dx++) {
+      const m = get(rx + dx, ry + dy);
+      if (m === FIRE || m === CAMPFIRE) return true;
+    }
+  }
+  return false;
 }
 
 /**

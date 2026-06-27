@@ -44,6 +44,8 @@ import {
   WEATHER_SKY_ROW,
   RAIN_SPAWN_CHANCE,
   SNOW_SPAWN_CHANCE,
+  CAMPFIRE_FUEL,
+  CAMPFIRE_BURN_CHANCE,
 } from '../config';
 import { material, integrity, idx, set, setIntegrity } from './grid';
 import { reactions } from './reactions';
@@ -83,6 +85,7 @@ import {
   FOLIAGE,
   SAPLING,
   SNOW,
+  CAMPFIRE,
   density,
   isStatic,
   isFluid,
@@ -150,6 +153,10 @@ const SALT_FIRE_SPREAD = 100;
 // AND of reactions.ts's SALT_SNOW_MELT (300), so no two rolls at the same
 // (x, y, tick) ever share a stream.
 const SALT_WEATHER_SPAWN = 200;
+// Campfire fuel-burn roll (VS-2 Task T-C): per-tick chance a campfire consumes
+// one fuel unit. 400 is clear of every salt above (1-7, 100-108, 200) and of
+// reactions.ts's SALT_SNOW_MELT (300), so its stream never collides.
+const SALT_CAMPFIRE_BURN = 400;
 
 /**
  * "Moved this tick" guard, one byte per cell (0 = free, 1 = already acted).
@@ -493,6 +500,8 @@ function updateCell(x: number, y: number): void {
     updateSapling(x, y);
   } else if (m === SNOW) {
     updateSnow(x, y);
+  } else if (m === CAMPFIRE) {
+    updateCampfire(x, y);
   }
   // AIR is the empty target; STONE is static - neither has a rule.
 }
@@ -929,6 +938,50 @@ function updateFire(x: number, y: number): void {
   // must keep its OWN chunk active until it expires - otherwise the chunked scan
   // would stop visiting it and it would never burn out (Phase 11). Writing the
   // integrity directly (not via setIntegrity) means we wake the chunk here.
+  markCellActive(x, y);
+}
+
+/**
+ * CAMPFIRE rule (VS-2 Task T-C, GDD 8/6.1): a MANAGED contained fire. Unlike
+ * updateFire it has NO spread step and NEVER ignites anything - so it warms a
+ * camp without eating structures or bodies (the flee/ignition detectors all key
+ * on FIRE, never CAMPFIRE). It is a long-burning HEAT SOURCE that the survivor
+ * warmth probes count, then burns out to ASH.
+ *
+ * FUEL STORAGE: like FIRE/SAPLING, a campfire has no structural integrity, so it
+ * REUSES its `integrity` slot as a fuel countdown. placeMaterial leaves the slot
+ * at 0, so the FIRST visit auto-seeds it to CAMPFIRE_FUEL (the SAPLING pattern).
+ * Thereafter each tick consumes ONE fuel unit with chance CAMPFIRE_BURN_CHANCE
+ * (a probabilistic slow burn - lets a Uint8 fuel seed last thousands of ticks);
+ * at the last unit the cell expires to ASH. Deterministic per (x,y,tick) via
+ * simRand, so chunk byte-equivalence + replay hold. The slot is cleared to 0 on
+ * expiry so no stale fuel leaks into a later structure placed in this cell.
+ *
+ * Like FIRE, a campfire burns in place (it never moves) but changes state every
+ * tick, so it must keep its OWN chunk active until it burns out (Phase 11).
+ */
+function updateCampfire(x: number, y: number): void {
+  const s = idx(x, y);
+  const fuel = integrity[s];
+  // First visit after placement: seed the fuel countdown, then burn from next.
+  if (fuel === 0) {
+    integrity[s] = CAMPFIRE_FUEL;
+    markCellActive(x, y);
+    return;
+  }
+  // Slow burn: consume one fuel unit on a successful roll; expire at the last.
+  if (simRand(x, y, SALT_CAMPFIRE_BURN) < CAMPFIRE_BURN_CHANCE) {
+    if (fuel <= 1) {
+      material[s] = ASH;
+      integrity[s] = 0; // clear reused slot - ASH carries no integrity
+      moved[s] = 1; // claim the cell so the new ASH isn't re-processed now
+      markCellActive(x, y); // CAMPFIRE->ASH is a change -> keep the chunk live
+      return;
+    }
+    integrity[s] = fuel - 1;
+  }
+  // Burns every tick (state machine over its reused slot) -> keep the chunk live
+  // so the chunked scan keeps visiting it until burnout (same as FIRE).
   markCellActive(x, y);
 }
 
