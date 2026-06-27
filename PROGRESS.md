@@ -194,6 +194,8 @@ VS-1 Weather · T2 · expensive · pass · deterministic weather state machine (
 VS-1 Weather · T3 · expensive · pass · sky-spawn (rain→WATER/snow→SNOW) + fire douse/snow-melt; chunk byte-equiv held, rain douses 33×, snow no-tunnel. commit e882fb9.
 VS-1 Weather · T4 · orchestrator direct · pass · wired warmth need + plant growth onto DYNAMIC weather: survivor cold gate AMBIENT_COLD→isAmbientColdNow() (engine/weather), sapling growth gains GROW_RAIN_SPEEDUP under rain (chunk-safe, global state). Refreshed 2 stale always-cold suites (p12-warmth, p12-seekwarmth) to pin SNOW via __setWeatherForTest. tsc strict clean; 9 suites green (weather ×3, p12-warmth/seekwarmth/warmthbar/grow, p11-chunk-equiv, p2-t6); seekwarmth 20/20 stable.
 
+VS-1 Weather · T5 · orchestrator direct · pass · weather/temperature HUD readout (always-on top-right icon·label·N°) + config-driven precipitation overlay (sky-darken wash + rain streaks / drifting snow flecks via RAIN_STREAK_COLOR/SNOW_FLECK_COLOR/WEATHER_OVERLAY_DENSITY/WEATHER_SKY_DARKEN_*). Wall-clock animated, draw-time only (no sim/RNG/grid touch). tsc strict clean; weather-config/p9-ui/main-smoke/p11-chunk-equiv green; vite build OK. commit 7f9efb4. NOTE: resumed after prior cheap_coder stalled — 7 turns / 12 tool uses but 0 disk changes (looping failed edits).
+
 ## Blockers
 
 _(none)_
