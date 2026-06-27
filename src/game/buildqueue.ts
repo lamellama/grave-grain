@@ -1,12 +1,12 @@
 /**
- * game/buildqueue.ts — Global player blueprint queue (BQ-1, GDD §6.2 / §8)
+ * game/buildqueue.ts - Global player blueprint queue (BQ-1, GDD 6.2 / 8)
  *
  * A DOM-free, pure data store: a bounded, deduplicated list of cells the player
- * has marked for construction. Blueprint objects are an OVERLAY only — they
+ * has marked for construction. Blueprint objects are an OVERLAY only - they
  * represent the player's INTENT; no grid cells are written here. The builder
  * role (BQ-3) later calls placeStructure() to actualise each blueprint.
  *
- * MVP scope (GDD §14): data store only. No builder AI, no UI, no rendering,
+ * MVP scope (GDD 14): data store only. No builder AI, no UI, no rendering,
  * no priorities, no multi-step construction.
  *
  * Mirrors the module-level state + exported functions pattern of resources.ts.

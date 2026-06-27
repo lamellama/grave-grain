@@ -1,17 +1,17 @@
 /**
- * engine/navgrid.ts — Coarse navigation grid over mutable terrain (GDD §13).
+ * engine/navgrid.ts - Coarse navigation grid over mutable terrain (GDD 13).
  *
  * Pathfinding on a falling-sand world is the phase's make-or-break: terrain
  * changes constantly, so we can NOT re-plan against the full per-cell grid every
- * tick. GDD §13's prescription is a **coarse navgrid for routing + local
+ * tick. GDD 13's prescription is a **coarse navgrid for routing + local
  * steering**, with **paths invalidated only by LOCAL edits near the path, not
  * globally**. This module is the coarse grid half (the router lives in
- * game/pathfinding.ts); rigged bodies path as points over it (GDD §5.1).
+ * game/pathfinding.ts); rigged bodies path as points over it (GDD 5.1).
  *
- * Each coarse cell covers NAV_CELL×NAV_CELL world cells. A coarse cell is
+ * Each coarse cell covers NAV_CELLxNAV_CELL world cells. A coarse cell is
  * *walkable* iff it contains a **standable surface**: a column where a floor
  * cell (isSolidForBody) has at least BODY_H non-solid (air/water-passable) cells
- * above it — i.e. a body could stand there with headroom. We store the topmost
+ * above it - i.e. a body could stand there with headroom. We store the topmost
  * such floor row (`surfaceY`) so the router can test step-up/drop traversability
  * between neighbours against Phase-3 locomotion limits.
  *
@@ -22,7 +22,7 @@
  * router records the epochs of the cells its path crosses; an edit elsewhere
  * touches different cells, so it can never make a distant path look stale.
  *
- * DOM-free, data-oriented (flat typed arrays — GDD §13, AGENTS §4); no per-cell
+ * DOM-free, data-oriented (flat typed arrays - GDD 13, AGENTS 4); no per-cell
  * objects. Sampled from the live `material` grid.
  */
 
@@ -30,7 +30,7 @@ import { WORLD_W, WORLD_H, NAV_CELL, BODY_H } from '../config';
 import { material, idx } from './grid';
 import { isSolidForBody } from './materials';
 
-// Coarse grid dimensions: one node per NAV_CELL×NAV_CELL block of world cells.
+// Coarse grid dimensions: one node per NAV_CELLxNAV_CELL block of world cells.
 export const NAV_W = Math.ceil(WORLD_W / NAV_CELL);
 export const NAV_H = Math.ceil(WORLD_H / NAV_CELL);
 
@@ -70,7 +70,7 @@ function isStandable(x: number, y: number): boolean {
   if (!isSolidForBody(material[idx(x, y)])) return false; // must be a floor
   for (let h = 1; h <= BODY_H; h++) {
     const ay = y - h;
-    if (ay < 0) break; // open sky above → remaining headroom is clear
+    if (ay < 0) break; // open sky above -> remaining headroom is clear
     if (isSolidForBody(material[idx(x, ay)])) return false; // ceiling too low
   }
   return true;
@@ -107,7 +107,7 @@ function computeCell(cx: number, cy: number): void {
 /**
  * Full resample of the whole navgrid from the live `material` grid. Call once at
  * startup and any time terrain changes wholesale (e.g. worldgen). O(world); not
- * for per-edit use — that's what markTerrainEdit is for. Epochs are left intact
+ * for per-edit use - that's what markTerrainEdit is for. Epochs are left intact
  * (a global rebuild is not a "local edit" and is not meant to flag existing
  * paths stale; callers that rebuild wholesale should re-plan explicitly).
  */
@@ -120,11 +120,11 @@ export function rebuildNavgrid(): void {
 }
 
 /**
- * Notify the navgrid of a single world-cell edit at (x,y) (GDD §13 local
+ * Notify the navgrid of a single world-cell edit at (x,y) (GDD 13 local
  * invalidation). Recomputes ONLY the coarse cells the edit can affect and bumps
  * their epochs. Because a floor's headroom is read from the BODY_H cells ABOVE
  * it (all in the same world column), an edit at row y can change the standability
- * of floors in rows [y, y+BODY_H] of column x — and of no other column. So the
+ * of floors in rows [y, y+BODY_H] of column x - and of no other column. So the
  * affected coarse cells are a short vertical strip in coarse-column floor(x/NAV):
  * from the edit's coarse row down through the coarse row of (y+BODY_H). This is
  * strictly local; an edit far from a path can never bump a path cell's epoch.

@@ -1,12 +1,12 @@
 /**
- * game/state.ts — Win/lose state machine + death watcher (GDD §11, §12.2).
+ * game/state.ts - Win/lose state machine + death watcher (GDD 11, 12.2).
  *
  * Tracks game status (playing / won / lost), the current wave number, how many
  * survivors are alive, and a rolling log of death events. DOM-free; called once
  * per tick from the main loop.
  *
- * WIN  (GDD §11): all WIN_WAVES cleared AND ≥1 survivor still alive.
- * LOSE (GDD §11): every survivor is dead (colony wiped out).
+ * WIN  (GDD 11): all WIN_WAVES cleared AND >=1 survivor still alive.
+ * LOSE (GDD 11): every survivor is dead (colony wiped out).
  * LATCH: once 'won' or 'lost', the status never changes again.
  */
 
@@ -19,7 +19,7 @@ import { WIN_WAVES } from '../config';
 // Public types
 // ---------------------------------------------------------------------------
 
-/** One survivor death (GDD §12.2 — show clear death-cause message). */
+/** One survivor death (GDD 12.2 - show clear death-cause message). */
 export interface DeathEvent {
   cause: string;
   x: number;
@@ -37,8 +37,8 @@ export interface GameState {
 }
 
 // ---------------------------------------------------------------------------
-// Internal tracking — module-level sets keyed on Survivor objects so we can
-// detect the alive→dead and NOT-turned→turned transitions without mutating
+// Internal tracking - module-level sets keyed on Survivor objects so we can
+// detect the alive->dead and NOT-turned->turned transitions without mutating
 // the Survivor. WeakSet so GC'd survivors don't leak memory.
 // ---------------------------------------------------------------------------
 const _prevAlive = new WeakSet<Survivor>();
@@ -69,15 +69,15 @@ export interface UpdateCtx {
 }
 
 /**
- * Advance the game-state machine by one tick (GDD §11, §12.2).
+ * Advance the game-state machine by one tick (GDD 11, 12.2).
  *
- * - LATCHES once 'won'/'lost' — never flips back.
+ * - LATCHES once 'won'/'lost' - never flips back.
  * - Mirrors wave number and alive survivor count.
- * - Death watcher: detects alive→dead transitions and pushes a DeathEvent;
+ * - Death watcher: detects alive->dead transitions and pushes a DeathEvent;
  *   caps the log at the last 8 entries (oldest dropped).
- * - Turn watcher: detects NOT-turned→turned transitions and pushes a DeathEvent
- *   with cause 'bitten — turned'; excludes that survivor from the alive-watcher
- *   so the same body cannot also fire an alive→dead event (GDD §7.2 / §12.2).
+ * - Turn watcher: detects NOT-turned->turned transitions and pushes a DeathEvent
+ *   with cause 'bitten - turned'; excludes that survivor from the alive-watcher
+ *   so the same body cannot also fire an alive->dead event (GDD 7.2 / 12.2).
  * - Win: allWavesCleared(waveState, aliveZombieCount) && survivorsAlive > 0.
  * - Lose: survivors.length > 0 && survivorsAlive === 0.
  */
@@ -90,11 +90,11 @@ export function updateGameState(state: GameState, ctx: UpdateCtx): void {
   // --- Mirror wave number ---
   state.wave = waveState.waveNumber;
 
-  // --- Death / turn watcher (GDD §12.2) ---
+  // --- Death / turn watcher (GDD 12.2) ---
   // Two transitions are tracked:
-  //   (a) Alive→Dead: survivor.body.alive flips false (starvation, thirst, zombie kill …).
-  //   (b) NOT-turned→Turned: survivor.turned flips true (bitten → reanimate, GDD §7.2).
-  // Turned survivors are excluded from the alive-watcher going forward — their Body is
+  //   (a) Alive->Dead: survivor.body.alive flips false (starvation, thirst, zombie kill ...).
+  //   (b) NOT-turned->Turned: survivor.turned flips true (bitten -> reanimate, GDD 7.2).
+  // Turned survivors are excluded from the alive-watcher going forward - their Body is
   // now driven as a zombie and may later be killed, but that is a zombie death, not a
   // colony-member death.
   let lastDeathCause: string | null = null;
@@ -108,13 +108,13 @@ export function updateGameState(state: GameState, ctx: UpdateCtx): void {
   for (const s of survivors) {
     const wasTurned = _prevTurned.has(s);
 
-    // --- Turn-watcher: fires ONCE when survivor.turned flips true (GDD §7.2). ---
+    // --- Turn-watcher: fires ONCE when survivor.turned flips true (GDD 7.2). ---
     if (!wasTurned && s.turned) {
       _prevTurned.add(s);
-      // Remove from alive-watcher — zombie body should not also fire a death event.
+      // Remove from alive-watcher - zombie body should not also fire a death event.
       _prevAlive.delete(s);
       const event: DeathEvent = {
-        cause: 'bitten — turned',
+        cause: 'bitten - turned',
         x: Math.round(s.body.x),
         y: Math.round(s.body.y),
         tick,
@@ -153,23 +153,23 @@ export function updateGameState(state: GameState, ctx: UpdateCtx): void {
   }
 
   // --- Mirror survivors alive ---
-  // A TURNED survivor (its body reanimated as a zombie, GDD §7.2) is NOT a living
+  // A TURNED survivor (its body reanimated as a zombie, GDD 7.2) is NOT a living
   // survivor even though its Body stays alive===true (the zombie controller drives
   // it). So the colony is lost when every survivor is dead OR turned.
   const survivorsAlive = survivors.filter(s => s.body.alive && !s.turned).length;
   state.survivorsAlive = survivorsAlive;
 
-  // --- Lose condition (GDD §11) ---
+  // --- Lose condition (GDD 11) ---
   if (survivors.length > 0 && survivorsAlive === 0) {
     state.status = 'lost';
     const cause = lastDeathCause ?? (state.deathLog.length > 0
       ? state.deathLog[state.deathLog.length - 1].cause
       : 'overrun');
-    state.result = 'Colony lost — ' + cause;
+    state.result = 'Colony lost - ' + cause;
     return;
   }
 
-  // --- Win condition (GDD §11) ---
+  // --- Win condition (GDD 11) ---
   if (allWavesCleared(waveState, aliveZombieCount) && survivorsAlive > 0) {
     state.status = 'won';
     state.result = 'Survived ' + WIN_WAVES + ' waves';

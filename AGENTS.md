@@ -19,6 +19,7 @@ Gravegrain is a browser falling-sand survival game: a Lemmings-style colony of p
 5. **All magic numbers go in `config.ts`.** Gravity, fire spread, hunger rate, wave size, integrity — one file, so balancing is a one-file job.
 6. **Mobile is a first-class target.** Input is **pointer-first** (one path for mouse + touch); the camera exists from Phase 0 (world is wider than the screen — GDD §12.1). Test against a mid-range phone budget (GDD §12.4, §13).
 7. **A task isn't done until its *Done when* passes.** Run it, report the result. No green check on a claim alone.
+8. **Source files stay ASCII-only.** Code files under `src/` (comments included) must contain **no non-ASCII characters** — no section glyphs, em/en dashes, curly quotes, arrows, or math symbols (use `-`, `"`, `->`, `<=`, etc.; where a glyph must reach the runtime, use a `\u` escape such as `'\u2600'`). These chars are visual look-alikes of ASCII: a coder building an exact-match `Edit` anchor types the ASCII version, the match fails, and the agent loops forever on failed edits with **zero disk writes** (the classic "editing... forever" hang that stalled VS-2 T-A). The prose docs (`PLAN.md`, `GraveGrain_GDD.md`, `PROGRESS.md`) may keep their typography — this rule is for `src/` only. To check (BusyBox-safe): `LC_ALL=C grep -rc '[^ -~\t]' src` must report 0 on every file.
 
 ---
 
@@ -79,6 +80,13 @@ Gravegrain is a browser falling-sand survival game: a Lemmings-style colony of p
 The orchestrator is expected to run **unattended**: kick off a phase and keep going through the build without a human in the loop. To do that safely it tracks state in `PROGRESS.md` and follows a fixed escalation ladder so it never spins forever.
 
 **Per-task attempt tracking.** Every task carries an attempt counter in `PROGRESS.md`: `task-id · route · attempt N/2 · pass|fail`. The orchestrator increments it on each coder return and persists it before moving on, so a restart resumes mid-task instead of redoing work.
+
+**Timeout & loop detection (per attempt).** The escalation ladder catches a coder that *fails*; this catches one that *never returns* — spinning in a loop, re-reading the same files, or oscillating edits without converging. Every coder spawn carries a hard cap; if it trips, the orchestrator **stops the runaway coder** (don't wait for it to finish) and records the attempt as a **timed-out fail** (it counts as a strike on the ladder above).
+
+- **Hard cap per attempt:** set `max_turns` in each coder's frontmatter as the backstop (suggested: `40` for `cheap_coder`, `60` for `expensive_coder` — tune to your tasks). This bounds a single attempt mechanically even if the orchestrator isn't watching.
+- **Wall-clock cap:** if your runner exposes it, also bound an attempt to a sane wall-clock budget (suggested: ~15 min). A coder past the cap is presumed stuck.
+- **Before re-spawning, check it actually looped** — don't burn a strike on a coder that was merely slow but making progress. Loop signs: the same tool call / file edit repeated with no new result, re-reading files it already read, edits that revert each other, the same failing command run again and again, or a growing turn count with no diff progress. If you see these, **stop it and treat the attempt as failed**; if it was genuinely progressing (new edits, advancing toward the *Done when*), let it finish or re-spawn once with a tighter brief.
+- **A timed-out attempt feeds the ladder, it doesn't bypass it:** a stuck `cheap_coder` that trips the cap twice auto-escalates to `expensive_coder`; a stuck `expensive_coder` that trips twice is a **HARD STOP** — write a `BLOCKED:` entry noting the loop (task id, what it kept repeating) and pause for human review. Re-spawning a looping coder unchanged just reproduces the loop.
 
 **The escalation ladder (per task):**
 1. Spawn the **recommended coder** (per routing policy — usually `cheap_coder` for peripheral work).

@@ -1,18 +1,18 @@
 /**
- * game/lod.ts — Body Level-of-Detail throttle (task 11-3, GDD §13 "LOD for
+ * game/lod.ts - Body Level-of-Detail throttle (task 11-3, GDD 13 "LOD for
  * distant/idle bodies").
  *
  * A body that is BOTH far off-screen AND idle is doing nothing the player can
  * see, so its controller (updateSurvivor / updateZombie) runs only every
  * BODY_LOD_THROTTLE-th tick instead of every tick. The body simply doesn't move
- * on the skipped ticks — invisible and cheap for a distant idler.
+ * on the skipped ticks - invisible and cheap for a distant idler.
  *
- * This is a GATE on WHEN the controller runs — it never rewrites locomotion. A
+ * This is a GATE on WHEN the controller runs - it never rewrites locomotion. A
  * body is NEVER throttled when it is any of:
  *   - on-screen (or within BODY_LOD_OFFSCREEN_MARGIN of the visible window),
- *   - mid-fall (not grounded) — so no body freezes in mid-air / tunnels,
+ *   - mid-fall (not grounded) - so no body freezes in mid-air / tunnels,
  *   - pursuing/attacking (zombie state 'attack'),
- *   - self-preserving (survivor behaviour ≠ 'wander', or it has a role job),
+ *   - self-preserving (survivor behaviour != 'wander', or it has a role job),
  *   - being attacked (an opposing alive body is within melee adjacency).
  * Those update every tick: no missed combat, no missed fall, no missed
  * needs-death for anything the player could possibly be watching.
@@ -70,7 +70,7 @@ export function isFar(x: number, y: number, win: LodWindow): boolean {
 
 /**
  * Idle = the controller is doing nothing reactive. A survivor is idle only when
- * it is plain wandering (behaviour 'wander') AND has no role job — anything
+ * it is plain wandering (behaviour 'wander') AND has no role job - anything
  * seeking water/food, fleeing fire, consuming, or working a role is NOT idle.
  */
 export function survivorIsIdle(s: Survivor): boolean {

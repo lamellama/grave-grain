@@ -1,6 +1,6 @@
 /**
- * engine/grid.ts — Data-oriented cell storage
- * Cells live in flat typed arrays for performance (GDD §13, AGENTS §4).
+ * engine/grid.ts - Data-oriented cell storage
+ * Cells live in flat typed arrays for performance (GDD 13, AGENTS 4).
  * One Uint8Array for material, one for integrity (unused until Phase 2).
  */
 

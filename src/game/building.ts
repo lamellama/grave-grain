@@ -1,19 +1,19 @@
 /**
- * game/building.ts — Direct placement from stockpile (GDD §8, §15-Q4).
+ * game/building.ts - Direct placement from stockpile (GDD 8, 15-Q4).
  *
  * Pure, DOM-free module: places ONE structure cell, atomically spending the
  * colony stockpile and notifying the navgrid. There is no build queue, no
- * blueprint, and no survivor construction (MVP scope, GDD §14) — the player
- * paints directly, and §15-Q4 "resolves toward scarcity": every placed cell
+ * blueprint, and no survivor construction (MVP scope, GDD 14) - the player
+ * paints directly, and 15-Q4 "resolves toward scarcity": every placed cell
  * draws from gathered materials and decrements the stockpile.
  *
- * GDD §8 structures: Fence = WOOD (cheap, flammable, low integrity) is the
+ * GDD 8 structures: Fence = WOOD (cheap, flammable, low integrity) is the
  * disposable line; Wall = STONE (high integrity, WALL_INTEGRITY) is "the real
  * barrier". Raw-material painting is a SEPARATE free tool and is not handled
- * here — this module only ever spends and only ever places fence/wall.
+ * here - this module only ever spends and only ever places fence/wall.
  *
  * Ordering is correctness-critical (the make-or-break of this task):
- *   spend (atomic) → placeMaterial → markTerrainEdit.
+ *   spend (atomic) -> placeMaterial -> markTerrainEdit.
  * Spending before writing means we can never place without paying; writing the
  * grid before marking the navgrid means pathing/breaching always see the new
  * solid the moment it exists. Reversing either step breaks scarcity or pathing.
@@ -27,7 +27,7 @@ import { WOOD, WALL } from '../engine/materials';
 import { FENCE_COST, WALL_COST } from '../config';
 
 // ---------------------------------------------------------------------------
-// Structure table (GDD §8)
+// Structure table (GDD 8)
 // ---------------------------------------------------------------------------
 export type StructureKind = 'fence' | 'wall';
 
@@ -53,9 +53,9 @@ export function canPlace(kind: StructureKind): boolean {
  * Place ONE structure cell at (x,y), spending the stockpile atomically and
  * notifying the navgrid. Returns true iff a cell was placed (and paid for).
  *
- * Single cell only — the toolbar drag (task 8-3) calls this per cell; there is
- * no disc brush here. Strict order (see file header): bounds → no-op repaint
- * guard → atomic spend → grid write → navgrid mark.
+ * Single cell only - the toolbar drag (task 8-3) calls this per cell; there is
+ * no disc brush here. Strict order (see file header): bounds -> no-op repaint
+ * guard -> atomic spend -> grid write -> navgrid mark.
  */
 export function placeStructure(x: number, y: number, kind: StructureKind): boolean {
   // 1. Bounds: never spend on an off-world cell.
@@ -64,7 +64,7 @@ export function placeStructure(x: number, y: number, kind: StructureKind): boole
   const { material, cost } = STRUCTURES[kind];
 
   // 2. Nicety: if the cell ALREADY holds this structure's material, do nothing
-  //    and charge nothing — don't double-pay to repaint an identical cell.
+  //    and charge nothing - don't double-pay to repaint an identical cell.
   if (get(x, y) === material) return false;
 
   // 3. Atomic spend: bails (spending nothing) if unaffordable. Must precede the

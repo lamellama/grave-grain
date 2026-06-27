@@ -1,6 +1,6 @@
 /**
- * engine/materials.ts — Material definitions and properties
- * Data-oriented material table indexed by id (GDD §5.2, AGENTS §4).
+ * engine/materials.ts - Material definitions and properties
+ * Data-oriented material table indexed by id (GDD 5.2, AGENTS 4).
  * Designed to extend into Phase 2+ without rewrite.
  */
 
@@ -23,14 +23,14 @@ import {
 } from '../config';
 
 /**
- * Material type definition — strict shape for all material rows.
+ * Material type definition - strict shape for all material rows.
  * Phase 2+ adds more properties; this is the MVP minimal set that supports
  * falling sand, water flow, fire spread, and zombie breaching.
  */
 export interface Material {
   name: string;
   color: string; // hex color for rendering
-  density: number; // 0–255; heavier displaces lighter; 255=immovable static
+  density: number; // 0-255; heavier displaces lighter; 255=immovable static
   isFluid: boolean; // true for water/liquids (spreads horizontally)
   isStatic: boolean; // true for stone (density=255, doesn't move)
   flammable: boolean; // true if fire can spread to/from this material
@@ -39,12 +39,12 @@ export interface Material {
   baseIntegrity: number; // starting integrity value (Phase 2+)
 }
 
-// Material IDs — Phase 1 (GDD §5.2, PLAN §14)
+// Material IDs - Phase 1 (GDD 5.2, PLAN 14)
 export const AIR = 0;
 export const SAND = 1;
 export const STONE = 2;
 export const WATER = 3;
-// Material IDs — Phase 2 additions (do NOT renumber above)
+// Material IDs - Phase 2 additions (do NOT renumber above)
 export const DIRT = 4;
 export const ORE = 5;
 export const WOOD = 6;
@@ -52,21 +52,21 @@ export const FOLIAGE = 7;
 export const FIRE = 8;
 export const SMOKE = 9;   // doubles as steam
 export const ASH = 10;
-// Material IDs — Phase 4 body matter (GDD §5.2; do NOT renumber above)
+// Material IDs - Phase 4 body matter (GDD 5.2; do NOT renumber above)
 export const FLESH = 11;
 export const BONE = 12;
 export const BLOOD = 13;
-// Material IDs — Phase 8 player building (GDD §8; do NOT renumber above)
+// Material IDs - Phase 8 player building (GDD 8; do NOT renumber above)
 export const WALL = 14;
-// Material ID — plant-a-seed growth (post-MVP backlog, GDD §9; do NOT renumber)
+// Material ID - plant-a-seed growth (post-MVP backlog, GDD 9; do NOT renumber)
 export const SAPLING = 15;
-// Material IDs — Weather & Temperature (GDD §10, Beyond T1; do NOT renumber)
+// Material IDs - Weather & Temperature (GDD 10, Beyond T1; do NOT renumber)
 export const SNOW = 16;
 
 /**
- * MATERIALS — indexed lookup table of material properties.
- * Access: MATERIALS[SAND].name → "sand"
- * Indexed by material id to allow `MATERIALS[gridCell]` queries (GDD §5.2).
+ * MATERIALS - indexed lookup table of material properties.
+ * Access: MATERIALS[SAND].name -> "sand"
+ * Indexed by material id to allow `MATERIALS[gridCell]` queries (GDD 5.2).
  * Phase 2+ extends this with DIRT, ORE, WOOD, FOLIAGE, FIRE, etc.
  */
 export const MATERIALS: Material[] = [
@@ -178,7 +178,7 @@ export const MATERIALS: Material[] = [
     hasIntegrity: false,
     baseIntegrity: 0,
   },
-  // SMOKE (id=9) — doubles as steam
+  // SMOKE (id=9) - doubles as steam
   {
     name: 'smoke',
     color: '#9a9a9a', // light grey
@@ -202,9 +202,9 @@ export const MATERIALS: Material[] = [
     hasIntegrity: false,
     baseIntegrity: 0,
   },
-  // FLESH (id=11) — body matter: flammable, bleeds when damaged (GDD §5.2).
-  // A live body pixel and the cell it sheds share this colour & resolution —
-  // that match is the load-bearing illusion (GDD §14 gate point 5).
+  // FLESH (id=11) - body matter: flammable, bleeds when damaged (GDD 5.2).
+  // A live body pixel and the cell it sheds share this colour & resolution -
+  // that match is the load-bearing illusion (GDD 14 gate point 5).
   {
     name: 'flesh',
     color: '#b5503f', // red-meat
@@ -216,7 +216,7 @@ export const MATERIALS: Material[] = [
     hasIntegrity: false,
     baseIntegrity: 0,
   },
-  // BONE (id=12) — body matter: rigid, harder to destroy than flesh (GDD §5.2).
+  // BONE (id=12) - body matter: rigid, harder to destroy than flesh (GDD 5.2).
   {
     name: 'bone',
     color: '#e8e0cf', // off-white
@@ -228,7 +228,7 @@ export const MATERIALS: Material[] = [
     hasIntegrity: false,
     baseIntegrity: 0,
   },
-  // BLOOD (id=13) — body matter: thin fluid, stains, DOUSES NOTHING (GDD §5.2).
+  // BLOOD (id=13) - body matter: thin fluid, stains, DOUSES NOTHING (GDD 5.2).
   {
     name: 'blood',
     color: '#7a1414', // dark red
@@ -240,9 +240,9 @@ export const MATERIALS: Material[] = [
     hasIntegrity: false,
     baseIntegrity: 0,
   },
-  // WALL (id=14) — player-placed STONE wall: "the real barrier" (GDD §8).
-  // hasIntegrity:true with a HIGH baseIntegrity so breaching (§7.4) chips it
-  // slowly, unlike raw STONE (id=2, hasIntegrity:false → never breached) and
+  // WALL (id=14) - player-placed STONE wall: "the real barrier" (GDD 8).
+  // hasIntegrity:true with a HIGH baseIntegrity so breaching (7.4) chips it
+  // slowly, unlike raw STONE (id=2, hasIntegrity:false -> never breached) and
   // unlike the cheap, flammable WOOD fence. A bluer/lighter grey distinguishes
   // it from raw stone (#6b6b6b) on screen.
   {
@@ -256,14 +256,14 @@ export const MATERIALS: Material[] = [
     hasIntegrity: true,
     baseIntegrity: WALL_INTEGRITY,
   },
-  // SAPLING (id=15) — a planted seed that grows UPWARD into FOLIAGE over time
-  // (post-MVP backlog, GDD §9: "plants grow over time on suitable soil; water
+  // SAPLING (id=15) - a planted seed that grows UPWARD into FOLIAGE over time
+  // (post-MVP backlog, GDD 9: "plants grow over time on suitable soil; water
   // accelerates growth"). It does NOT fall like a powder and is NOT a static
   // structure: it stays pinned in place and matures via the growth rule
   // (simulation.updateSapling), which reuses the integrity slot as a growth
   // countdown. A young yellow-green sprout colour, distinct from grown FOLIAGE's
   // deeper green (#3a7a2a). permeableToBodies so survivors/zombies walk straight
-  // through it like foliage (isSolidForBody → false). flammable (a sapling can
+  // through it like foliage (isSolidForBody -> false). flammable (a sapling can
   // burn). No structural integrity: the integrity slot is the growth timer, not
   // a breach value, so hasIntegrity:false / baseIntegrity:0.
   {
@@ -273,14 +273,14 @@ export const MATERIALS: Material[] = [
     isFluid: false,
     isStatic: false, // pinned by the growth rule, NOT by the static fast-path
     flammable: true,
-    permeableToBodies: true, // walk through like foliage (GDD §5.2 / §9)
+    permeableToBodies: true, // walk through like foliage (GDD 5.2 / 9)
     hasIntegrity: false,
     baseIntegrity: 0,
   },
-  // SNOW (id=16) — Weather & Temperature (GDD §10, Beyond T1). A light powder
+  // SNOW (id=16) - Weather & Temperature (GDD 10, Beyond T1). A light powder
   // that falls from the sky during snow weather (T2) and melts to WATER near
   // heat (T3). Lighter than sand/ash so it settles above other materials.
-  // No behaviour in this task — table entry only (behaviour added in T2–T5).
+  // No behaviour in this task - table entry only (behaviour added in T2-T5).
   {
     name: 'snow',
     color: '#ebf0ff', // pale blue-white (rgb ~235,240,255)
@@ -328,7 +328,7 @@ export function isStatic(id: number): boolean {
 }
 
 /**
- * Helper: is a material flammable? (fire can spread to/from it — WOOD/FOLIAGE)
+ * Helper: is a material flammable? (fire can spread to/from it - WOOD/FOLIAGE)
  * Safe out-of-range: returns false.
  */
 export function isFlammable(id: number): boolean {
@@ -339,23 +339,23 @@ export function isFlammable(id: number): boolean {
 }
 
 /**
- * Helper: does a material BLOCK a living body? (locomotion collision — GDD §5.1)
+ * Helper: does a material BLOCK a living body? (locomotion collision - GDD 5.1)
  * Solid for everything EXCEPT the cells a body passes/falls through: AIR, WATER,
  * FIRE, SMOKE, BLOOD, plus any material flagged `permeableToBodies`.
  *
- * GDD §5.2 / §9: FOLIAGE is the one solid material bodies IGNORE for collision —
+ * GDD 5.2 / 9: FOLIAGE is the one solid material bodies IGNORE for collision -
  * survivors and zombies walk straight through woodland (foliage still blocks
  * fluids and acts as fire fuel; harvest is by reach/adjacency, not overlap).
  * That is expressed by its `permeableToBodies` flag, so we honour it here rather
  * than hard-coding FOLIAGE: SAND/STONE/DIRT/ORE/WOOD/ASH/FLESH/BONE stay solid.
- * Out-of-range ids are treated as solid (fail safe — never tunnel).
+ * Out-of-range ids are treated as solid (fail safe - never tunnel).
  *
  * BLOOD (Phase 4) joins the non-solid set: it is a thin fluid, so a body must
  * not stand on a blood smear (loose FLESH/BONE piles still bury & support).
  */
 export function isSolidForBody(id: number): boolean {
-  if (id < 0 || id >= MATERIALS.length) return true; // out-of-range → solid (fail safe)
-  if (MATERIALS[id].permeableToBodies) return false; // foliage et al. — walk through
+  if (id < 0 || id >= MATERIALS.length) return true; // out-of-range -> solid (fail safe)
+  if (MATERIALS[id].permeableToBodies) return false; // foliage et al. - walk through
   return !(id === AIR || id === WATER || id === FIRE || id === SMOKE || id === BLOOD);
 }
 

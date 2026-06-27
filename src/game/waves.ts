@@ -1,5 +1,5 @@
 /**
- * game/waves.ts — Escalating zombie wave spawner (GDD §7.1).
+ * game/waves.ts - Escalating zombie wave spawner (GDD 7.1).
  *
  * Pure logic: no DOM, no renderer, no live-list references. Returns newly-spawned
  * Zombie objects; the caller (main) appends them to its live list and registers
@@ -8,7 +8,7 @@
  * DESIGN
  * ------
  * Waves are numbered from 1. Wave N sends
- *   WAVE_SIZE_START + WAVE_SIZE_GROWTH × (N − 1)
+ *   WAVE_SIZE_START + WAVE_SIZE_GROWTH x (N - 1)
  * zombies total, staggered one-at-a-time with ZOMBIE_SPAWN_STAGGER ticks between
  * each spawn so the horde trickles onto the map rather than appearing as a block.
  * While the live count is at MAX_ZOMBIES the spawner defers (doesn't consume
@@ -16,7 +16,7 @@
  *
  * INITIAL DELAY
  * -------------
- * `createWaveState` seeds `ticksToNextWave = WAVE_INTERVAL` — the player gets
+ * `createWaveState` seeds `ticksToNextWave = WAVE_INTERVAL` - the player gets
  * a full WAVE_INTERVAL ticks (20 s at SIM_HZ 60) before the first wave lands,
  * giving them time to orient and set up defences. Change to a shorter constant
  * here if an earlier first wave is wanted during play-testing.
@@ -41,12 +41,12 @@ import {
 } from '../config';
 
 // How far in from the map edge zombies spawn, so the whole ~6-wide body is
-// in-world (not clipped half off-screen) — playtest fix.
+// in-world (not clipped half off-screen) - playtest fix.
 const ZOMBIE_SPAWN_INSET = 4;
 
 // Find the surface row (topmost body-solid cell) of a column so zombies spawn ON
 // the rolling worldgen surface instead of a FIXED y that can bury them in a hill
-// (a buried head pins the body → it can't move — playtest: zombies stuck at edge).
+// (a buried head pins the body -> it can't move - playtest: zombies stuck at edge).
 function columnSurfaceY(x: number): number {
   for (let y = 0; y < WORLD_H; y++) {
     if (isSolidForBody(material[idx(x, y)])) return y;
@@ -94,7 +94,7 @@ export function createWaveState(): WaveState {
  * single-element array; theoretically never more than one per tick due to
  * staggering).
  *
- * @param state            WaveState — mutated in place.
+ * @param state            WaveState - mutated in place.
  * @param aliveZombieCount Total living zombies on the map RIGHT NOW. The caller
  *                         computes this (e.g. `zombies.filter(z => z.body.alive).length`)
  *                         so this module never holds a reference to the live list.
@@ -140,8 +140,8 @@ export function updateWaves(state: WaveState, aliveZombieCount: number): Zombie[
         // Arm the stagger timer for the next zombie in this wave.
         state.ticksToNextSpawn = ZOMBIE_SPAWN_STAGGER;
       }
-      // Cap reached: ticksToNextSpawn stays ≤ 0 so we retry on the very next
-      // tick. pendingThisWave is NOT decremented — the zombie is deferred, not
+      // Cap reached: ticksToNextSpawn stays <= 0 so we retry on the very next
+      // tick. pendingThisWave is NOT decremented - the zombie is deferred, not
       // dropped. Once aliveZombieCount falls below MAX_ZOMBIES the spawner
       // immediately resumes.
     }
@@ -153,7 +153,7 @@ export function updateWaves(state: WaveState, aliveZombieCount: number): Zombie[
 /**
  * Returns true once every wave has been launched AND all spawned zombies have
  * been killed. The caller (state.ts / game loop) uses this to trigger the win
- * screen. This function does NOT own the win — it only exposes the signal.
+ * screen. This function does NOT own the win - it only exposes the signal.
  *
  * Conditions:
  *  - waveNumber has reached WIN_WAVES (all waves launched).

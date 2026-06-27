@@ -1,22 +1,22 @@
 /**
- * game/roles.ts — Role definitions, wood-tier tools & tool-gated assignment
- * (GDD §6.2 roles, §6.3 tools/crafting/durability, §9 foliage harvest).
+ * game/roles.ts - Role definitions, wood-tier tools & tool-gated assignment
+ * (GDD 6.2 roles, 6.3 tools/crafting/durability, 9 foliage harvest).
  *
  * Pure & DOM-free: this layer describes WHAT each role harvests and the gating
- * rules for assigning it; the per-survivor behaviour loop (find → path → work →
+ * rules for assigning it; the per-survivor behaviour loop (find -> path -> work ->
  * deposit) lives in the survivor controller (p6-t4). It reads the live grid for
  * target queries (mirroring survivor.ts' bounded ring-scan) and the global
  * stockpile for craft gating, so it stays headless-testable.
  *
- * MVP scope (GDD §6.2/§14): the four roles Miner / Lumberjack / Forager / Guard
- * at the WOOD tool tier only — no iron/stone tiers, no upgrade path, no
+ * MVP scope (GDD 6.2/14): the four roles Miner / Lumberjack / Forager / Guard
+ * at the WOOD tool tier only - no iron/stone tiers, no upgrade path, no
  * workstation. Diggers / Fisherman / Builder-Hauler are vertical-slice.
  *
- * Material distinction (GDD §9, §5.2): TREES and BUSHES in the world are FOLIAGE
- * (now permeable to bodies). A lumberjack CHOPS foliage → wood; a forager
- * GATHERS the same foliage → food — same material, different action/output/
+ * Material distinction (GDD 9, 5.2): TREES and BUSHES in the world are FOLIAGE
+ * (now permeable to bodies). A lumberjack CHOPS foliage -> wood; a forager
+ * GATHERS the same foliage -> food - same material, different action/output/
  * timing. WOOD (id 6) is a placed STRUCTURE and is NEVER a harvest target. The
- * miner targets EXPOSED stone/ore (a rock cell with an AIR face) — you cannot
+ * miner targets EXPOSED stone/ore (a rock cell with an AIR face) - you cannot
  * mine fully-buried rock.
  */
 
@@ -43,31 +43,31 @@ import {
 // Types
 // ---------------------------------------------------------------------------
 
-/** MVP roles (GDD §6.2 subset); 'none' is the unassigned default. */
+/** MVP roles (GDD 6.2 subset); 'none' is the unassigned default. */
 export type RoleName = 'none' | 'miner' | 'lumberjack' | 'forager' | 'guard' | 'builder';
 
 // ---------------------------------------------------------------------------
-// Role tints (GDD §12 UX readability, task 11-5 — render-only)
+// Role tints (GDD 12 UX readability, task 11-5 - render-only)
 // ---------------------------------------------------------------------------
 
 /**
  * Per-role RGB tint colour. At draw time each body pixel is blended toward its
  * role's tint by ROLE_TINT_MIX so roles are visually distinct. 'none' carries a
- * sentinel (black) — tintForRole returns rgb UNCHANGED for 'none'.
+ * sentinel (black) - tintForRole returns rgb UNCHANGED for 'none'.
  */
 export const ROLE_TINT: Record<RoleName, [number, number, number]> = {
-  none:       [  0,   0,   0], // sentinel — tintForRole returns rgb unchanged
+  none:       [  0,   0,   0], // sentinel - tintForRole returns rgb unchanged
   miner:      [110, 120, 135], // slate-grey
   lumberjack: [150,  90,  40], // brown / orange
   forager:    [ 60, 140,  60], // forest green
   guard:      [ 70, 110, 170], // steel-blue
-  builder:    BUILDER_TINT,    // amber/tan (GDD §6.2 builder role)
+  builder:    BUILDER_TINT,    // amber/tan (GDD 6.2 builder role)
 };
 
 /**
  * Blend `rgb` toward the role's tint by ROLE_TINT_MIX (render-only helper).
  * 'none' returns `rgb` unchanged (no tint).
- * Pure — no side-effects, no globals mutated — so it is safe to call per-pixel.
+ * Pure - no side-effects, no globals mutated - so it is safe to call per-pixel.
  */
 export function tintForRole(
   rgb: [number, number, number],
@@ -83,7 +83,7 @@ export function tintForRole(
   ];
 }
 
-/** Wood-tier tool kinds. Weapons are tools too (GDD §6.3). */
+/** Wood-tier tool kinds. Weapons are tools too (GDD 6.3). */
 export type ToolKind = 'pickaxe' | 'axe' | 'basket' | 'weapon' | 'hammer';
 
 /** A held tool: a kind plus remaining durability (counts down to break). */
@@ -93,8 +93,8 @@ export interface Tool {
 }
 
 /**
- * Static role descriptor (GDD §6.2). `harvestMaterial`/`output` are null for the
- * miner (decided at harvest by the cell — STONE→stone, ORE→ore) and the guard
+ * Static role descriptor (GDD 6.2). `harvestMaterial`/`output` are null for the
+ * miner (decided at harvest by the cell - STONE->stone, ORE->ore) and the guard
  * (no harvest). `craftCost` is what the colony spends to auto-craft the required
  * wood-tier tool.
  */
@@ -107,7 +107,7 @@ export interface RoleDef {
 }
 
 // ---------------------------------------------------------------------------
-// Tools (GDD §6.3 — durability, wood is brittle)
+// Tools (GDD 6.3 - durability, wood is brittle)
 // ---------------------------------------------------------------------------
 
 /** Fresh tool of the given kind at full wood-tier durability. */
@@ -119,7 +119,7 @@ export function makeTool(kind: ToolKind): Tool {
 
 /**
  * Spend one use of a tool. Decrements durability by 1 and returns true if this
- * use JUST broke it (durability reached ≤ 0) — the caller then discards it.
+ * use JUST broke it (durability reached <= 0) - the caller then discards it.
  */
 export function useTool(tool: Tool): boolean {
   tool.durability -= 1;
@@ -127,7 +127,7 @@ export function useTool(tool: Tool): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Role table (GDD §6.2)
+// Role table (GDD 6.2)
 // ---------------------------------------------------------------------------
 
 export const ROLES: Record<RoleName, RoleDef> = {
@@ -146,7 +146,7 @@ export const ROLES: Record<RoleName, RoleDef> = {
     workTicks: 0,
     craftCost: {},
   },
-  // Fells trees: walks THROUGH foliage and chops it to wood (GDD §9).
+  // Fells trees: walks THROUGH foliage and chops it to wood (GDD 9).
   lumberjack: {
     requiredTool: 'axe',
     output: 'wood',
@@ -154,7 +154,7 @@ export const ROLES: Record<RoleName, RoleDef> = {
     workTicks: CHOP_TICKS,
     craftCost: { wood: AXE_WOOD_COST },
   },
-  // Gathers from bushes: same FOLIAGE material, but yields food (GDD §9).
+  // Gathers from bushes: same FOLIAGE material, but yields food (GDD 9).
   forager: {
     requiredTool: 'basket',
     output: 'food',
@@ -181,14 +181,14 @@ export const ROLES: Record<RoleName, RoleDef> = {
 };
 
 // ---------------------------------------------------------------------------
-// Target queries over the live grid (GDD §6.2 findTarget — mirrors the bounded
+// Target queries over the live grid (GDD 6.2 findTarget - mirrors the bounded
 // ring-scan in survivor.ts; reads the world directly so targets track edits).
 // ---------------------------------------------------------------------------
 
 /**
  * Nearest cell of material `mat` within `maxR` (Chebyshev) of (cx, cy), or null.
  * Scans ring by ring outward (closest ring first) and returns the Euclidean-
- * closest hit in the FIRST ring that contains one — cheap, early-exiting probe.
+ * closest hit in the FIRST ring that contains one - cheap, early-exiting probe.
  * Mirrors survivor.ts' nearestMaterial.
  */
 function nearestMaterial(
@@ -221,7 +221,7 @@ function nearestMaterial(
 
 /**
  * Is (x, y) an EXPOSED rock cell? True only for STONE/ORE with at least one
- * orthogonally-adjacent AIR neighbour (GDD §6.2 "find exposed stone/ore" — a
+ * orthogonally-adjacent AIR neighbour (GDD 6.2 "find exposed stone/ore" - a
  * miner can't reach fully-buried rock). This adjacency test is the subtle part:
  * a buried block has solid neighbours on all four sides and is skipped.
  */
@@ -239,7 +239,7 @@ export function isExposedRock(x: number, y: number): boolean {
 /**
  * Nearest EXPOSED STONE/ORE cell within `maxR` (Chebyshev) of (cx, cy), or null.
  * Same ring-scan as nearestMaterial but the cell predicate is the exposed-rock
- * adjacency test (GDD §6.2).
+ * adjacency test (GDD 6.2).
  */
 function nearestExposedRock(
   cx: number,
@@ -270,11 +270,11 @@ function nearestExposedRock(
 
 /**
  * Find the work target for a role from (fromX, fromY), or null if none in range:
- *   lumberjack/forager → nearest FOLIAGE (tree/bush) within RESOURCE_SCAN_RADIUS.
- *   miner             → nearest EXPOSED stone/ore (skips fully-buried rock).
- *   guard             → the stockpile hold point (MVP "hold a point", GDD §6.2).
- *   builder           → null (target acquisition is queue-driven — BQ-3 in survivor.ts).
- *   none              → null.
+ *   lumberjack/forager -> nearest FOLIAGE (tree/bush) within RESOURCE_SCAN_RADIUS.
+ *   miner             -> nearest EXPOSED stone/ore (skips fully-buried rock).
+ *   guard             -> the stockpile hold point (MVP "hold a point", GDD 6.2).
+ *   builder           -> null (target acquisition is queue-driven - BQ-3 in survivor.ts).
+ *   none              -> null.
  */
 export function findTarget(
   role: RoleName,
@@ -300,7 +300,7 @@ export function findTarget(
 }
 
 /**
- * Output kind for a mined cell (GDD §6.2): STONE→'stone', ORE→'ore', else null.
+ * Output kind for a mined cell (GDD 6.2): STONE->'stone', ORE->'ore', else null.
  * Helper for the miner's harvest in p6-t4 (output is decided per-cell).
  */
 export function mineOutput(cellMaterial: number): ResourceKind | null {
@@ -310,7 +310,7 @@ export function mineOutput(cellMaterial: number): ResourceKind | null {
 }
 
 // ---------------------------------------------------------------------------
-// Tool-gated assignment (GDD §6.2 — assignable only if the required tool exists
+// Tool-gated assignment (GDD 6.2 - assignable only if the required tool exists
 // or can be auto-crafted from the stockpile).
 // ---------------------------------------------------------------------------
 

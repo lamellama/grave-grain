@@ -1,25 +1,25 @@
 /**
- * game/pathfinding.ts — A* router over the coarse navgrid (GDD §13).
+ * game/pathfinding.ts - A* router over the coarse navgrid (GDD 13).
  *
  * The navgrid (engine/navgrid.ts) gives, per coarse cell, whether a body can
  * stand there and at what surface height. This router walks that graph with A*
  * to return world-cell waypoints for a rigged body to steer along (bodies path
- * as POINTS — far cheaper than soft bodies, GDD §5.1/§13). Local steering and
+ * as POINTS - far cheaper than soft bodies, GDD 5.1/13). Local steering and
  * the actual walk are Phase-3 locomotion's job; we only produce the route.
  *
  * **Edges** connect horizontally-adjacent walkable coarse cells whose surface
- * heights are traversable by Phase-3 locomotion: a climb of ≤ STEP_UP_MAX cells
- * up, or ANY drop down (a body walks off a ledge and falls — locomotion has no
+ * heights are traversable by Phase-3 locomotion: a climb of <= STEP_UP_MAX cells
+ * up, or ANY drop down (a body walks off a ledge and falls - locomotion has no
  * fall-height limit, only a no-tunnel sweep). Cost = world distance travelled
  * plus a small step/drop penalty so the router prefers flatter routes.
  *
- * **Local-only staleness** (the §13 key requirement): a Path records the epoch
+ * **Local-only staleness** (the 13 key requirement): a Path records the epoch
  * of every coarse cell it crosses AND those cells' neighbours. isPathStale is
- * true iff an edit bumped one of those epochs — i.e. an edit happened ON or
+ * true iff an edit bumped one of those epochs - i.e. an edit happened ON or
  * ADJACENT to the path. Edits anywhere else touch different coarse cells and
  * never flag the path stale.
  *
- * DOM-free; uses flat typed arrays for the search (GDD §13, AGENTS §4).
+ * DOM-free; uses flat typed arrays for the search (GDD 13, AGENTS 4).
  */
 
 import { NAV_CELL, STEP_UP_MAX } from '../config';
@@ -42,7 +42,7 @@ export interface Waypoint {
  * A planned route plus the epoch fingerprint used for local staleness checks.
  * `coarseEpochs` holds the epoch (at plan time) of every coarse cell the path
  * crosses and each of their 8-neighbours, so an edit on or beside the path is
- * detectable without scanning the whole grid (GDD §13).
+ * detectable without scanning the whole grid (GDD 13).
  */
 export interface Path {
   waypoints: Waypoint[];
@@ -59,8 +59,8 @@ function columnCenterX(cx: number): number {
 
 /**
  * Is moving from a cell with floor row `sa` to an adjacent cell with floor row
- * `sb` traversable by Phase-3 locomotion? Climb ≤ STEP_UP_MAX up; any drop down.
- * (`sa - sb` > 0 means the destination floor is HIGHER → a climb.)
+ * `sb` traversable by Phase-3 locomotion? Climb <= STEP_UP_MAX up; any drop down.
+ * (`sa - sb` > 0 means the destination floor is HIGHER -> a climb.)
  */
 function traversable(sa: number, sb: number): boolean {
   return sa - sb <= STEP_UP_MAX;
@@ -179,7 +179,7 @@ export function findPath(
 
     // Neighbours: horizontally-adjacent columns. A coarse column can hold more
     // than one walkable cell (ground + a platform above), so scan the column and
-    // keep every cell reachable by a ≤STEP_UP_MAX climb or any drop.
+    // keep every cell reachable by a <=STEP_UP_MAX climb or any drop.
     for (let dir = -1; dir <= 1; dir += 2) {
       const ncx = cx + dir;
       if (ncx < 0 || ncx >= NAV_W) continue;
@@ -205,7 +205,7 @@ export function findPath(
 
   if (!found) return null;
 
-  // Reconstruct the coarse-cell route start→goal.
+  // Reconstruct the coarse-cell route start->goal.
   const route: number[] = [];
   for (let n = goal; n !== -1; n = cameFrom[n]) route.push(n);
   route.reverse();
@@ -218,7 +218,7 @@ export function findPath(
     return { x: columnCenterX(cx), y: surfaceY(cx, cy) - 1 };
   });
 
-  // Epoch fingerprint: every route cell plus its 8-neighbours (GDD §13 local
+  // Epoch fingerprint: every route cell plus its 8-neighbours (GDD 13 local
   // staleness). De-duplicated so isPathStale is a cheap linear compare.
   const seen = new Set<number>();
   const coarseEpochs: Array<{ cx: number; cy: number; epoch: number }> = [];
@@ -243,7 +243,7 @@ export function findPath(
 
 /**
  * Is the path stale? True ONLY if a terrain edit has bumped the epoch of a coarse
- * cell on or adjacent to the path since it was planned (GDD §13 local-only
+ * cell on or adjacent to the path since it was planned (GDD 13 local-only
  * invalidation). Edits elsewhere bump other cells' epochs and are ignored.
  */
 export function isPathStale(path: Path): boolean {

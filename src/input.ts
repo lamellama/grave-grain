@@ -1,24 +1,24 @@
 /**
- * input.ts — Pointer-first input handler: multi-pointer registry + gesture classification.
- * GDD §12.3–12.4: one unified path for mouse + touch via Pointer Events API.
- * GDD §12.3: pan-vs-act tension resolved via tool-mode system.
+ * input.ts - Pointer-first input handler: multi-pointer registry + gesture classification.
+ * GDD 12.3-12.4: one unified path for mouse + touch via Pointer Events API.
+ * GDD 12.3: pan-vs-act tension resolved via tool-mode system.
  *
  * Task 10-4: replaces the single inputState with a per-pointer Map so that
  * pinch (10-5) and long-press context menu / tap-cycle (10-6) can be wired in
  * without rearchitecting.
  *
  * Gesture classification:
- *   drag      — pointer moved > TAP_MAX_MOVE_PX (GDD §12.3 pan-vs-act)
- *   longpress — held ≥ LONG_PRESS_MS without moving past TAP_MAX_MOVE_PX
- *   tap       — released before LONG_PRESS_MS and within TAP_MAX_MOVE_PX
+ *   drag      - pointer moved > TAP_MAX_MOVE_PX (GDD 12.3 pan-vs-act)
+ *   longpress - held >= LONG_PRESS_MS without moving past TAP_MAX_MOVE_PX
+ *   tap       - released before LONG_PRESS_MS and within TAP_MAX_MOVE_PX
  *
  * Tool behaviours:
- *   Pan        — single-pointer drag scrolls camera.x (incremental, 1:1)
- *   Paint      — drag-paint: acts on every pointermove while pressed
- *   Ignite     — drag-ignite: acts on every pointermove while pressed
- *   Build      — drag-build: acts on every pointermove while pressed
- *   Shoot      — fires on TAP (not on raw pointerdown, so dragging doesn't shoot)
- *   Assign     — fires on TAP (opens role menu for nearest survivor)
+ *   Pan        - single-pointer drag scrolls camera.x (incremental, 1:1)
+ *   Paint      - drag-paint: acts on every pointermove while pressed
+ *   Ignite     - drag-ignite: acts on every pointermove while pressed
+ *   Build      - drag-build: acts on every pointermove while pressed
+ *   Shoot      - fires on TAP (not on raw pointerdown, so dragging doesn't shoot)
+ *   Assign     - fires on TAP (opens role menu for nearest survivor)
  */
 
 import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo, setZoom } from './camera';
@@ -41,14 +41,14 @@ import type { RoleName } from './game/roles';
 import { canAssign } from './game/roles';
 
 // Re-export the pure picking query so callers can reach it via the input module
-// while it stays defined in a DOM-free helper (GDD §14 hand-test, p4-t7).
+// while it stays defined in a DOM-free helper (GDD 14 hand-test, p4-t7).
 export { pickBone } from './characters/pick';
 
 /**
  * Tool mode state: 'Pan' (drag scrolls camera), 'Paint' (drag paints),
- * 'Ignite' (drag ignites flammable cells — GDD §8 ignite verb), or
- * 'Assign' (tap a survivor to open role menu — GDD §6.2, p6-t5).
- * GDD §12.3: the currently selected tool defines what a drag does.
+ * 'Ignite' (drag ignites flammable cells - GDD 8 ignite verb), or
+ * 'Assign' (tap a survivor to open role menu - GDD 6.2, p6-t5).
+ * GDD 12.3: the currently selected tool defines what a drag does.
  */
 type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Assign' | 'Build' | 'Plan';
 
@@ -59,17 +59,17 @@ const toolState = {
 };
 
 // ---------------------------------------------------------------------------
-// Multi-pointer registry (task 10-4, GDD §12.3 pinch/long-press setup)
+// Multi-pointer registry (task 10-4, GDD 12.3 pinch/long-press setup)
 // ---------------------------------------------------------------------------
 
 /**
  * Per-pointer tracking state.
- *   startX/Y    — client coords at pointerdown (used for total-delta classification)
- *   lastX/Y     — client coords at last move (used for incremental pan delta)
- *   startTime   — performance.now() at pointerdown
- *   moved       — true once total movement exceeds TAP_MAX_MOVE_PX
- *   cameraStartX — camera.x at pointerdown (available for pinch in task 10-5)
- *   timerId     — handle for the long-press setTimeout, null when not pending
+ *   startX/Y    - client coords at pointerdown (used for total-delta classification)
+ *   lastX/Y     - client coords at last move (used for incremental pan delta)
+ *   startTime   - performance.now() at pointerdown
+ *   moved       - true once total movement exceeds TAP_MAX_MOVE_PX
+ *   cameraStartX - camera.x at pointerdown (available for pinch in task 10-5)
+ *   timerId     - handle for the long-press setTimeout, null when not pending
  */
 interface PointerInfo {
   startX: number;
@@ -82,11 +82,11 @@ interface PointerInfo {
   timerId: number | null;
 }
 
-/** Active pointer registry: pointerId → PointerInfo. */
+/** Active pointer registry: pointerId -> PointerInfo. */
 const pointers = new Map<number, PointerInfo>();
 
 // ---------------------------------------------------------------------------
-// Pinch-zoom state (task 10-5, GDD §12.3)
+// Pinch-zoom state (task 10-5, GDD 12.3)
 // ---------------------------------------------------------------------------
 
 /**
@@ -94,7 +94,7 @@ const pointers = new Map<number, PointerInfo>();
  * pinch distance, the current pinch distance, and the zoom at pinch start.
  * Clamping to [ZOOM_MIN, ZOOM_MAX] is handled by camera.setZoom.
  * Exported for headless unit-testing (p10-pinch test).
- * Guard: if startDist ≤ 0 return startZoom unchanged (avoid NaN/Infinity).
+ * Guard: if startDist <= 0 return startZoom unchanged (avoid NaN/Infinity).
  */
 export function pinchZoom(startDist: number, curDist: number, startZoom: number): number {
   if (startDist <= 0) return startZoom;
@@ -123,11 +123,11 @@ const suppressedPointers = new Set<number>();
 
 /**
  * Classify a completed pointer gesture.
- *   drag      — total movement (Euclidean) exceeded TAP_MAX_MOVE_PX
- *   longpress — held ≥ LONG_PRESS_MS without moving past TAP_MAX_MOVE_PX
- *   tap       — quick release within movement threshold
+ *   drag      - total movement (Euclidean) exceeded TAP_MAX_MOVE_PX
+ *   longpress - held >= LONG_PRESS_MS without moving past TAP_MAX_MOVE_PX
+ *   tap       - quick release within movement threshold
  *
- * Pure function (no DOM, no side effects). GDD §12.3: pan-vs-act boundary.
+ * Pure function (no DOM, no side effects). GDD 12.3: pan-vs-act boundary.
  *
  * @param dx      total horizontal displacement in screen pixels
  * @param dy      total vertical displacement in screen pixels
@@ -140,12 +140,12 @@ export function classifyGesture(dx: number, dy: number, heldMs: number): 'tap' |
 }
 
 // ---------------------------------------------------------------------------
-// Task 10-6 — pure cycling helper (GDD §12.4 forgiving tap selection)
+// Task 10-6 - pure cycling helper (GDD 12.4 forgiving tap selection)
 // ---------------------------------------------------------------------------
 
 /**
  * Pick an alive survivor near (wx, wy) within `radius` cells, with tap-cycle
- * support for overlapping survivors (GDD §12.4). Pure function — no DOM, no
+ * support for overlapping survivors (GDD 12.4). Pure function - no DOM, no
  * side-effects. Exported for headless unit-testing (p10-select test).
  *
  * Candidates are sorted by distance ascending, then by list-index for a stable
@@ -203,7 +203,7 @@ export function pickCycling(
 }
 
 // ---------------------------------------------------------------------------
-// Tap-cycle state (module-level — shared between Assign and Shoot tap paths)
+// Tap-cycle state (module-level - shared between Assign and Shoot tap paths)
 // ---------------------------------------------------------------------------
 
 /** Survivor returned by the most recent Assign/Shoot tap (for cycling). */
@@ -219,17 +219,17 @@ let _lastTapWy = -9999;
 let _lastTapTime = 0;
 
 // ---------------------------------------------------------------------------
-// Long-press — task 10-6: open context/role menu (GDD §12.3)
+// Long-press - task 10-6: open context/role menu (GDD 12.3)
 // ---------------------------------------------------------------------------
 
 /**
- * Called when a single pointer is held still for ≥ LONG_PRESS_MS (GDD §12.3).
+ * Called when a single pointer is held still for >= LONG_PRESS_MS (GDD 12.3).
  * Picks the nearest alive survivor within SELECT_TAP_RADIUS and opens the
  * role-assign menu (a global shortcut independent of the current tool mode).
  * Closes the menu if no survivor is nearby.
  */
 function onLongPress(worldX: number, worldY: number): void {
-  // GDD §12.3 long-press → context menu (task 10-6).
+  // GDD 12.3 long-press -> context menu (task 10-6).
   const s = pickCycling(survivorList, worldX, worldY, SELECT_TAP_RADIUS, null, false);
   if (s) {
     showRoleMenu(s);
@@ -250,7 +250,7 @@ function onLongPress(worldX: number, worldY: number): void {
 let targetBody: Body | null = null;
 
 /**
- * Register the body the Shoot tool damages (GDD §14 Milestone 0 hand-test).
+ * Register the body the Shoot tool damages (GDD 14 Milestone 0 hand-test).
  * main.ts calls this alongside the renderer's setBody so a click drives THE GATE.
  */
 export function setTargetBody(body: Body | null): void {
@@ -258,7 +258,7 @@ export function setTargetBody(body: Body | null): void {
 }
 
 /**
- * Survivor list for the Assign tool (p6-t5, GDD §6.2). Set by main.ts once
+ * Survivor list for the Assign tool (p6-t5, GDD 6.2). Set by main.ts once
  * survivors are created; Assign mode picks the nearest one to the pointer.
  */
 let survivorList: Survivor[] = [];
@@ -269,7 +269,7 @@ export function setSurvivors(list: Survivor[]): void {
 }
 
 /**
- * Zombie list for the Shoot tool (p7-t7, GDD §7.2). Set by main.ts with the live
+ * Zombie list for the Shoot tool (p7-t7, GDD 7.2). Set by main.ts with the live
  * array reference so the player can manually headshot zombies, not just
  * survivors. Mirrors setSurvivors.
  */
@@ -283,7 +283,7 @@ export function setZombies(list: Zombie[]): void {
 /**
  * Find the nearest ALIVE body (survivor OR zombie) to world cell (wx, wy) by
  * squared anchor distance (p7-t7). Used by the Shoot tool so a click damages
- * whatever body is closest — a player headshot routes through the same GATE
+ * whatever body is closest - a player headshot routes through the same GATE
  * (applyDamage) as combat. Returns null if no live body exists.
  */
 function nearestBodyTo(wx: number, wy: number): Body | null {
@@ -310,9 +310,9 @@ function nearestBodyTo(wx: number, wy: number): Body | null {
 let selectedSurvivor: Survivor | null = null;
 
 /**
- * Show the role-menu overlay for survivor `s` (p6-t5, GDD §6.2). Refresh button
+ * Show the role-menu overlay for survivor `s` (p6-t5, GDD 6.2). Refresh button
  * greyed/disabled state based on canAssign (tool-gated and stockpile-gated), then
- * make the overlay visible. Only updates DOM — never touches the grid.
+ * make the overlay visible. Only updates DOM - never touches the grid.
  */
 function showRoleMenu(s: Survivor): void {
   selectedSurvivor = s;
@@ -369,10 +369,10 @@ function forEachDiscCell(
 
 /**
  * Paint a filled disc of material at the given world coordinates.
- * Floored to integers; paints all cells within BRUSH_RADIUS (GDD §8 direct placement).
+ * Floored to integers; paints all cells within BRUSH_RADIUS (GDD 8 direct placement).
  */
 function paintDisc(centerWorldX: number, centerWorldY: number, materialId: number): void {
-  // Plant-a-seed (playtest v0.6 #G, GDD §9): the Plant tool drops a SINGLE
+  // Plant-a-seed (playtest v0.6 #G, GDD 9): the Plant tool drops a SINGLE
   // SAPLING that grows into foliage on its own, rather than painting a blob of
   // material. Route it through plantSeed so it only lands on suitable soil and
   // never paves over the terrain it needs to grow from.
@@ -386,7 +386,7 @@ function paintDisc(centerWorldX: number, centerWorldY: number, materialId: numbe
 }
 
 /**
- * Plant a single SAPLING (Plant tool, playtest v0.6 #G; GDD §9). Drops one seed
+ * Plant a single SAPLING (Plant tool, playtest v0.6 #G; GDD 9). Drops one seed
  * on suitable soil: the sapling goes into an AIR cell that sits directly on DIRT
  * or already-grown FOLIAGE. Clicking the soil itself plants in the AIR just
  * above it (forgiving). placeMaterial leaves the SAPLING's integrity at 0; the
@@ -398,20 +398,20 @@ function plantSeed(centerWorldX: number, centerWorldY: number): void {
   let y = Math.floor(centerWorldY);
   if (!grid.inBounds(x, y)) return;
   const here = grid.get(x, y);
-  // Clicked on the ground itself → plant in the AIR cell just above it.
+  // Clicked on the ground itself -> plant in the AIR cell just above it.
   if (here === DIRT || here === FOLIAGE) y -= 1;
   if (!grid.inBounds(x, y) || grid.get(x, y) !== AIR) return;
   const below = grid.get(x, y + 1);
   if (below !== DIRT && below !== FOLIAGE) return; // grow only on suitable soil
-  grid.placeMaterial(x, y, SAPLING); // integrity 0 → updateSapling seeds the timer
+  grid.placeMaterial(x, y, SAPLING); // integrity 0 -> updateSapling seeds the timer
 }
 
 /**
  * Attempt to ignite a single cell at (x, y).
  * Only acts if the cell's material is flammable (WOOD/FOLIAGE); ignores all
- * other materials (AIR, STONE, SAND, WATER, DIRT, etc.) — GDD §8 ignite verb.
+ * other materials (AIR, STONE, SAND, WATER, DIRT, etc.) - GDD 8 ignite verb.
  * Calls simulation.ignite() which sets FIRE and seeds the lifetime countdown.
- * Pure grid+materials query — exported for headless unit-testing.
+ * Pure grid+materials query - exported for headless unit-testing.
  */
 export function tryIgnite(x: number, y: number): void {
   if (!grid.inBounds(x, y)) return;
@@ -423,7 +423,7 @@ export function tryIgnite(x: number, y: number): void {
 
 /**
  * Apply tryIgnite to every cell in a BRUSH_RADIUS disc centred on the given
- * world coordinates (GDD §8 ignite verb, direct placement).
+ * world coordinates (GDD 8 ignite verb, direct placement).
  */
 function igniteDisc(centerWorldX: number, centerWorldY: number): void {
   const centerX = Math.floor(centerWorldX);
@@ -437,7 +437,7 @@ function igniteDisc(centerWorldX: number, centerWorldY: number): void {
 
 /**
  * Get the canvas bounding rect and convert client coordinates to canvas-relative pixels.
- * GDD §12.4: account for pointer coordinate conversion for touch/mobile.
+ * GDD 12.4: account for pointer coordinate conversion for touch/mobile.
  */
 function getCanvasRelativeCoords(
   event: PointerEvent,
@@ -455,7 +455,7 @@ function getCanvasRelativeCoords(
 // ---------------------------------------------------------------------------
 
 /**
- * Fire the long-press action for a given pointer (task 10-4, GDD §12.3).
+ * Fire the long-press action for a given pointer (task 10-4, GDD 12.3).
  * Checks single-pointer constraint and `moved` guard before calling onLongPress.
  */
 function fireLongPress(pointerId: number): void {
@@ -476,14 +476,14 @@ function fireLongPress(pointerId: number): void {
 /**
  * Handle pointerdown: add pointer to registry, start long-press timer,
  * and immediately act for drag-paint tools (Paint/Ignite/Build).
- * Shoot/Assign no longer act on down — they wait for a TAP on pointerup.
+ * Shoot/Assign no longer act on down - they wait for a TAP on pointerup.
  */
 function onPointerDown(event: PointerEvent): void {
   const canvas = document.getElementById('game') as HTMLCanvasElement;
   if (!canvas) return;
 
   // -----------------------------------------------------------------------
-  // Minimap strip hit-test (GDD §12.1 off-screen awareness, task 9-6).
+  // Minimap strip hit-test (GDD 12.1 off-screen awareness, task 9-6).
   // If the pointer lands inside the minimap band, treat it as a camera-jump
   // and consume the event so it doesn't fall through to normal tool actions.
   // -----------------------------------------------------------------------
@@ -497,7 +497,7 @@ function onPointerDown(event: PointerEvent): void {
       const canvasX = event.clientX - rect.left;
       const worldX = minimapXToWorld(canvasX, rect.width);
       jumpCameraTo(worldX, renderer.viewportWidthPx, renderer.viewportHeightPx);
-      return; // consumed — do NOT fall through to paint/pan/etc.
+      return; // consumed - do NOT fall through to paint/pan/etc.
     }
   }
 
@@ -517,7 +517,7 @@ function onPointerDown(event: PointerEvent): void {
   suppressedPointers.delete(event.pointerId);
   pointers.set(event.pointerId, info);
 
-  // --- Pinch detection (task 10-5, GDD §12.3) ---
+  // --- Pinch detection (task 10-5, GDD 12.3) ---
   // When a second finger arrives, enter pinch mode: cancel all long-press timers
   // and record the initial distance + zoom so pointermove can scale from it.
   // Two-finger gestures must NEVER paint/pan/ignite/build.
@@ -530,7 +530,7 @@ function onPointerDown(event: PointerEvent): void {
       }
     }
     if (!pinching) {
-      // Just entered pinch — record baseline.
+      // Just entered pinch - record baseline.
       pinching = true;
       const pts = Array.from(pointers.values());
       const ddx = pts[1].lastX - pts[0].lastX;
@@ -538,11 +538,11 @@ function onPointerDown(event: PointerEvent): void {
       pinchStartDist = Math.hypot(ddx, ddy);
       pinchStartZoom = camera.zoom;
     }
-    return; // GDD §12.3: two-finger gesture is pinch, not paint/pan/tap.
+    return; // GDD 12.3: two-finger gesture is pinch, not paint/pan/tap.
   }
 
   // --- Single-pointer path ---
-  // Arm long-press timer (GDD §12.3, task 10-4).
+  // Arm long-press timer (GDD 12.3, task 10-4).
   info.timerId = window.setTimeout(() => {
     fireLongPress(event.pointerId);
   }, LONG_PRESS_MS);
@@ -593,7 +593,7 @@ function onPointerMove(event: PointerEvent): void {
   info.lastX = event.clientX;
   info.lastY = event.clientY;
 
-  // --- Pinch zoom (task 10-5, GDD §12.3) ---
+  // --- Pinch zoom (task 10-5, GDD 12.3) ---
   // When two pointers are active, scale camera.zoom by the distance ratio
   // relative to the initial pinch baseline, anchored at the midpoint.
   if (pinching && pointers.size === 2) {
@@ -603,7 +603,7 @@ function onPointerMove(event: PointerEvent): void {
     const curDist = Math.hypot(curDx, curDy);
     const newZoom = pinchZoom(pinchStartDist, curDist, pinchStartZoom);
 
-    // Midpoint in client coords → canvas-relative.
+    // Midpoint in client coords -> canvas-relative.
     const rect = canvas.getBoundingClientRect();
     const midClientX = (pts[0].lastX + pts[1].lastX) / 2;
     const midClientY = (pts[0].lastY + pts[1].lastY) / 2;
@@ -612,10 +612,10 @@ function onPointerMove(event: PointerEvent): void {
 
     const renderer = getRenderer();
     setZoom(newZoom, midX, midY, renderer.viewportWidthPx, renderer.viewportHeightPx);
-    return; // pinch consumes the event — no pan/paint.
+    return; // pinch consumes the event - no pan/paint.
   }
 
-  // --- Suppressed pointers (lingering finger after pinch end, GDD §12.3) ---
+  // --- Suppressed pointers (lingering finger after pinch end, GDD 12.3) ---
   if (suppressedPointers.has(event.pointerId)) {
     return; // don't pan/paint until a fresh pointerdown.
   }
@@ -626,7 +626,7 @@ function onPointerMove(event: PointerEvent): void {
 
   if (!info.moved && Math.hypot(totalDx, totalDy) > TAP_MAX_MOVE_PX) {
     info.moved = true;
-    // Cancel long-press timer — pointer has drifted past the tap threshold.
+    // Cancel long-press timer - pointer has drifted past the tap threshold.
     if (info.timerId !== null) {
       clearTimeout(info.timerId);
       info.timerId = null;
@@ -667,7 +667,7 @@ function onPointerMove(event: PointerEvent): void {
 /**
  * Perform the tap-classified action for Shoot / Assign modes.
  * Called from onPointerUp when the gesture classifies as a tap.
- * Uses pickCycling for forgiving, tap-cycle survivor selection (GDD §12.4,
+ * Uses pickCycling for forgiving, tap-cycle survivor selection (GDD 12.4,
  * task 10-6). State (_lastPickedSurvivor, _lastTapW*, _lastTapTime) is
  * shared between modes so cycling is consistent across tool switches.
  */
@@ -685,16 +685,16 @@ function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
 
   if (toolState.mode === 'Shoot') {
     // Shoot on TAP: a quick tap shoots; a drag does NOT (task 10-4 key change).
-    // Limited ammo (playtest): every shot costs a bullet; out of ammo → no-op + toast.
+    // Limited ammo (playtest): every shot costs a bullet; out of ammo -> no-op + toast.
     if (!spendAmmo()) {
       pushToast('Out of ammo!');
       return;
     }
-    // Routes through THE GATE (GDD §14 hand-test, §7.2 emergent damage).
+    // Routes through THE GATE (GDD 14 hand-test, 7.2 emergent damage).
     const cellX = Math.floor(wx);
     const cellY = Math.floor(wy);
 
-    // Tap-cycle: try picking a survivor via the cycling helper first (GDD §12.4).
+    // Tap-cycle: try picking a survivor via the cycling helper first (GDD 12.4).
     // Fall back to nearestBodyTo (which includes zombies) if no survivor nearby.
     const cycledSurvivor = pickCycling(survivorList, wx, wy, SELECT_TAP_RADIUS, _lastPickedSurvivor, sameSpot);
     const targetBodyHit = cycledSurvivor ? cycledSurvivor.body : nearestBodyTo(cellX, cellY);
@@ -711,10 +711,10 @@ function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
         applyDamage(targetBodyHit, name);
       }
     }
-    if (getAmmo() === 0) pushToast('Last bullet — out of ammo!');
+    if (getAmmo() === 0) pushToast('Last bullet - out of ammo!');
   } else if (toolState.mode === 'Assign') {
     // Assign on TAP: open role menu for nearest/cycled alive survivor
-    // (p6-t5, GDD §6.2; forgiving tap-cycle from task 10-6, GDD §12.4).
+    // (p6-t5, GDD 6.2; forgiving tap-cycle from task 10-6, GDD 12.4).
     // Uses SELECT_TAP_RADIUS (generous) instead of the tighter ASSIGN_PICK_RADIUS.
     const picked = pickCycling(survivorList, wx, wy, SELECT_TAP_RADIUS, _lastPickedSurvivor, sameSpot);
 
@@ -745,7 +745,7 @@ function onPointerUp(event: PointerEvent): void {
     info.timerId = null;
   }
 
-  // --- Pinch exit (task 10-5, GDD §12.3) ---
+  // --- Pinch exit (task 10-5, GDD 12.3) ---
   // If we were pinching, suppress the lingering finger so it can't immediately
   // paint/pan/tap. A fresh pointerdown is required to re-activate it.
   if (pinching) {
@@ -806,7 +806,7 @@ function onPointerCancel(event: PointerEvent): void {
 
 /**
  * Set the tool mode. Mode 'Pan' disables painting; mode 'Paint' with a materialId enables painting.
- * Updates the toolbar UI to show which tool is active (GDD §12.3: persistent, thumb-reachable toolbar).
+ * Updates the toolbar UI to show which tool is active (GDD 12.3: persistent, thumb-reachable toolbar).
  */
 export function setToolMode(mode: 'Pan'): void;
 export function setToolMode(mode: 'Paint', materialId: number): void;
@@ -872,7 +872,7 @@ function updateToolbarUI(): void {
 
 /**
  * Refresh the disabled/opacity state of Build toolbar buttons based on current
- * stockpile affordability (task 8-4, GDD §8).  Called every render frame from
+ * stockpile affordability (task 8-4, GDD 8).  Called every render frame from
  * main.ts next to the stockpile-readout update.
  *
  * Guards for null/empty button lists so it is safe to call before the DOM is
@@ -897,7 +897,7 @@ export function refreshBuildButtons(): void {
 
 /**
  * Initialize pointer event listeners on the canvas and wire up the toolbar.
- * Also sets touch-action: none to prevent browser default touch scroll/zoom (GDD §12.3).
+ * Also sets touch-action: none to prevent browser default touch scroll/zoom (GDD 12.3).
  */
 export function initInput(canvas: HTMLCanvasElement): void {
   canvas.addEventListener('pointerdown', onPointerDown);
@@ -906,8 +906,8 @@ export function initInput(canvas: HTMLCanvasElement): void {
   // pointercancel fires on system interrupts (task 10-4): clean up registry.
   document.addEventListener('pointercancel', onPointerCancel);
 
-  // --- Scroll-wheel zoom (task 10-5, GDD §12.3 desktop zoom) ---
-  // Multiplicative step: each notch scales zoom by (1 ± ZOOM_STEP), keeping
+  // --- Scroll-wheel zoom (task 10-5, GDD 12.3 desktop zoom) ---
+  // Multiplicative step: each notch scales zoom by (1 +/- ZOOM_STEP), keeping
   // the world point under the cursor stationary. Clamping is handled by setZoom.
   canvas.addEventListener('wheel', (e: WheelEvent) => {
     e.preventDefault();
@@ -924,7 +924,7 @@ export function initInput(canvas: HTMLCanvasElement): void {
   canvas.style.touchAction = 'none';
 
   // --- Right-click context menu: open role-assign overlay (task 10-6 / playtest #F) ---
-  // GDD §12.3: desktop equivalent of the long-press gesture; works in ANY tool mode.
+  // GDD 12.3: desktop equivalent of the long-press gesture; works in ANY tool mode.
   canvas.addEventListener('contextmenu', (e: MouseEvent) => {
     e.preventDefault();
     const rect = canvas.getBoundingClientRect();
@@ -935,7 +935,7 @@ export function initInput(canvas: HTMLCanvasElement): void {
     if (s) showRoleMenu(s);
   });
 
-  // Wire up toolbar buttons to set tool mode (GDD §12.3: toolbar switches modes)
+  // Wire up toolbar buttons to set tool mode (GDD 12.3: toolbar switches modes)
   const toolbarButtons = document.querySelectorAll('[data-tool]');
   toolbarButtons.forEach((btn) => {
     btn.addEventListener('click', (e) => {
@@ -969,7 +969,7 @@ export function initInput(canvas: HTMLCanvasElement): void {
     });
   });
 
-  // Wire role-menu buttons (p6-t5, GDD §6.2): each data-role button calls
+  // Wire role-menu buttons (p6-t5, GDD 6.2): each data-role button calls
   // assignRole on the selected survivor, refreshes greyed state, then closes.
   const roleMenuBtns = document.querySelectorAll('[data-role]');
   roleMenuBtns.forEach((btn) => {
@@ -984,7 +984,7 @@ export function initInput(canvas: HTMLCanvasElement): void {
     });
   });
 
-  // Wire speed toggle button (GDD §12.2 sim-speed controls, task 9-5).
+  // Wire speed toggle button (GDD 12.2 sim-speed controls, task 9-5).
   // Guard for missing element so this is safe under the headless DOM stub.
   const speedBtn = document.getElementById('speed-btn') as HTMLButtonElement | null;
   if (speedBtn) {

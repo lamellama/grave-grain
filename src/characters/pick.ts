@@ -1,10 +1,10 @@
 /**
- * characters/pick.ts — DOM-free body-region picking for the Shoot tool (p4-t7).
+ * characters/pick.ts - DOM-free body-region picking for the Shoot tool (p4-t7).
  *
- * THE GATE is hand-runnable via a temporary "Shoot" pointer tool (GDD §14
- * Milestone 0 hand-test, §7.2): the player clicks a body region and that
- * region's bone takes damage (→ release pixels into the live sim). This module
- * holds ONLY the pure geometry — "which bone is under this world cell?" — so it
+ * THE GATE is hand-runnable via a temporary "Shoot" pointer tool (GDD 14
+ * Milestone 0 hand-test, 7.2): the player clicks a body region and that
+ * region's bone takes damage (-> release pixels into the live sim). This module
+ * holds ONLY the pure geometry - "which bone is under this world cell?" - so it
  * is unit-testable with no DOM and no input plumbing. `input.ts` re-exports and
  * drives it; Phase-7 real combat will replace the tool, not this query.
  */
@@ -21,7 +21,7 @@ import type { Body, BoneName } from './body';
  * distance. Only hits within SHOOT_PICK_RADIUS cells count; returns null if the
  * body is dead or nothing is in range.
  *
- * Pure: no DOM, no grid mutation — safe to call from a unit test.
+ * Pure: no DOM, no grid mutation - safe to call from a unit test.
  */
 export function pickBone(body: Body, worldX: number, worldY: number): BoneName | null {
   if (!body.alive) {

@@ -1,18 +1,18 @@
 /**
- * game/ui.ts — Canvas HUD overlays (GDD §12.2).
+ * game/ui.ts - Canvas HUD overlays (GDD 12.2).
  *
  * Provides:
- *   drawNeedsBars  — hunger + thirst bars rendered above each alive survivor,
+ *   drawNeedsBars  - hunger + thirst bars rendered above each alive survivor,
  *                    camera-tracked via worldToScreen().
- *   pushToast      — queue a transient message (3-second fade/expire).
- *   drawToasts     — render the queued toasts onto the canvas.
- *   drawEndScreen  — dim overlay + big WIN/LOSE message when the game ends.
- *   getSimSpeed    — current simulation ticks-per-frame multiplier.
- *   cycleSimSpeed  — advance to next SIM_SPEEDS index (wraps), return new value.
+ *   pushToast      - queue a transient message (3-second fade/expire).
+ *   drawToasts     - render the queued toasts onto the canvas.
+ *   drawEndScreen  - dim overlay + big WIN/LOSE message when the game ends.
+ *   getSimSpeed    - current simulation ticks-per-frame multiplier.
+ *   cycleSimSpeed  - advance to next SIM_SPEEDS index (wraps), return new value.
  *
  * Everything here is guard-safe under the headless DOM stub:
- *   – ctx.canvas may be absent or have size 0; we bail silently.
- *   – worldToScreen() works fine headlessly (no DOM).
+ *   - ctx.canvas may be absent or have size 0; we bail silently.
+ *   - worldToScreen() works fine headlessly (no DOM).
  */
 
 import type { Survivor } from '../characters/survivor';
@@ -41,7 +41,7 @@ import {
 } from '../config';
 
 // ---------------------------------------------------------------------------
-// Minimap / edge-arrow layout constants (GDD §12.1 off-screen awareness)
+// Minimap / edge-arrow layout constants (GDD 12.1 off-screen awareness)
 // ---------------------------------------------------------------------------
 
 /** Height (px) of the minimap strip, drawn along the top of the canvas. */
@@ -51,7 +51,7 @@ export const MINIMAP_HEIGHT_PX = 16;
 export const MINIMAP_AT_TOP = true;
 
 // ---------------------------------------------------------------------------
-// Sim-speed toggle (GDD §12.2 pause + speed controls)
+// Sim-speed toggle (GDD 12.2 pause + speed controls)
 // ---------------------------------------------------------------------------
 
 let _speedIdx = 0; // index into SIM_SPEEDS
@@ -71,7 +71,7 @@ export function cycleSimSpeed(): number {
 }
 
 // ---------------------------------------------------------------------------
-// Toast queue (GDD §12.2 clear death-cause message on every death)
+// Toast queue (GDD 12.2 clear death-cause message on every death)
 // ---------------------------------------------------------------------------
 
 interface Toast {
@@ -154,12 +154,12 @@ export function drawToasts(ctx: CanvasRenderingContext2D): void {
 }
 
 // ---------------------------------------------------------------------------
-// Weather HUD + precipitation overlay (VS-1 T5, GDD §10)
+// Weather HUD + precipitation overlay (VS-1 T5, GDD 10)
 //
 // Two cosmetic, draw-time-only pieces:
 //   1. A precipitation overlay (rain streaks / snow flakes) drawn over the
 //      world so the active weather is felt, not just labelled.
-//   2. A top-of-screen readout — "icon  Label  N°" — so the HUD ALWAYS shows
+//   2. A top-of-screen readout - "icon  Label  Ndeg" - so the HUD ALWAYS shows
 //      the current weather and temperature (the VS-1 Done-when).
 // Animation is wall-clock driven (performance.now): it never touches the sim
 // grid or RNG, so chunk-equivalence / replay determinism are unaffected.
@@ -167,13 +167,13 @@ export function drawToasts(ctx: CanvasRenderingContext2D): void {
 
 /** Per-weather presentation (icon, label, particle + text colour). */
 const WEATHER_VIS: Record<WeatherState, { icon: string; label: string; tint: string }> = {
-  clear: { icon: '\u2600', label: 'Clear', tint: '#ffd866' }, // ☀
-  rain:  { icon: '\u2602', label: 'Rain',  tint: '#7fb8ff' }, // ☂
-  snow:  { icon: '\u2744', label: 'Snow',  tint: '#cfe8ff' }, // ❄
+  clear: { icon: '\u2600', label: 'Clear', tint: '#ffd866' }, // sun
+  rain:  { icon: '\u2602', label: 'Rain',  tint: '#7fb8ff' }, // umbrella
+  snow:  { icon: '\u2744', label: 'Snow',  tint: '#cfe8ff' }, // snowflake
 };
 
 /**
- * Stable pseudo-random in [0,1) from an integer seed — gives each particle a
+ * Stable pseudo-random in [0,1) from an integer seed - gives each particle a
  * fixed lane/offset so the field looks coherent frame-to-frame (no per-frame
  * Math.random sparkle). Cheap LCG-style hash.
  */
@@ -185,7 +185,7 @@ function particleRand(i: number): number {
 /**
  * Draw the precipitation overlay + the weather/temperature HUD readout.
  * No-op for the smoke stub (no real canvas) and when weather is 'clear'
- * (overlay only — the readout still shows for clear).
+ * (overlay only - the readout still shows for clear).
  */
 export function drawWeather(ctx: CanvasRenderingContext2D): void {
   const canvas = ctx.canvas;
@@ -237,7 +237,7 @@ export function drawWeather(ctx: CanvasRenderingContext2D): void {
 
   // --- 2. Weather + temperature readout (always shown) ---
   // Sits just below the minimap strip at the top of the canvas.
-  const text = `${vis.icon} ${vis.label}  ${Math.round(temp)}\u00b0`; // °
+  const text = `${vis.icon} ${vis.label}  ${Math.round(temp)}\u00b0`; // deg
   ctx.font = 'bold 13px monospace';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
@@ -252,10 +252,10 @@ export function drawWeather(ctx: CanvasRenderingContext2D): void {
 }
 
 // ---------------------------------------------------------------------------
-// Needs bars (GDD §12.2 bars over survivors)
+// Needs bars (GDD 12.2 bars over survivors)
 // ---------------------------------------------------------------------------
 
-/** Width (px) of a single needs bar — matches the body's visual footprint. */
+/** Width (px) of a single needs bar - matches the body's visual footprint. */
 const BAR_W = CELL_SIZE * BODY_W;
 /** Height (px) of each individual bar (hunger, thirst, or warmth). */
 const BAR_H = 3;
@@ -267,7 +267,7 @@ const BAR_GAP = 1;
  * Green when comfortably above threshold, amber just above, red below.
  */
 function barColor(v: number, threshold: number): string {
-  const frac = v / NEED_MAX; // 0–1
+  const frac = v / NEED_MAX; // 0-1
   const critFrac = threshold / NEED_MAX;
   if (frac > critFrac + 0.15) return '#44cc44'; // green
   if (frac > critFrac)        return '#ddaa00'; // amber
@@ -275,9 +275,9 @@ function barColor(v: number, threshold: number): string {
 }
 
 /**
- * Colour for the WARMTH bar — distinct from hunger/thirst so the player can
+ * Colour for the WARMTH bar - distinct from hunger/thirst so the player can
  * tell them apart at a glance. Healthy = warm-orange (#ee8800); critical tint
- * uses the same amber → red ladder as the other bars (GDD §12.2, Task W4).
+ * uses the same amber -> red ladder as the other bars (GDD 12.2, Task W4).
  */
 function warmthBarColor(v: number): string {
   const frac = v / NEED_MAX;
@@ -289,7 +289,7 @@ function warmthBarColor(v: number): string {
 
 /**
  * Draw one horizontal bar (filled + outline) at canvas pixel position (px, py).
- * fill is the fraction filled (0–1 clamped).
+ * fill is the fraction filled (0-1 clamped).
  */
 function drawBar(
   ctx: CanvasRenderingContext2D,
@@ -337,7 +337,7 @@ export function drawNeedsBars(
     const sc = worldToScreen(s.body.x - BODY_W / 2, s.body.y - 2);
     const px = sc.x;
     // Three-bar stack: total height = BAR_H*3 + BAR_GAP*2; sit it just above
-    // the anchor so all bars clear the head (Task W4, GDD §12.2).
+    // the anchor so all bars clear the head (Task W4, GDD 12.2).
     const py = sc.y - (BAR_H * 3 + BAR_GAP * 2);
 
     // Off-screen cull: skip if clearly outside the visible area.
@@ -362,7 +362,7 @@ export function drawNeedsBars(
       barColor(s.needs.thirst, THIRST_THRESHOLD),
     );
 
-    // Warmth bar (bottom, distinct warm-orange hue; GDD §12.2 Task W4).
+    // Warmth bar (bottom, distinct warm-orange hue; GDD 12.2 Task W4).
     // Uses warmthBarColor() so it reads differently from hunger/thirst green.
     drawBar(
       ctx,
@@ -377,7 +377,7 @@ export function drawNeedsBars(
 }
 
 // ---------------------------------------------------------------------------
-// Minimap strip (GDD §12.1 off-screen awareness)
+// Minimap strip (GDD 12.1 off-screen awareness)
 // ---------------------------------------------------------------------------
 
 /**
@@ -405,7 +405,7 @@ function worldToStripX(worldX: number, canvasWidthCss: number): number {
  * (or bottom) of the canvas. Plots survivors (cyan), alive zombies (red),
  * the stockpile point (yellow diamond) and the current camera window (white
  * outline). Guard-safe for zero-sized or stub canvas.
- * GDD §12.1 off-screen awareness.
+ * GDD 12.1 off-screen awareness.
  */
 export function drawMinimap(
   ctx: CanvasRenderingContext2D,
@@ -431,14 +431,14 @@ export function drawMinimap(
   ctx.fillStyle = 'rgba(0,0,0,0.7)';
   ctx.fillRect(0, stripY, cw, MINIMAP_HEIGHT_PX);
 
-  // Helper: draw a 2×2 dot.
+  // Helper: draw a 2x2 dot.
   const dot = (worldX: number, color: string): void => {
     const sx = worldToStripX(worldX, cw);
     ctx.fillStyle = color;
     ctx.fillRect(Math.round(sx) - 1, stripY + MINIMAP_HEIGHT_PX / 2 - 1, 2, 2);
   };
 
-  // Stockpile marker (yellow, 3×3).
+  // Stockpile marker (yellow, 3x3).
   if (stockpilePoint.x !== 0 || stockpilePoint.y !== 0) {
     const sx = worldToStripX(stockpilePoint.x, cw);
     ctx.fillStyle = '#ffdd00';
@@ -456,7 +456,7 @@ export function drawMinimap(
   }
 
   // Camera window (white outline).
-  // Visible width in world cells depends on zoom (GDD §12.3): the minimap maps
+  // Visible width in world cells depends on zoom (GDD 12.3): the minimap maps
   // the WHOLE world (zoom-independent), but the camera window rect must shrink
   // when zoomed in and grow when zoomed out.
   const camLeft = worldToStripX(opts.camera.x, cw);
@@ -479,7 +479,7 @@ export function drawMinimap(
 /**
  * Determine which direction (if any) a world column is relative to the current
  * camera window. Returns '' when the column is on-screen.
- * GDD §12.1 off-screen alert arrows.
+ * GDD 12.1 off-screen alert arrows.
  */
 export function directionToWorldX(
   worldX: number,
@@ -488,8 +488,8 @@ export function directionToWorldX(
 ): '\u2190' | '\u2192' | '' {
   const visLeft = cam.x;
   const visRight = cam.x + viewportWpx / effectiveCellPx();
-  if (worldX < visLeft) return '\u2190'; // ←
-  if (worldX >= visRight) return '\u2192'; // →
+  if (worldX < visLeft) return '\u2190'; // <-
+  if (worldX >= visRight) return '\u2192'; // ->
   return '';
 }
 
@@ -499,7 +499,7 @@ export function directionToWorldX(
  * right arrow at the right edge when zombies exist right of camera.
  * Arrow size and opacity scale with the count of off-screen zombies on that
  * side. Guard-safe for zero-sized canvas.
- * GDD §12.1 off-screen awareness.
+ * GDD 12.1 off-screen awareness.
  */
 export function drawEdgeArrows(
   ctx: CanvasRenderingContext2D,
@@ -549,16 +549,16 @@ export function drawEdgeArrows(
     // Drop shadow.
     ctx.fillStyle = '#000';
     if (side === 'left') {
-      ctx.fillText('\u25c4', 3, midY + 1); // ◄
+      ctx.fillText('\u25c4', 3, midY + 1); // <
     } else {
-      ctx.fillText('\u25ba', cw - 3, midY + 1); // ►
+      ctx.fillText('\u25ba', cw - 3, midY + 1); // >
     }
     // Arrow (red-orange for threat).
     ctx.fillStyle = '#ff6622';
     if (side === 'left') {
-      ctx.fillText('\u25c4', 2, midY); // ◄
+      ctx.fillText('\u25c4', 2, midY); // <
     } else {
-      ctx.fillText('\u25ba', cw - 4, midY); // ►
+      ctx.fillText('\u25ba', cw - 4, midY); // >
     }
   };
 
@@ -570,13 +570,13 @@ export function drawEdgeArrows(
 }
 
 // ---------------------------------------------------------------------------
-// Under-attack alert (task 11-4, GDD §12 UX readability)
+// Under-attack alert (task 11-4, GDD 12 UX readability)
 // ---------------------------------------------------------------------------
 
 /**
  * Draw left / right edge alert arrows when a structure cell is being breached
- * OFF-SCREEN (GDD §12.1 off-screen awareness). Driven by `recentChips` from
- * game/breaching.ts — any chip older than CHIP_FLASH_TICKS is ignored so the
+ * OFF-SCREEN (GDD 12.1 off-screen awareness). Driven by `recentChips` from
+ * game/breaching.ts - any chip older than CHIP_FLASH_TICKS is ignored so the
  * alert fades naturally when the breach stops.
  *
  * Reuses the `directionToWorldX` helper (same formula as drawEdgeArrows) and
@@ -609,7 +609,7 @@ export function drawUnderAttackAlert(
     const dir = directionToWorldX(cellX, cam, viewportWpx);
     if (dir === '\u2190') alertLeft = true;
     if (dir === '\u2192') alertRight = true;
-    if (alertLeft && alertRight) break; // both sides found — no need to keep scanning
+    if (alertLeft && alertRight) break; // both sides found - no need to keep scanning
   }
 
   if (!alertLeft && !alertRight) return;
@@ -651,15 +651,15 @@ export function drawUnderAttackAlert(
 }
 
 // ---------------------------------------------------------------------------
-// End screen (GDD §12.2 win/lose message)
+// End screen (GDD 12.2 win/lose message)
 // ---------------------------------------------------------------------------
 
 /**
  * When state.status is not 'playing', render a semi-transparent dim overlay
  * and centred large text describing the outcome.
  *
- *   Won  → "YOU SURVIVED — Wave N"
- *   Lost → "COLONY LOST — <cause>"
+ *   Won  -> "YOU SURVIVED - Wave N"
+ *   Lost -> "COLONY LOST - <cause>"
  *
  * Guard-safe: silently returns when canvas is absent or zero-sized, or when
  * state.status is 'playing'.
@@ -713,11 +713,11 @@ export function drawEndScreen(
 }
 
 // ---------------------------------------------------------------------------
-// Hit-flash registry (task 11-7, GDD §12 UX readability)
+// Hit-flash registry (task 11-7, GDD 12 UX readability)
 //
 // A tiny time-bounded juice layer. registerHit() records the world position of
 // a fresh damage event; drawHitFlashes() renders a brief expanding ring there
-// via the ctx overlay (NEVER the ImageData path — putImageData invariant kept).
+// via the ctx overlay (NEVER the ImageData path - putImageData invariant kept).
 // The array is hard-capped at MAX_HIT_FLASHES: when full the OLDEST entry is
 // evicted so the count never grows unboundedly. Flashes expire after exactly
 // HIT_FLASH_TICKS ticks via advanceHitFlashes().
@@ -735,12 +735,12 @@ const _hitFlashes: HitFlash[] = [];
 /**
  * Record a hit at the given world position so drawHitFlashes can render the
  * brief ring this and subsequent frames. If MAX_HIT_FLASHES are already active
- * the oldest entry is evicted (array stays bounded — NEVER grows past the cap).
+ * the oldest entry is evicted (array stays bounded - NEVER grows past the cap).
  * Safe to call from the sim (pure data write, no DOM or ctx access).
  */
 export function registerHit(worldX: number, worldY: number): void {
   if (_hitFlashes.length >= MAX_HIT_FLASHES) {
-    _hitFlashes.shift(); // evict oldest — O(n) but n≤24, negligible
+    _hitFlashes.shift(); // evict oldest - O(n) but n<=24, negligible
   }
   _hitFlashes.push({ worldX, worldY, age: 0 });
 }
@@ -773,8 +773,8 @@ export function _hitFlashCount(): number {
  * world but below any full-screen overlays. Guard-safe for zero-sized canvas.
  *
  * Ring design: starts small (radius=2 cells) and expands linearly to ~5 cells
- * over HIT_FLASH_TICKS, fading from opaque white → transparent. Costs one
- * ctx.arc + ctx.stroke per active flash — bounded by MAX_HIT_FLASHES.
+ * over HIT_FLASH_TICKS, fading from opaque white -> transparent. Costs one
+ * ctx.arc + ctx.stroke per active flash - bounded by MAX_HIT_FLASHES.
  */
 export function drawHitFlashes(
   ctx: CanvasRenderingContext2D,
@@ -796,9 +796,9 @@ export function drawHitFlashes(
   ctx.lineWidth = 1.5;
 
   for (const f of _hitFlashes) {
-    const progress = f.age / HIT_FLASH_TICKS; // 0 → 1
+    const progress = f.age / HIT_FLASH_TICKS; // 0 -> 1
     const alpha = 1 - progress;               // fade out
-    const radiusCells = 2 + progress * 3;     // 2→5 cells
+    const radiusCells = 2 + progress * 3;     // 2->5 cells
     const radiusPx = radiusCells * cellPx;
 
     // Convert world anchor to screen pixels.
@@ -806,7 +806,7 @@ export function drawHitFlashes(
     const sx = sc.x;
     const sy = sc.y;
 
-    // Cull off-screen rings (not mandatory — canvas clips anyway, but avoids
+    // Cull off-screen rings (not mandatory - canvas clips anyway, but avoids
     // needless arc calls for distant flashes).
     if (sx + radiusPx < -4 || sx - radiusPx > cw + 4) continue;
     if (sy + radiusPx < -4 || sy - radiusPx > ch + 4) continue;

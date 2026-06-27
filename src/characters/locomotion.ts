@@ -1,23 +1,23 @@
 /**
- * characters/locomotion.ts — Rigged body locomotion (GDD §5.1 "fall").
+ * characters/locomotion.ts - Rigged body locomotion (GDD 5.1 "fall").
  *
- * Cheap, reliable rigged-character motion (NOT soft-body — GDD §13): the whole
+ * Cheap, reliable rigged-character motion (NOT soft-body - GDD 13): the whole
  * body translates in WHOLE world cells against the live cellular grid. This task
  * (p3-t2) implements the ground probe + gravity only:
  *
  *   - The body falls under BODY_GRAVITY when ungrounded, capped at BODY_FALL_MAX.
  *   - The fall is SWEPT one cell at a time and stops the instant the next step
- *     down would overlap solid terrain — so a fast-falling body can never tunnel
+ *     down would overlap solid terrain - so a fast-falling body can never tunnel
  *     through thin ground (this no-tunnel invariant is what THE GATE rides on).
  *   - The body rests with its lowest pixel exactly one cell above the floor.
  *
  * Horizontal walk + gentle-slope climbing (p3-t3) live here too. Phase 4 (p4-t4,
  * THE GATE) adds the degraded gait: a body that has lost a leg crawls at
- * CRAWL_SPEED (GDD §7.2), and a DEAD body is never driven here — its released
+ * CRAWL_SPEED (GDD 7.2), and a DEAD body is never driven here - its released
  * cells are owned by the cellular sim. AI (Phase 5) is still out of scope. The horizontal step is SWEPT one
  * whole cell at a time against the live grid (same no-tunnel discipline as the
- * fall), with a single-cell step-up so the body climbs gentle slopes (GDD §5.1,
- * §7.1, §14 Milestone 0) but stops dead at anything taller than STEP_UP_MAX.
+ * fall), with a single-cell step-up so the body climbs gentle slopes (GDD 5.1,
+ * 7.1, 14 Milestone 0) but stops dead at anything taller than STEP_UP_MAX.
  * DOM-free pure logic so it stays headless-testable.
  */
 
@@ -38,24 +38,24 @@ import {
 
 /**
  * Read the world at the head bone's cells and resolve the two environmental
- * reactions THE GATE owns at gate point 4 (GDD §5.2 / §7.3 — the rigged body
+ * reactions THE GATE owns at gate point 4 (GDD 5.2 / 7.3 - the rigged body
  * "reads the world: sand above, water over head, and reacts"):
  *
  *   - DROWN: if ANY head cell is WATER the body holds its breath (drownTicks++);
  *     the instant the head clears the surface the counter resets. When it
- *     reaches DROWN_TICKS the body drowns → lays down as a prone CORPSE (revised
- *     death model, GDD §5.1: drowning is a QUIET death, not the cell-dissolve)
+ *     reaches DROWN_TICKS the body drowns -> lays down as a prone CORPSE (revised
+ *     death model, GDD 5.1: drowning is a QUIET death, not the cell-dissolve)
  *     and we report it so the caller bails.
  *   - PIN: if solid NON-fluid terrain (sand/dirt/stone) sits directly on top of
- *     the head, the body is buried/pinned — its horizontal walk is suppressed
+ *     the head, the body is buried/pinned - its horizontal walk is suppressed
  *     this tick (falling/settling still resolves below).
  *
- * Cheap: one short scan of the head bone's authored pixels (≤6 cells), no grid
+ * Cheap: one short scan of the head bone's authored pixels (<=6 cells), no grid
  * sweep. Returns whether the body is (a) now dead and (b) pinned this tick.
  */
 function reactToEnvironment(body: Body): { dead: boolean; pinned: boolean } {
   const head = body.rig.find((b) => b.name === 'head');
-  // A destroyed/absent head means the body is already dead or dissolving — the
+  // A destroyed/absent head means the body is already dead or dissolving - the
   // dead-body guard upstream handles it, so there is nothing to read here.
   if (!head || head.destroyed) {
     return { dead: false, pinned: false };
@@ -74,23 +74,23 @@ function reactToEnvironment(body: Body): { dead: boolean; pinned: boolean } {
     if (p.dy < topDy) topDy = p.dy;
   }
 
-  // --- Drown (GDD §5.2 "head submerged too long" / §7.3 drowned) -----------
+  // --- Drown (GDD 5.2 "head submerged too long" / 7.3 drowned) -----------
   if (headInWater) {
     body.drownTicks++;
     if (body.drownTicks >= DROWN_TICKS) {
-      // GDD §5.1: drowning is a QUIET death — the rig lies down as a prone
+      // GDD 5.1: drowning is a QUIET death - the rig lies down as a prone
       // corpse (inert, decays over time), NOT the extreme cell-dissolve.
       layDownCorpse(body, 'drowned');
       return { dead: true, pinned: false };
     }
   } else {
-    body.drownTicks = 0; // surfaced → breath recovers (MVP: instant reset)
+    body.drownTicks = 0; // surfaced -> breath recovers (MVP: instant reset)
   }
 
-  // --- Buried / pinned (GDD §7.3 "buried by collapsing sand") --------------
+  // --- Buried / pinned (GDD 7.3 "buried by collapsing sand") --------------
   // Pinned iff the cell directly ABOVE any top-row head pixel is solid, non-
   // fluid terrain (sand/dirt/stone/etc). Fluids over the head drown, they don't
-  // pin; foliage/AIR don't pin. Only the head's top row matters — cheap.
+  // pin; foliage/AIR don't pin. Only the head's top row matters - cheap.
   let pinned = false;
   if (BURIAL_PIN) {
     const aboveY = ry + head.offset.dy + topDy - 1;
@@ -109,8 +109,8 @@ function reactToEnvironment(body: Body): { dead: boolean; pinned: boolean } {
 
 /**
  * Does ANY of this bone's world cells sit orthogonally adjacent to a FIRE cell?
- * (GDD §7.3: "flesh is flammable ... it spreads body-to-body".) Cheap 4-neighbour
- * probe per authored pixel — the same fire that ignites loose terrain is what
+ * (GDD 7.3: "flesh is flammable ... it spreads body-to-body".) Cheap 4-neighbour
+ * probe per authored pixel - the same fire that ignites loose terrain is what
  * catches the live figure, so the contact rule stays identical to the sim's.
  */
 function boneTouchesFire(body: Body, bone: Bone, rx: number, ry: number): boolean {
@@ -130,14 +130,14 @@ function boneTouchesFire(body: Body, bone: Bone, rx: number, ry: number): boolea
 }
 
 /**
- * Fire ignition hook (p4-t6, THE GATE gate point 3, GDD §7.3). A LIVING body
+ * Fire ignition hook (p4-t6, THE GATE gate point 3, GDD 7.3). A LIVING body
  * whose flesh touches FIRE catches and starts shedding burning flesh: for each
  * non-destroyed bone adjacent to fire, with probability BODY_BURN_DAMAGE_CHANCE
- * we applyDamage(bone) — the bone's pixels are RELEASED into the live sim where
+ * we applyDamage(bone) - the bone's pixels are RELEASED into the live sim where
  * the same adjacent fire ignites them via the normal Phase-2 spread (FLESH is
  * flammable), so the seam between sprite and shed cells stays invisible. A
  * sustained head/torso catch cascades to death via the existing dissolve
- * thresholds (applyDamage → dissolveBody).
+ * thresholds (applyDamage -> dissolveBody).
  *
  * Tiny and gated: living bodies only, only on real fire adjacency, low chance,
  * NO per-pixel fire-on-sprite system. We iterate a SNAPSHOT of the rig because
@@ -148,10 +148,10 @@ function boneTouchesFire(body: Body, bone: Bone, rx: number, ry: number): boolea
 function checkFire(body: Body): void {
   const rx = Math.round(body.x);
   const ry = Math.round(body.y);
-  const bones = body.rig.slice(); // snapshot — applyDamage mutates the rig
+  const bones = body.rig.slice(); // snapshot - applyDamage mutates the rig
   for (const bone of bones) {
     if (!body.alive) {
-      return; // a head/torso catch dissolved the body — stop scanning
+      return; // a head/torso catch dissolved the body - stop scanning
     }
     if (bone.destroyed) {
       continue;
@@ -166,7 +166,7 @@ function checkFire(body: Body): void {
 }
 
 /**
- * Would the body — if translated by (dxCells, dyCells) WHOLE cells — land ANY
+ * Would the body - if translated by (dxCells, dyCells) WHOLE cells - land ANY
  * of its non-destroyed pixels in a solid cell? Used for all collision tests.
  *
  * A pixel's world cell is the feet-centre anchor plus its bone offset and its
@@ -192,14 +192,14 @@ export function bodyCellsSolidAt(
 
 /**
  * Attempt ONE whole-cell horizontal step in direction `step` (-1 or +1) from the
- * body's current integer column, resolving collisions (GDD §5.1, §7.1):
- *   - Clear ahead → take the step.
- *   - Blocked but a 1..STEP_UP_MAX rise clears (gentle slope) → step up onto it.
- *   - Blocked by a taller wall → don't move (caller stops at the wall).
+ * body's current integer column, resolving collisions (GDD 5.1, 7.1):
+ *   - Clear ahead -> take the step.
+ *   - Blocked but a 1..STEP_UP_MAX rise clears (gentle slope) -> step up onto it.
+ *   - Blocked by a taller wall -> don't move (caller stops at the wall).
  * Returns true iff the body moved. Never leaves a pixel overlapping solid.
  */
 function tryHorizontalStep(body: Body, step: 1 | -1): boolean {
-  // Clear path at the same height → just walk forward.
+  // Clear path at the same height -> just walk forward.
   if (!bodyCellsSolidAt(body, step, 0)) {
     body.x += step;
     return true;
@@ -208,12 +208,12 @@ function tryHorizontalStep(body: Body, step: 1 | -1): boolean {
   // position (no overlap) is both the slope test and the headroom test.
   for (let h = 1; h <= STEP_UP_MAX; h++) {
     if (!bodyCellsSolidAt(body, step, -h)) {
-      body.x += step; // GDD §5.1: climb the gentle slope by one cell
+      body.x += step; // GDD 5.1: climb the gentle slope by one cell
       body.y -= h;
       return true;
     }
   }
-  // Taller than STEP_UP_MAX → stop at the wall.
+  // Taller than STEP_UP_MAX -> stop at the wall.
   return false;
 }
 
@@ -225,8 +225,8 @@ function tryHorizontalStep(body: Body, step: 1 | -1): boolean {
  */
 export function updateBody(body: Body): void {
   // --- Dead-body guard (p4-t4, THE GATE) -----------------------------------
-  // GDD §7.2: a dead body's pixels have been released into the live sim (the
-  // death-collapse) — its cells are driven by the cellular update, NOT by the
+  // GDD 7.2: a dead body's pixels have been released into the live sim (the
+  // death-collapse) - its cells are driven by the cellular update, NOT by the
   // rig. Never drive locomotion on a corpse (and don't crash if main.ts hands
   // us one): bail before touching horizontal motion or the fall.
   if (!body.alive) {
@@ -234,9 +234,9 @@ export function updateBody(body: Body): void {
   }
 
   // --- Environmental reaction (p4-t5, THE GATE gate point 4) ----------------
-  // GDD §5.2/§7.3: the rigged body reads the world at its head cells. Drowning
-  // can KILL (dissolve) — bail immediately so we never drive a fresh corpse.
-  // Burial PINS — suppress the horizontal walk this tick (the fall still runs
+  // GDD 5.2/7.3: the rigged body reads the world at its head cells. Drowning
+  // can KILL (dissolve) - bail immediately so we never drive a fresh corpse.
+  // Burial PINS - suppress the horizontal walk this tick (the fall still runs
   // below, so a pinned body still settles as terrain shifts around it).
   const env = reactToEnvironment(body);
   if (env.dead) {
@@ -244,7 +244,7 @@ export function updateBody(body: Body): void {
   }
 
   // --- Fire ignition (p4-t6, THE GATE gate point 3) -------------------------
-  // GDD §7.3: flesh is flammable and fire spreads body-to-body. A living body in
+  // GDD 7.3: flesh is flammable and fire spreads body-to-body. A living body in
   // contact with FIRE catches and sheds burning flesh; a sustained head/torso
   // catch can drive it dead. If it died, bail before driving a fresh corpse.
   checkFire(body);
@@ -253,10 +253,10 @@ export function updateBody(body: Body): void {
   }
 
   // --- Horizontal motion (p3-t3) -------------------------------------------
-  // Driven by body.moveDir (set externally by t5's driver — no AI here).
+  // Driven by body.moveDir (set externally by t5's driver - no AI here).
   if (body.moveDir !== 0 && !env.pinned) {
     body.facing = body.moveDir; // always face the way we intend to move
-    // GDD §7.2: a body that has lost a leg drops to a CRAWL — much slower. The
+    // GDD 7.2: a body that has lost a leg drops to a CRAWL - much slower. The
     // rig disables the limb (bodyCellsSolidAt already skips destroyed bones), so
     // here we only need the speed drop; an intact body walks at WALK_SPEED.
     const speed =
@@ -282,14 +282,14 @@ export function updateBody(body: Body): void {
 
   // --- Ground probe + swept fall (p3-t2) -----------------------------------
   // Ground probe: grounded iff a step down by 1 cell would overlap solid
-  // (i.e. there is solid directly beneath a foot pixel — GDD §5.1).
+  // (i.e. there is solid directly beneath a foot pixel - GDD 5.1).
   if (bodyCellsSolidAt(body, 0, 1)) {
     body.grounded = true;
     body.vy = 0;
     return;
   }
 
-  // Ungrounded → accelerate downward, capped so we never accumulate enough
+  // Ungrounded -> accelerate downward, capped so we never accumulate enough
   // speed to skip past thin terrain in a single tick beyond what the swept
   // step loop below can resolve.
   body.grounded = false;
@@ -299,7 +299,7 @@ export function updateBody(body: Body): void {
   // step would overlap solid. This is the no-tunnel guarantee.
   const steps = Math.floor(body.vy);
   for (let i = 0; i < steps; i++) {
-    if (bodyCellsSolidAt(body, 0, 1)) break; // next step lands in solid → stop
+    if (bodyCellsSolidAt(body, 0, 1)) break; // next step lands in solid -> stop
     body.y += 1;
   }
 

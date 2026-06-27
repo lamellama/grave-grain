@@ -1,8 +1,8 @@
 /**
- * resources.ts — Global colony stockpile (GDD §8)
+ * resources.ts - Global colony stockpile (GDD 8)
  *
  * A pure data store: no sim logic, no hauling logistics, no per-tile piles.
- * MVP scope (GDD §14): { wood, stone, food, ore } only.
+ * MVP scope (GDD 14): { wood, stone, food, ore } only.
  */
 
 // ---------------------------------------------------------------------------
@@ -29,12 +29,12 @@ export function getStockpile(): { wood: number; stone: number; food: number; ore
 // Mutations
 // ---------------------------------------------------------------------------
 
-/** Add n units of the given kind (n must be ≥ 0). */
+/** Add n units of the given kind (n must be >= 0). */
 export function addResource(kind: ResourceKind, n: number): void {
   stockpile[kind] += n;
 }
 
-/** True if every listed kind has ≥ its cost. */
+/** True if every listed kind has >= its cost. */
 export function canAfford(cost: Partial<Record<ResourceKind, number>>): boolean {
   for (const k of Object.keys(cost) as ResourceKind[]) {
     const required = cost[k] ?? 0;
@@ -56,7 +56,7 @@ export function spend(cost: Partial<Record<ResourceKind, number>>): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// Deposit location (used for the "return to pile" leg — GDD §8)
+// Deposit location (used for the "return to pile" leg - GDD 8)
 // ---------------------------------------------------------------------------
 
 /** The world-cell coordinate where survivors drop harvested resources. */
@@ -80,12 +80,12 @@ export function getAmmo(): number {
   return ammo;
 }
 
-/** Set the ammo count (clamped ≥ 0). */
+/** Set the ammo count (clamped >= 0). */
 export function setAmmo(n: number): void {
   ammo = Math.max(0, Math.floor(n));
 }
 
-/** Add (or remove) ammo, clamped ≥ 0 (for later pickups/crafting). */
+/** Add (or remove) ammo, clamped >= 0 (for later pickups/crafting). */
 export function addAmmo(n: number): void {
   ammo = Math.max(0, ammo + n);
 }

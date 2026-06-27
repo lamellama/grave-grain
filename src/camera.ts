@@ -1,7 +1,7 @@
 /**
- * camera.ts — Horizontal (and optional vertical) scroll camera
- * GDD §12.1: the world is wider than the screen, scrolls horizontally.
- * GDD §12.3/§12.4: a zoom factor lets the player swing between an overview and
+ * camera.ts - Horizontal (and optional vertical) scroll camera
+ * GDD 12.1: the world is wider than the screen, scrolls horizontally.
+ * GDD 12.3/12.4: a zoom factor lets the player swing between an overview and
  * precise placement while keeping cells chunky.
  * Camera position in world coordinates; clamped to [0, max].
  */
@@ -21,12 +21,12 @@ import {
  */
 export const camera = {
   x: 0, // scroll offset in cells
-  y: 0, // vertical offset (left at 0 for now per GDD §12.1)
-  zoom: ZOOM_DEFAULT, // GDD §12.3 — effective cell size = CELL_SIZE * zoom
+  y: 0, // vertical offset (left at 0 for now per GDD 12.1)
+  zoom: ZOOM_DEFAULT, // GDD 12.3 - effective cell size = CELL_SIZE * zoom
 };
 
 /**
- * Effective cell size in screen pixels (GDD §12.3 zoom). Every screen↔world
+ * Effective cell size in screen pixels (GDD 12.3 zoom). Every screen<->world
  * transform and the renderer's block-fill use this instead of the raw
  * CELL_SIZE so a world cell maps to the same screen rect everywhere at any
  * zoom. Exported so the renderer shares the exact same number.
@@ -60,7 +60,7 @@ export function clampCamera(viewportWidthPx: number, viewportHeightPx: number): 
   camera.x = Math.max(0, Math.min(camera.x, maxX / eff));
   // Vertical: the world (WORLD_H) is taller than the viewport, so we clamp y to
   // a valid range and let main frame the camera on the surface. Horizontal drag
-  // is still the primary navigation (GDD §12.1); y is set by framing, not panned.
+  // is still the primary navigation (GDD 12.1); y is set by framing, not panned.
   camera.y = Math.max(0, Math.min(camera.y, maxY / eff));
 }
 
@@ -98,7 +98,7 @@ export function panCamera(deltaPixels: number): void {
 }
 
 /**
- * Set the zoom factor, zooming ABOUT a screen anchor (GDD §12.3 precise
+ * Set the zoom factor, zooming ABOUT a screen anchor (GDD 12.3 precise
  * placement). The world cell currently under (anchorScreenX, anchorScreenY)
  * stays under that same screen point after the zoom change, so a pinch/scroll
  * feels anchored rather than re-centring the view. Clamps z to
@@ -128,7 +128,7 @@ export function setZoom(
 /**
  * Jump the camera so that `worldXCell` is centred horizontally in the viewport.
  * y stays pinned to 0. Clamps to valid bounds.
- * GDD §12.1: off-screen awareness — minimap tap jumps camera.
+ * GDD 12.1: off-screen awareness - minimap tap jumps camera.
  */
 export function jumpCameraTo(
   worldXCell: number,

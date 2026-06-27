@@ -1,18 +1,18 @@
 /**
- * game/worldgen.ts — Seeded procedural world generation (GDD §5.3).
+ * game/worldgen.ts - Seeded procedural world generation (GDD 5.3).
  *
- * AUTHORITATIVE behaviour: GDD §5.3 "World generation":
- *   - Largely procedural, **seeded for replayability** (same seed ⇒ same map).
+ * AUTHORITATIVE behaviour: GDD 5.3 "World generation":
+ *   - Largely procedural, **seeded for replayability** (same seed => same map).
  *   - Wide world, several viewports across; the survivor start zone sits AWAY
  *     from the zombie edge.
- *   - Layered terrain: surface soil/grass → dirt → mixed sand pockets → stone
+ *   - Layered terrain: surface soil/grass -> dirt -> mixed sand pockets -> stone
  *     with ore veins at depth, plus water tables / underground pools.
  *   - Surface features: woodland clusters (trees + bushes).
  *   - Spawn guarantees: the start zone is reasonably safe, with at least a
  *     minimum guaranteed wood + water source within reach.
  *
- * Data-oriented (AGENTS §4): this module writes straight into the flat typed
- * `material`/`integrity` arrays — no per-cell objects, no DOM. It is the only
+ * Data-oriented (AGENTS 4): this module writes straight into the flat typed
+ * `material`/`integrity` arrays - no per-cell objects, no DOM. It is the only
  * worldgen entry point; the hand-seeded Phase-3 test scenes it replaces are
  * wired out of main.ts separately (task 9-7).
  */
@@ -65,14 +65,14 @@ import {
 export interface WorldGenResult {
   /** Column the survivor colony spawns at (away from the zombie edge). */
   spawnX: number;
-  /** Row to drop survivors at — a little above the local surface so they fall on. */
+  /** Row to drop survivors at - a little above the local surface so they fall on. */
   spawnY: number;
   /** Surface point inside the spawn zone for the colony stockpile. */
   stockpilePoint: { x: number; y: number };
-  /** Which horizontal edge the zombies stream in from (GDD §5.3 edge zones). */
+  /** Which horizontal edge the zombies stream in from (GDD 5.3 edge zones). */
   zombieEdge: 'left' | 'right';
   /**
-   * A standable, SHELTERED feet-cell inside the starter camp (Task W5, GDD §8).
+   * A standable, SHELTERED feet-cell inside the starter camp (Task W5, GDD 8).
    * main.ts clusters the colony here so survivors live in the warm nook on the
    * cold world. `x` is the camp centre (= spawnX); `y` is the camp floor feet row.
    */
@@ -80,7 +80,7 @@ export interface WorldGenResult {
 }
 
 // ---------------------------------------------------------------------------
-// Seeded RNG — mulberry32 (GDD §5.3 "seeded for replayability").
+// Seeded RNG - mulberry32 (GDD 5.3 "seeded for replayability").
 // A self-contained 32-bit PRNG: the SAME seed yields a byte-identical grid.
 // Never use Math.random in worldgen.
 // ---------------------------------------------------------------------------
@@ -108,7 +108,7 @@ function smoothstep(t: number): number {
 // Wavelengths (cells) of the two value-noise octaves that roll the surface.
 const NOISE_WAVELENGTH_LONG = 96;
 const NOISE_WAVELENGTH_SHORT = 28;
-// Mix weights for the two octaves (sum 1.0) — long rolls dominate.
+// Mix weights for the two octaves (sum 1.0) - long rolls dominate.
 const NOISE_W_LONG = 0.72;
 const NOISE_W_SHORT = 0.28;
 
@@ -145,7 +145,7 @@ function buildOctave(rng: () => number, wavelength: number): Float64Array {
 }
 
 // ---------------------------------------------------------------------------
-// generateWorld — the seeded build (GDD §5.3).
+// generateWorld - the seeded build (GDD 5.3).
 // ---------------------------------------------------------------------------
 
 export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
@@ -156,8 +156,8 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
   integrity.fill(0);
 
   // 2. Surface: a smooth per-column horizon from two value-noise octaves,
-  //    scaled to ±SURFACE_AMPLITUDE rows around SURFACE_BASE_Y. Smoothstep
-  //    interpolation keeps it rolling, never jagged (GDD §5.3 surface flatness).
+  //    scaled to +/-SURFACE_AMPLITUDE rows around SURFACE_BASE_Y. Smoothstep
+  //    interpolation keeps it rolling, never jagged (GDD 5.3 surface flatness).
   const longOct = buildOctave(rng, NOISE_WAVELENGTH_LONG);
   const shortOct = buildOctave(rng, NOISE_WAVELENGTH_SHORT);
   const surfaceY = new Int32Array(WORLD_W);
@@ -169,7 +169,7 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     surfaceY[x] = row;
   }
 
-  // 3. Layers per column (GDD §5.3): above surface = AIR; then SURFACE_SOIL_DEPTH
+  // 3. Layers per column (GDD 5.3): above surface = AIR; then SURFACE_SOIL_DEPTH
   //    rows of soil/grass DIRT, then DIRT_DEPTH rows of DIRT, then STONE to the
   //    world floor. Soil and dirt share the DIRT material; foliage marks trees.
   const dirtBottom = new Int32Array(WORLD_W); // first STONE row in each column
@@ -182,8 +182,8 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     }
   }
 
-  // 4. Sand pockets — seeded lens blobs of SAND in the dirt/stone, at/below the
-  //    dirt band so none ever sit above the surface (GDD §5.3 mixed sand pockets).
+  // 4. Sand pockets - seeded lens blobs of SAND in the dirt/stone, at/below the
+  //    dirt band so none ever sit above the surface (GDD 5.3 mixed sand pockets).
   for (let x = 0; x < WORLD_W; x++) {
     if (rng() >= SAND_POCKET_CHANCE) continue;
     const r = 2 + Math.floor(rng() * (SAND_POCKET_MAX - 1)); // 2..SAND_POCKET_MAX
@@ -195,8 +195,8 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     fillBlob(x, cy, r, SAND, /*onlySolid*/ true);
   }
 
-  // 5. Ore veins — short ORE random-walks embedded ONLY in stone below the dirt
-  //    band (GDD §5.3 ore veins at depth). Never enters dirt/sand/air.
+  // 5. Ore veins - short ORE random-walks embedded ONLY in stone below the dirt
+  //    band (GDD 5.3 ore veins at depth). Never enters dirt/sand/air.
   for (let x = 0; x < WORLD_W; x++) {
     for (let y = dirtBottom[x]; y < WORLD_H; y++) {
       if (material[idx(x, y)] !== STONE) continue;
@@ -205,8 +205,8 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     }
   }
 
-  // 6. Water table — contained underground pools carved into the stone around
-  //    WATER_TABLE_DEPTH below the surface (GDD §5.3 water tables). Only STONE
+  // 6. Water table - contained underground pools carved into the stone around
+  //    WATER_TABLE_DEPTH below the surface (GDD 5.3 water tables). Only STONE
   //    cells become WATER, so each pool keeps a stone floor + side walls and
   //    will NOT drain across the map when the sim runs (a sealed pocket).
   for (let x = 0; x < WORLD_W; x++) {
@@ -217,8 +217,8 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     carveSealedPool(x, cy, halfW, halfH);
   }
 
-  // 7. Woodland — FOLIAGE clusters spread across the width, each ~CLUSTER_W wide
-  //    and FOLIAGE_HEIGHT tall, sitting ON the surface (GDD §5.3 woodland).
+  // 7. Woodland - FOLIAGE clusters spread across the width, each ~CLUSTER_W wide
+  //    and FOLIAGE_HEIGHT tall, sitting ON the surface (GDD 5.3 woodland).
   const spacing = WORLD_W / WOODLAND_CLUSTERS;
   for (let c = 0; c < WOODLAND_CLUSTERS; c++) {
     const jitter = Math.floor((rng() * 2 - 1) * spacing * 0.35);
@@ -226,8 +226,8 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     placeWoodland(rng, cx, surfaceY);
   }
 
-  // 8. Zombie edge + spawn zone (GDD §5.3): survivors start at the OPPOSITE end
-  //    of the map from the zombie edge, ≥ SPAWN_ZONE_MARGIN away.
+  // 8. Zombie edge + spawn zone (GDD 5.3): survivors start at the OPPOSITE end
+  //    of the map from the zombie edge, >= SPAWN_ZONE_MARGIN away.
   const zombieEdge = ZOMBIE_SPAWN_EDGE;
   let spawnX =
     zombieEdge === 'left'
@@ -242,7 +242,7 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
   const spawnY = Math.max(0, spawnSurface - 1);
   const stockpilePoint = { x: spawnX, y: spawnSurface };
 
-  // 9. Spawn-zone guarantees (GDD §5.3): a survivor must always be able to chop
+  // 9. Spawn-zone guarantees (GDD 5.3): a survivor must always be able to chop
   //    wood and drink water near home, within RESOURCE_SCAN_RADIUS of spawnX.
 
   // 9a. Wood: if the random woodland did not leave enough FOLIAGE in reach, seed
@@ -255,7 +255,7 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
   // 9b. Water: carve a guaranteed open-topped, contained pond near home. The
   //     deep water-table pools (step 6) are sealed in stone and NOT reachable
   //     without digging, so a bare WATER count near spawn does not prove the
-  //     §5.3 "within reach" guarantee. We therefore always carve one surface
+  //     5.3 "within reach" guarantee. We therefore always carve one surface
   //     source the colony can actually drink from when the guarantee is on:
   //     an open-topped basin (reachable) walled in stone (won't drain).
   if (SPAWN_GUARANTEE_WATER) {
@@ -263,7 +263,7 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     carveSurfacePond(waterX, surfaceY[waterX]);
   }
 
-  // 10. Starter camp (Task W5, GDD §8/§10): an OPEN-SIDED roofed WOOD canopy
+  // 10. Starter camp (Task W5, GDD 8/10): an OPEN-SIDED roofed WOOD canopy
   //     centred on the spawn column so the colony LIVES under a warm roof on the
   //     cold world AND can freely walk out for water/food. Built LAST so it
   //     overwrites any woodland/surface noise inside its footprint with a clean,
@@ -274,14 +274,14 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
 }
 
 /**
- * Build the starter-camp shelter (Task W5, revised for the OPEN-CAMP model —
- * GDD §8 "enclosed space that provides warmth AND a retreat point"): a WOOD
+ * Build the starter-camp shelter (Task W5, revised for the OPEN-CAMP model -
+ * GDD 8 "enclosed space that provides warmth AND a retreat point"): a WOOD
  * ROOF CANOPY centred at (cx) whose floor sits at `groundRow`, with OPEN SIDES
  * so the colony warms under the roof yet freely walks OUT for water/food.
  * Returns a standable, SHELTERED feet-cell under the canopy (camp centre).
  *
  * THE FIX: the old model walled BOTH sides of the nook, sealing survivors into
- * a box they could not path out of — so a warm colony died of THIRST (no route
+ * a box they could not path out of - so a warm colony died of THIRST (no route
  * to the pond/grove). A roof-only canopy keeps them warm (isSheltered reads the
  * roof overhead) while leaving every side open to walk through.
  *
@@ -291,12 +291,12 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
  *   roofRow  = headRow - CAMP_ROOF_CLEARANCE   (a few cells ABOVE the head)
  *   roof     : row roofRow, columns cx-HALF .. cx+HALF (WOOD span)
  *   posts    : a FEW WOOD cells hanging from each roof END, ABOVE the head row
- *              only — decorative/structural corner posts that do NOT span the
+ *              only - decorative/structural corner posts that do NOT span the
  *              body height, so they never block horizontal exit (open sides).
  * The interior is cleared to AIR and the floor filled solid so a body stands
  * cleanly on a flat span; the roof clears the head + the burial-pin probe but
  * stays inside SHELTER_ROOF_SCAN so isShelteredAt detects it. placeMaterial
- * seeds WOOD integrity so the camp is breachable later (GDD §7.4 / §8 "must
+ * seeds WOOD integrity so the camp is breachable later (GDD 7.4 / 8 "must
  * hold against breaching").
  */
 function buildStarterCamp(cx: number, groundRow: number): { x: number; y: number } {
@@ -320,7 +320,7 @@ function buildStarterCamp(cx: number, groundRow: number): { x: number; y: number
     }
   }
 
-  // WOOD roof spanning the canopy, a few cells above the head — placeMaterial
+  // WOOD roof spanning the canopy, a few cells above the head - placeMaterial
   // seeds WOOD integrity (breachable).
   for (let x = leftX; x <= rightX; x++) {
     if (x < 0 || x >= WORLD_W) continue;
@@ -329,7 +329,7 @@ function buildStarterCamp(cx: number, groundRow: number): { x: number; y: number
 
   // No body-height posts: a clean WOOD canopy with OPEN sides. (Earlier corner
   // posts at rows roofRow+1..headRow-2 wedged a body that did a step-up near the
-  // edge — a raised head at headRow-STEP_UP_MAX collides them — stranding the
+  // edge - a raised head at headRow-STEP_UP_MAX collides them - stranding the
   // colony. The roof alone (a few cells above the head) is what `isSheltered`
   // keys on, so survivors walk freely in/out underneath it.)
 
@@ -357,7 +357,7 @@ function put(x: number, y: number, id: number): void {
 
 /**
  * Fill a filled circle of `id`. If onlySolid, only overwrite existing solid
- * terrain (DIRT/STONE/SAND/ORE) — never AIR/WATER/FOLIAGE — so pockets stay
+ * terrain (DIRT/STONE/SAND/ORE) - never AIR/WATER/FOLIAGE - so pockets stay
  * underground and never punch into the sky.
  */
 function fillBlob(cx: number, cy: number, r: number, id: number, onlySolid: boolean): void {
@@ -377,13 +377,13 @@ function fillBlob(cx: number, cy: number, r: number, id: number, onlySolid: bool
   }
 }
 
-/** Short random-walk that converts STONE→ORE (GDD §5.3 ore veins). */
+/** Short random-walk that converts STONE->ORE (GDD 5.3 ore veins). */
 function walkVein(rng: () => number, sx: number, sy: number): void {
   let x = sx;
   let y = sy;
   for (let step = 0; step < ORE_VEIN_LEN; step++) {
     if (!inBounds(x, y) || material[idx(x, y)] !== STONE) break;
-    material[idx(x, y)] = ORE; // ORE has no integrity → no seeding needed
+    material[idx(x, y)] = ORE; // ORE has no integrity -> no seeding needed
     // 8-neighbour wander.
     const dir = Math.floor(rng() * 8);
     const dx = [-1, 0, 1, -1, 1, -1, 0, 1][dir];
@@ -396,8 +396,8 @@ function walkVein(rng: () => number, sx: number, sy: number): void {
 /**
  * Carve a sealed underground WATER pocket: an ellipse where ONLY STONE cells
  * become WATER. Because the pocket sits deep in solid stone, the unconverted
- * ring around it remains stone — a contained floor + walls that will not drain
- * when the sim runs (GDD §5.3 contained water table).
+ * ring around it remains stone - a contained floor + walls that will not drain
+ * when the sim runs (GDD 5.3 contained water table).
  */
 function carveSealedPool(cx: number, cy: number, halfW: number, halfH: number): void {
   const aw2 = halfW * halfW;
@@ -418,7 +418,7 @@ function carveSealedPool(cx: number, cy: number, halfW: number, halfH: number): 
 /**
  * Place one woodland cluster ON the surface: FOLIAGE columns rising
  * FOLIAGE_HEIGHT (with a little per-column variation) into the AIR above the
- * local surface row (GDD §5.3 trees + bushes). Foliage is placed via put() so
+ * local surface row (GDD 5.3 trees + bushes). Foliage is placed via put() so
  * its integrity seeds (chop/breach read it).
  */
 function placeWoodland(rng: () => number, cx: number, surfaceY: Int32Array): void {
@@ -435,9 +435,9 @@ function placeWoodland(rng: () => number, cx: number, surfaceY: Int32Array): voi
 }
 
 /**
- * Guaranteed dense grove for the spawn zone — a wide, full-height FOLIAGE block
+ * Guaranteed dense grove for the spawn zone - a wide, full-height FOLIAGE block
  * so the FOLIAGE count comfortably clears SPAWN_GUARANTEE_WOOD_CELLS within
- * reach of home (GDD §5.3 spawn wood guarantee).
+ * reach of home (GDD 5.3 spawn wood guarantee).
  */
 function placeGuaranteedGrove(cx: number, surfaceY: Int32Array): void {
   const half = WOODLAND_CLUSTER_W >> 1;
@@ -450,7 +450,7 @@ function placeGuaranteedGrove(cx: number, surfaceY: Int32Array): void {
 }
 
 /**
- * Carve an open-topped, contained pond at the surface near spawn (GDD §5.3
+ * Carve an open-topped, contained pond at the surface near spawn (GDD 5.3
  * spawn water guarantee). The interior is excavated to WATER and ringed with a
  * STONE floor + side walls, so it is BOTH reachable from the surface (a survivor
  * stands on the rim and drinks) AND will not drain when the sim runs.
@@ -479,7 +479,7 @@ function carveSurfacePond(cx: number, surfaceRow: number): void {
 
 /**
  * Count cells of `id` within `radius` columns of `cx` (full column height).
- * Used by the spawn-zone guarantees (GDD §5.3).
+ * Used by the spawn-zone guarantees (GDD 5.3).
  */
 function countMaterialNear(cx: number, id: number, radius: number): number {
   const x0 = Math.max(0, cx - radius);

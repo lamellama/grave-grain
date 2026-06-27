@@ -1,24 +1,24 @@
 /**
- * characters/body.ts — Hybrid character body: skeleton rig + pixel map.
+ * characters/body.ts - Hybrid character body: skeleton rig + pixel map.
  *
- * GDD §5.1 / §14 Milestone 0: a survivor is a *chunky pixel-art body rigged to
+ * GDD 5.1 / 14 Milestone 0: a survivor is a *chunky pixel-art body rigged to
  * a simple skeleton while alive*. The body is authored at WORLD-CELL RESOLUTION
  * (CELL_SIZE pixels per body pixel) so that when Phase 4 releases a damaged
  * region's pixels into the live cellular sim, those cells are visually
- * indistinguishable from loose sand/flesh grains — that resolution match is the
- * load-bearing illusion (GDD §14 "art direction is load-bearing").
+ * indistinguishable from loose sand/flesh grains - that resolution match is the
+ * load-bearing illusion (GDD 14 "art direction is load-bearing").
  *
- * GDD §6.1: Health is NOT a bar — it is body *integrity*. The rig below is the
- * structure Phase 4's damage→cells handoff extends (mark a bone `destroyed`,
- * release its pixels, react: leg → crawl, head → death-collapse).
+ * GDD 6.1: Health is NOT a bar - it is body *integrity*. The rig below is the
+ * structure Phase 4's damage->cells handoff extends (mark a bone `destroyed`,
+ * release its pixels, react: leg -> crawl, head -> death-collapse).
  *
  * SCOPE (p3-t1): data + factory only. No locomotion (t2/t3), no damage/release
  * (Phase 4). DOM-free pure logic so it stays headless-testable.
  *
  * Phase 4 (p4-t1): each pixel now carries a body `material` (FLESH/BONE) and
  * derives its render `color` from MATERIALS[material].color, so a LIVE body
- * pixel and the cell it sheds are identical in colour and resolution — the
- * load-bearing illusion (GDD §14 gate point 5).
+ * pixel and the cell it sheds are identical in colour and resolution - the
+ * load-bearing illusion (GDD 14 gate point 5).
  */
 
 import { MATERIALS, FLESH, BONE } from '../engine/materials';
@@ -29,14 +29,14 @@ import { MATERIALS, FLESH, BONE } from '../engine/materials';
  *                           Math.round(body.y) + bone.offset.dy + pixel.dy
  * (dy negative = up, since the body anchor is the feet-centre.)
  *
- * `material` (FLESH/BONE/BLOOD — GDD §5.2) is what a released pixel writes into
+ * `material` (FLESH/BONE/BLOOD - GDD 5.2) is what a released pixel writes into
  * the grid when Phase 4 sheds it. `color` is DERIVED from that material so the
- * live figure and its shed cells match exactly (GDD §14 gate point 5).
+ * live figure and its shed cells match exactly (GDD 14 gate point 5).
  */
 export interface BodyPixel {
   dx: number;
   dy: number;
-  material: number; // FLESH | BONE | BLOOD — what this pixel sheds as
+  material: number; // FLESH | BONE | BLOOD - what this pixel sheds as
   color: string; // = MATERIALS[material].color (kept in sync at authoring)
 }
 
@@ -56,7 +56,7 @@ export interface Bone {
 
 /**
  * A hybrid body. Anchor (x, y) is the FEET-CENTRE (bottom-centre) in world
- * cells — this makes the ground probe in t2 trivial (just look below y).
+ * cells - this makes the ground probe in t2 trivial (just look below y).
  */
 export interface Body {
   x: number;
@@ -72,16 +72,16 @@ export interface Body {
   moveDir: -1 | 0 | 1;
   rig: Bone[];
   alive: boolean;
-  // Corpse state (revised death model, GDD §5.1 "Quiet/needs → lie down as a
+  // Corpse state (revised death model, GDD 5.1 "Quiet/needs -> lie down as a
   // corpse"). A QUIET death (starvation/thirst/drown/slow bleed-out) lays the
   // rig down as a PRONE CORPSE BODY rather than spraying its cells (that is the
-  // EXTREME → dissolveBody path). `corpse` is true while the body is an inert
+  // EXTREME -> dissolveBody path). `corpse` is true while the body is an inert
   // settled corpse; `alive` stays false so existing dead-body guards still
   // prevent any controller from driving it. `corpseTicks` counts the body down
-  // toward decay/fade (GDD §13) and is seeded to CORPSE_DECAY_TICKS on lay-down.
+  // toward decay/fade (GDD 13) and is seeded to CORPSE_DECAY_TICKS on lay-down.
   corpse: boolean;
   corpseTicks: number;
-  // Bite-infection state (revised death model, GDD §5.1 outcome 3 / §7.2 "bite
+  // Bite-infection state (revised death model, GDD 5.1 outcome 3 / 7.2 "bite
   // & turning"). A zombie's BITE marks the body `infected` rather than
   // dismembering it (that is the guard's path); the body keeps acting briefly,
   // then drops `prone`, then reanimates as a zombie. `infectionTicks` counts up
@@ -91,16 +91,16 @@ export interface Body {
   // the controller) so combat.ts stays body-only and either side can query it.
   infected: boolean;
   infectionTicks: number;
-  // True once an infected body has dropped to a downed state (GDD §7.2 "prone/
+  // True once an infected body has dropped to a downed state (GDD 7.2 "prone/
   // downed"). Seeded false here; Task-4 progression sets it. Locomotion/AI can
   // query it cheaply to stop work/fight and (optionally) slow-crawl.
   prone: boolean;
   // Consecutive ticks the head bone has sat in WATER (p4-t5, THE GATE gate
   // point 4). Incremented while ANY head cell is WATER, reset to 0 the instant
   // the head clears the surface; at DROWN_TICKS the body drowns and dissolves
-  // (GDD §5.2 "water drowns bodies when head submerged too long" / §7.3).
+  // (GDD 5.2 "water drowns bodies when head submerged too long" / 7.3).
   drownTicks: number;
-  // Capability flags — what the rig has lost (GDD §7.2 emergent damage). Set by
+  // Capability flags - what the rig has lost (GDD 7.2 emergent damage). Set by
   // Phase-4 damage when a limb's bone is destroyed and its pixels are released
   // into the sim. Kept on the Body (not just derived from bone.destroyed) so
   // locomotion (t4 crawl) and combat (t7 reach) can query them cheaply.
@@ -108,17 +108,17 @@ export interface Body {
   rLegLost: boolean;
   lArmLost: boolean;
   rArmLost: boolean;
-  // Per-side attack reach (GDD §7.2 "loses that arm's reach"). True while the
+  // Per-side attack reach (GDD 7.2 "loses that arm's reach"). True while the
   // arm is intact; set false when that arm is lost (consumed by Phase-7 combat).
   reachLeft: boolean;
   reachRight: boolean;
 }
 
 /**
- * Build a filled w×h rectangle of BodyPixels in local cell space, with its
+ * Build a filled wxh rectangle of BodyPixels in local cell space, with its
  * top-left at (x0, y0). Every pixel is authored with the given body `material`
  * and its colour DERIVED from MATERIALS[material].color, so the live figure and
- * any cell it later sheds are the same colour (GDD §14 gate point 5). Keeps the
+ * any cell it later sheds are the same colour (GDD 14 gate point 5). Keeps the
  * authored figure chunky and guarantees no two pixels in a bone collide.
  */
 function rect(
@@ -158,10 +158,10 @@ function paint(
 }
 
 /**
- * Author one chunky ~BODY_W×BODY_H humanoid at feet-centre anchor (x, y).
+ * Author one chunky ~BODY_WxBODY_H humanoid at feet-centre anchor (x, y).
  *
- * Assembled figure (col 0..5 left→right, row 0..11 top→bottom; dy = row-11 so
- * the lowest pixels sit at dy≈0 = the feet, dy negative = up):
+ * Assembled figure (col 0..5 left->right, row 0..11 top->bottom; dy = row-11 so
+ * the lowest pixels sit at dy~0 = the feet, dy negative = up):
  *
  *   row col: 0 1 2 3 4 5
  *    0       . . H H . .   head   (cols 2-3, rows 0-2)
@@ -178,11 +178,11 @@ function paint(
  *   11       . a a b b .
  *
  * Regions are disjoint by construction, so when every offset+pixel is summed no
- * two body pixels share a world cell. Bounding box = BODY_W×BODY_H.
+ * two body pixels share a world cell. Bounding box = BODY_WxBODY_H.
  */
 export function createBody(x: number, y: number): Body {
-  // Body matter (GDD §5.2): mostly FLESH, with a chunky BONE structure (skull
-  // cap, torso spine column, one bone column per leg). No BLOOD is authored —
+  // Body matter (GDD 5.2): mostly FLESH, with a chunky BONE structure (skull
+  // cap, torso spine column, one bone column per leg). No BLOOD is authored -
   // blood is emitted on hit by Phase-4 damage, not part of the live figure.
   const head = rect(2, 3, -1, -1, FLESH); // cols 2-3, rows 0-2
   paint(head, BONE, (p) => p.dy === -1); // top row = 2 skull-cap BONE cells

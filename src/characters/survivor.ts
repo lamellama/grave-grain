@@ -1,29 +1,29 @@
 /**
- * characters/survivor.ts — Survivor controller: needs + autonomy (GDD §6.1).
+ * characters/survivor.ts - Survivor controller: needs + autonomy (GDD 6.1).
  *
- * A Survivor WRAPS a hybrid Body (§5.1) with a small autonomy layer: needs that
+ * A Survivor WRAPS a hybrid Body (5.1) with a small autonomy layer: needs that
  * deplete over time and a behaviour that drives the body across the live terrain
- * by setting `body.moveDir`. This controller OWNS the body drive — main calls
+ * by setting `body.moveDir`. This controller OWNS the body drive - main calls
  * updateSurvivor once per tick and never pokes moveDir itself.
  *
  * SCOPE: Hunger + Thirst + Warmth (Task W1 added warmth). Needs deplete faster
  * with exertion (moving) and, for thirst, near heat (FIRE). WARMTH instead
- * depletes under AMBIENT_COLD when NOT near a heat source (and not sheltered —
+ * depletes under AMBIENT_COLD when NOT near a heat source (and not sheltered -
  * shelter is W2/W3, treated false here) and is RESTORED near FIRE within
- * FIRE_WARMTH_RADIUS (passive proximity — never a seek-fire behaviour, since
+ * FIRE_WARMTH_RADIUS (passive proximity - never a seek-fire behaviour, since
  * survivors FLEE fire; see FIRE_WARMTH_RADIUS invariant in config). When a need
- * hits 0 the survivor dies a QUIET death (layDownCorpse → prone corpse, rig
- * intact), NOT the extreme cell-dissolve (revised death model, GDD §5.1).
+ * hits 0 the survivor dies a QUIET death (layDownCorpse -> prone corpse, rig
+ * intact), NOT the extreme cell-dissolve (revised death model, GDD 5.1).
  *
- * AUTO-OVERRIDE (p5-t4, GDD §6.1 / §13): crossing a need threshold DROPS wander
- * and self-preserves. Each tick we pick a behaviour by priority —
+ * AUTO-OVERRIDE (p5-t4, GDD 6.1 / 13): crossing a need threshold DROPS wander
+ * and self-preserves. Each tick we pick a behaviour by priority -
  *   fleeFire > seekWater(thirst) > seekFood(hunger) > seekWarmth(cold) > wander
- * — then drive the body toward the nearest resource via the coarse navgrid
+ * - then drive the body toward the nearest resource via the coarse navgrid
  * router (game/pathfinding) plus LOCAL STEERING (set body.moveDir toward the
  * next waypoint's x; let Phase-3 locomotion do the actual walk/step/fall). Paths
  * are recomputed only when stale (a LOCAL terrain edit touched them) or missing,
  * throttled by PATH_REPATH_COOLDOWN. On arrival the survivor stands and consumes
- * (drink restores thirst; eat restores hunger AND consumes the FOLIAGE cell —
+ * (drink restores thirst; eat restores hunger AND consumes the FOLIAGE cell -
  * the MVP food source until the Phase-6 Forager). Because bodies COLLIDE with
  * FOLIAGE and can't stand in WATER, we always path to a standable cell ADJACENT
  * to the resource and never into it. DOM-free pure logic so it stays
@@ -96,7 +96,7 @@ import {
 
 /**
  * Autonomy behaviour. `wander` is the default idle drift; the auto-override
- * (GDD §6.1) switches to `seekWater`/`seekFood`/`fleeFire` on need/danger and to
+ * (GDD 6.1) switches to `seekWater`/`seekFood`/`fleeFire` on need/danger and to
  * `consuming` while drinking/eating in place.
  */
 export type Behaviour =
@@ -112,8 +112,8 @@ export type Behaviour =
  * `home` is the anchor the wander stays near; `path` holds the active navgrid
  * route (p5-t4).
  *
- * ROLE LOOP (p6-t4, GDD §6.2): an assigned `role` plus its `tool` drives a
- * find → path → work → deposit → repeat cycle (`roleState`) whenever no
+ * ROLE LOOP (p6-t4, GDD 6.2): an assigned `role` plus its `tool` drives a
+ * find -> path -> work -> deposit -> repeat cycle (`roleState`) whenever no
  * need/fire auto-override is active. `workTarget` is the cell being harvested,
  * `workTicksLeft` counts down the timed work, and `carrying`/`carryKind` hold
  * the unit(s) headed for the stockpile. Tool durability decrements per work
@@ -121,7 +121,7 @@ export type Behaviour =
  */
 export interface Survivor {
   body: Body;
-  // Revised death model (GDD §5.1 outcome 3 / §7.2 turning): true once this
+  // Revised death model (GDD 5.1 outcome 3 / 7.2 turning): true once this
   // survivor's INFECTED body has reanimated as a zombie. The SAME Body is now
   // driven by a Zombie controller (reanimateAsZombie), so this controller must
   // stop driving it (updateSurvivor no-ops), it no longer counts as a living
@@ -138,7 +138,7 @@ export interface Survivor {
   carrying: number;
   carryKind: ResourceKind | null;
   roleState: 'toTarget' | 'working' | 'toStockpile';
-  // Builder claim (BQ-3, GDD §6.2): the queued Blueprint this builder has
+  // Builder claim (BQ-3, GDD 6.2): the queued Blueprint this builder has
   // reserved and is walking to / working. null = no claim (the builder scans the
   // queue for the nearest claimable job). Persists across need-overrides so a
   // builder pulled away to drink resumes the same job on return.
@@ -172,7 +172,7 @@ export interface Survivor {
   consumeCell: { x: number; y: number } | null;
   // The nearest-REACHABLE resource the active seekWater/seekFood is heading for
   // (resource cell + standable bank + route). Cached so the bounded reachable
-  // scan + A* only runs on (re)acquire, not every tick (playtest #3, GDD §13).
+  // scan + A* only runs on (re)acquire, not every tick (playtest #3, GDD 13).
   seekTarget: ReachTarget | null;
   // Ticks until the next melee strike is allowed (p7-t4, guard combat). Counts
   // down each updateSurvivor tick; only the guard combat branch ever arms it.
@@ -219,9 +219,9 @@ export function createSurvivor(x: number, y: number): Survivor {
 /**
  * Is any cell in/around the body's footprint FIRE? Cheap bounded probe (one box
  * scan with a 1-cell margin around the authored figure, early-exit on the first
- * flame) used to accelerate thirst near heat (GDD §6.1 "Thirst depletes from
+ * flame) used to accelerate thirst near heat (GDD 6.1 "Thirst depletes from
  * time, heat"). The body anchor is the feet-centre, so the figure occupies
- * roughly dx ∈ [-BODY_W/2, BODY_W/2], dy ∈ [-(BODY_H-1), 0] above it.
+ * roughly dx in [-BODY_W/2, BODY_W/2], dy in [-(BODY_H-1), 0] above it.
  */
 function nearFire(body: Body): boolean {
   const rx = Math.round(body.x);
@@ -241,8 +241,8 @@ function nearFire(body: Body): boolean {
 
 /**
  * Is the body under a player-built ROOF? (Task W2, revised for the open-camp
- * shelter model — GDD §8 "enclosed space that provides warmth AND a retreat
- * point"). Cheap bounded probe over the live grid — read-only, no autonomy or
+ * shelter model - GDD 8 "enclosed space that provides warmth AND a retreat
+ * point"). Cheap bounded probe over the live grid - read-only, no autonomy or
  * simulation change. Keys ONLY on WOOD and WALL (player structures), so natural
  * DIRT/STONE hillsides never count as shelter (MVP: built shelter only).
  *
@@ -257,21 +257,21 @@ export function isSheltered(body: Body): boolean {
 }
 
 /**
- * Shelter test for a HYPOTHETICAL body whose feet rest at (rx, ry) — the same
+ * Shelter test for a HYPOTHETICAL body whose feet rest at (rx, ry) - the same
  * bounded WOOD/WALL ROOF probe as isSheltered, evaluated for a CANDIDATE stand
  * cell rather than the live body. W3's seekWarmth uses this to pick a sheltered
  * stand cell to retreat to (test the destination BEFORE walking there).
  *
  * Detection logic:
- *   - head row  = round(ry) − (BODY_H−1)   (top of the figure)
+ *   - head row  = round(ry) - (BODY_H-1)   (top of the figure)
  *   - center col = round(rx)
  *   Roof: any of the SHELTER_ROOF_SCAN cells DIRECTLY ABOVE the head
- *         (headRow-1 … headRow-SHELTER_ROOF_SCAN) is WOOD or WALL.
- *   Return: roof present (open sides — no wall requirement).
+ *         (headRow-1 ... headRow-SHELTER_ROOF_SCAN) is WOOD or WALL.
+ *   Return: roof present (open sides - no wall requirement).
  *
  * Worst-case reads: SHELTER_ROOF_SCAN = 6 cells. Early-exits on first match.
  * NOTE the small clearance: the roof is detected even a few cells above the head
- * (so it reads as a roof, not a head-adjacent burial — burial-pin is a separate
+ * (so it reads as a roof, not a head-adjacent burial - burial-pin is a separate
  * locomotion concern at head-touching solids, handled by CAMP_ROOF_CLEARANCE).
  */
 export function isShelteredAt(rx: number, ry: number): boolean {
@@ -286,9 +286,9 @@ export function isShelteredAt(rx: number, ry: number): boolean {
 
 /**
  * Is a FIRE cell within FIRE_WARMTH_RADIUS of the body anchor? (Task W1, GDD
- * §6.1/§10 warmth restored near a heat source.) A WIDER probe than nearFire
+ * 6.1/10 warmth restored near a heat source.) A WIDER probe than nearFire
  * (which is a tight footprint-adjacency test for thirst-from-heat): warmth is
- * PASSIVE PROXIMITY, and FIRE_WARMTH_RADIUS ≥ FLEE_FIRE_RADIUS by invariant, so
+ * PASSIVE PROXIMITY, and FIRE_WARMTH_RADIUS >= FLEE_FIRE_RADIUS by invariant, so
  * the ring a survivor is pushed back to when fleeing fire still counts as warm.
  * Reuses the bounded ring-scan nearestMaterial probe over the live grid.
  */
@@ -309,7 +309,7 @@ function randInt(lo: number, hi: number): number {
 }
 
 /**
- * Wander behaviour (GDD §6.1 "idle/wander near base"): drift toward a random
+ * Wander behaviour (GDD 6.1 "idle/wander near base"): drift toward a random
  * goal column within WANDER_RADIUS of home by setting body.moveDir; pause on
  * arrival, then pick a new goal. Bounded so the survivor never strays beyond
  * WANDER_RADIUS of home. Sets moveDir; never touches the grid.
@@ -317,14 +317,14 @@ function randInt(lo: number, hi: number): number {
 function driveWander(s: Survivor): void {
   const body = s.body;
 
-  // Idling on a pause between goals → stand still and tick the pause down.
+  // Idling on a pause between goals -> stand still and tick the pause down.
   if (s.pauseTicks > 0) {
     s.pauseTicks--;
     body.moveDir = 0;
     return;
   }
 
-  // No active goal → choose a random column within WANDER_RADIUS of home.
+  // No active goal -> choose a random column within WANDER_RADIUS of home.
   if (s.wanderTarget === null) {
     const offset = randInt(-WANDER_RADIUS, WANDER_RADIUS);
     const gx = Math.min(WORLD_W - 1, Math.max(0, Math.round(s.home.x + offset)));
@@ -332,7 +332,7 @@ function driveWander(s: Survivor): void {
     s.idleTicks = 0;
   }
 
-  // Steer toward the goal column; arrive (or give up if stuck) → pause + repick.
+  // Steer toward the goal column; arrive (or give up if stuck) -> pause + repick.
   const dx = s.wanderTarget.x - Math.round(body.x);
   const arrived = Math.abs(dx) <= WANDER_ARRIVE_DIST;
   const stuck = s.idleTicks >= WANDER_MAX_PURSUE_TICKS;
@@ -350,7 +350,7 @@ function driveWander(s: Survivor): void {
 /**
  * Nearest FIRE cell within FLEE_FIRE_RADIUS of the body anchor, or null. Bounded
  * ring scan outward (closest ring first) so the flee steers away from the real
- * threat (GDD §6.1 flee fire). Cheap: at most a (2R+1)² box, R = FLEE_FIRE_RADIUS.
+ * threat (GDD 6.1 flee fire). Cheap: at most a (2R+1)2 box, R = FLEE_FIRE_RADIUS.
  */
 function nearestFire(body: Body): { x: number; y: number } | null {
   return nearestMaterial(
@@ -364,8 +364,8 @@ function nearestFire(body: Body): { x: number; y: number } | null {
 /**
  * Nearest cell of material `mat` within `maxR` (Chebyshev) of (cx, cy), or null.
  * Scans ring by ring outward and returns the Euclidean-closest hit in the FIRST
- * ring that contains one — a cheap "nearest resource" probe over the live grid
- * (GDD §13 local steering reads the world directly). Early-exits the instant a
+ * ring that contains one - a cheap "nearest resource" probe over the live grid
+ * (GDD 13 local steering reads the world directly). Early-exits the instant a
  * ring yields a match so a nearby pool/bush costs only a few small rings.
  */
 function nearestMaterial(
@@ -400,11 +400,11 @@ function nearestMaterial(
 
 /**
  * Is a cell of material `mat` within arm's reach of the body? Scans a small box
- * around the body footprint (±CONSUME_REACH horizontally, head-to-feet+1
+ * around the body footprint (+/-CONSUME_REACH horizontally, head-to-feet+1
  * vertically) and returns the nearest such cell, or null. This is the ARRIVAL
  * test: the survivor consumes a resource it can touch without overlapping it.
- * Bodies pass THROUGH foliage (permeable — GDD §5.2/§9) and can't stand in WATER,
- * so reach/adjacency — never overlap — is the correct contact rule for harvest.
+ * Bodies pass THROUGH foliage (permeable - GDD 5.2/9) and can't stand in WATER,
+ * so reach/adjacency - never overlap - is the correct contact rule for harvest.
  */
 function resourceWithinReach(
   body: Body,
@@ -432,7 +432,7 @@ function resourceWithinReach(
 
 /**
  * Is the specific cell (tx, ty) inside the body's reach box (same footprint as
- * resourceWithinReach: ±CONSUME_REACH horizontally, head-to-feet+1 vertically)?
+ * resourceWithinReach: +/-CONSUME_REACH horizontally, head-to-feet+1 vertically)?
  * The role loop uses this for arrival at a KNOWN target cell (the foliage/rock
  * to harvest, or the stockpile point) rather than scanning for a material.
  */
@@ -443,7 +443,7 @@ function cellWithinReach(body: Body, tx: number, ty: number): boolean {
 }
 
 /**
- * A resource the survivor can ACTUALLY use (playtest #3/#5, GDD §6.1/§13): the
+ * A resource the survivor can ACTUALLY use (playtest #3/#5, GDD 6.1/13): the
  * resource `cell`, a `standCell` (feet position) on solid ground within reach of
  * it, and a `path` there. The nearest-REACHABLE selection returns this triple
  * instead of the geometrically-nearest cell, so survivors skip resources with NO
@@ -458,8 +458,8 @@ interface ReachTarget {
 
 /**
  * Would a body whose feet rest at (fx, fy) have (rx, ry) inside its reach box?
- * Same footprint as resourceWithinReach/cellWithinReach (±CONSUME_REACH wide,
- * head-to-feet+1 tall) — the consume/harvest contact test, evaluated for a
+ * Same footprint as resourceWithinReach/cellWithinReach (+/-CONSUME_REACH wide,
+ * head-to-feet+1 tall) - the consume/harvest contact test, evaluated for a
  * CANDIDATE stand cell rather than the live body.
  */
 function reachBoxContains(fx: number, fy: number, rx: number, ry: number): boolean {
@@ -489,7 +489,7 @@ function isStandableFeet(x: number, fy: number): boolean {
 
 /**
  * Nearest cell a body can stand on to consume/harvest the resource at (rx, ry),
- * within reach of it — or null if it has NO standable neighbour (the sealed-pool
+ * within reach of it - or null if it has NO standable neighbour (the sealed-pool
  * / buried-ore case the reachable selection must skip). Searches the reach box
  * around the resource, preferring the closest stand cell and, as a tiebreak, the
  * one on the body's side (bx) so the route is short. Cheap: a bounded box scan,
@@ -523,12 +523,12 @@ function findStandCell(
 /**
  * Nearest REACHABLE resource matching `match`, scanning rings outward from the
  * body anchor (nearest-first) and returning the first candidate that has BOTH a
- * standable neighbour AND a path to it (playtest #3/#5, GDD §6.1/§13). The cheap
- * findStandCell filter runs first so we only A* to candidates with a real bank —
+ * standable neighbour AND a path to it (playtest #3/#5, GDD 6.1/13). The cheap
+ * findStandCell filter runs first so we only A* to candidates with a real bank -
  * sealed pools / buried ore cost no pathfind. A* calls are capped at
  * REACH_MAX_PATH_ATTEMPTS per scan (the rest retried next cooldown) so this is
- * O(scan) + O(K·A*), never O(R²·A*). Returns null when nothing reachable is in
- * range (graceful degradation — the survivor wanders and may still die).
+ * O(scan) + O(K.A*), never O(R2.A*). Returns null when nothing reachable is in
+ * range (graceful degradation - the survivor wanders and may still die).
  */
 function nearestReachable(
   s: Survivor,
@@ -552,7 +552,7 @@ function nearestReachable(
     ring.sort((a, b) => a.d - b.d);
     for (const c of ring) {
       const stand = findStandCell(c.x, c.y, bx);
-      if (!stand) continue; // no standable bank → skip (sealed pool / buried)
+      if (!stand) continue; // no standable bank -> skip (sealed pool / buried)
       if (attempts >= REACH_MAX_PATH_ATTEMPTS) return null; // give up this scan
       attempts++;
       const path = findPath(bx, by, stand.x, stand.y);
@@ -563,16 +563,16 @@ function nearestReachable(
 }
 
 /**
- * Nearest REACHABLE SHELTERED stand-cell within range (Task W3, GDD §6.1 "retreat
+ * Nearest REACHABLE SHELTERED stand-cell within range (Task W3, GDD 6.1 "retreat
  * to shelter when too cold"). Scans rings outward from the body anchor
  * (nearest-first) for a cell where the feet can stand AND a body placed there
  * would be sheltered (isShelteredAt), then returns the first such cell with a
- * route to it. NEVER targets fire — fleeFire owns flames; seekWarmth is shelter
+ * route to it. NEVER targets fire - fleeFire owns flames; seekWarmth is shelter
  * only (resolves the flee-vs-seek conflict). Mirrors nearestReachable's bounded
- * O(scan)+O(K·A*) shape: cheap standable+sheltered filter first, A* capped at
+ * O(scan)+O(K.A*) shape: cheap standable+sheltered filter first, A* capped at
  * REACH_MAX_PATH_ATTEMPTS. Here the matched cell IS the stand cell (no separate
  * bank), so ReachTarget.cell === standCell. Returns null when no reachable
- * shelter is in range (→ the caller falls back to wander; W5's colony fire warms).
+ * shelter is in range (-> the caller falls back to wander; W5's colony fire warms).
  */
 function nearestReachableShelter(s: Survivor): ReachTarget | null {
   const bx = Math.round(s.body.x);
@@ -607,7 +607,7 @@ function nearestReachableShelter(s: Survivor): ReachTarget | null {
 
 /**
  * Nearest REACHABLE work target for a harvest role (playtest #3/#5): exposed
- * STONE/ORE for the miner, FOLIAGE for the lumberjack/forager — each filtered to
+ * STONE/ORE for the miner, FOLIAGE for the lumberjack/forager - each filtered to
  * one with a standable bank and a route, so the survivor walks to and works a
  * reachable face/bush instead of fixating on an unreachable nearest one.
  */
@@ -624,7 +624,7 @@ function reachableWorkTarget(s: Survivor, role: RoleName): ReachTarget | null {
  * PATH_REPATH_COOLDOWN), then set body.moveDir toward the next waypoint's x,
  * advancing waypoints within ~1 cell. With no usable path, steer straight at
  * `fallbackX` as a best-effort. The caller decides the goal (a STANDABLE cell
- * adjacent to a resource, or the stockpile point) — we never path into a target.
+ * adjacent to a resource, or the stockpile point) - we never path into a target.
  */
 function steerToCell(
   s: Survivor,
@@ -660,15 +660,15 @@ function steerToCell(
 
 /**
  * Seek a resource of material `mat` and, on arrival, switch to `consuming`
- * (GDD §6.1 self-preserve). Drive order each tick:
- *   1. ARRIVAL — a reachable resource cell → stand still, enter `consuming`
+ * (GDD 6.1 self-preserve). Drive order each tick:
+ *   1. ARRIVAL - a reachable resource cell -> stand still, enter `consuming`
  *      (record what to restore and, for food, which FOLIAGE cell to remove).
- *   2. TARGET — nearest resource cell; none in range → fall back to wander.
- *   3. PATH — (re)plan to a STANDABLE cell ADJACENT to the resource (never into
+ *   2. TARGET - nearest resource cell; none in range -> fall back to wander.
+ *   3. PATH - (re)plan to a STANDABLE cell ADJACENT to the resource (never into
  *      it) when missing or LOCALLY stale, throttled by PATH_REPATH_COOLDOWN.
- *   4. STEER — set body.moveDir toward the next waypoint's x (local steering);
- *      advance the waypoint within ~1 cell. No path (unreachable) → steer
- *      straight at the resource as a best-effort fallback (may still die — that
+ *   4. STEER - set body.moveDir toward the next waypoint's x (local steering);
+ *      advance the waypoint within ~1 cell. No path (unreachable) -> steer
+ *      straight at the resource as a best-effort fallback (may still die - that
  *      is the intended failure state).
  */
 function driveSeek(
@@ -678,7 +678,7 @@ function driveSeek(
 ): void {
   const body = s.body;
 
-  // 1. Arrival → consume in place.
+  // 1. Arrival -> consume in place.
   const reach = resourceWithinReach(body, mat);
   if (reach) {
     s.behaviour = 'consuming';
@@ -694,7 +694,7 @@ function driveSeek(
   // 2. (Re)acquire a nearest-REACHABLE target when we have none, it was consumed
   //    out from under us, or its route went locally stale. Throttled by the
   //    repath cooldown so the bounded reachable scan + A* never runs every tick
-  //    (playtest #3, GDD §13). Skips sealed pools / unreachable bushes — picks
+  //    (playtest #3, GDD 13). Skips sealed pools / unreachable bushes - picks
   //    the nearest resource with a standable bank we can actually path to.
   const t = s.seekTarget;
   const valid =
@@ -714,8 +714,8 @@ function driveSeek(
     }
   }
 
-  // 3. Nothing reachable in range → wander (and keep depleting → may die). This
-  //    is the intended failure state (no reachable water/food → death).
+  // 3. Nothing reachable in range -> wander (and keep depleting -> may die). This
+  //    is the intended failure state (no reachable water/food -> death).
   if (s.seekTarget === null) {
     driveWander(s);
     return;
@@ -727,21 +727,21 @@ function driveSeek(
 }
 
 /**
- * Seek warmth = retreat to SHELTER (Task W3, GDD §6.1 "they retreat to a shelter
+ * Seek warmth = retreat to SHELTER (Task W3, GDD 6.1 "they retreat to a shelter
  * when too cold"). NEVER seeks fire (fleeFire owns flames). Drive order each tick:
- *   1. ARRIVAL — already sheltered → stand still. Warmth then restores PASSIVELY
- *      via the deplete block (sheltered ⇒ warm); no `consuming` state needed.
- *   2. TARGET — (re)acquire the nearest REACHABLE sheltered stand-cell (standable
+ *   1. ARRIVAL - already sheltered -> stand still. Warmth then restores PASSIVELY
+ *      via the deplete block (sheltered => warm); no `consuming` state needed.
+ *   2. TARGET - (re)acquire the nearest REACHABLE sheltered stand-cell (standable
  *      + isShelteredAt + a route), throttled by PATH_REPATH_COOLDOWN like seek.
- *   3. NO SHELTER — none reachable → fall back to wander (the survivor stays near
+ *   3. NO SHELTER - none reachable -> fall back to wander (the survivor stays near
  *      home; the colony fire passively warms it, W5). May still freeze if there
- *      is genuinely no heat anywhere — the W1 graceful-degradation behaviour.
- *   4. STEER — local steering toward the sheltered stand-cell.
+ *      is genuinely no heat anywhere - the W1 graceful-degradation behaviour.
+ *   4. STEER - local steering toward the sheltered stand-cell.
  */
 function driveSeekWarmth(s: Survivor): void {
   const body = s.body;
 
-  // 1. Already sheltered → stand; warmth restores via the deplete block.
+  // 1. Already sheltered -> stand; warmth restores via the deplete block.
   if (isSheltered(body)) {
     s.path = null;
     s.seekTarget = null;
@@ -751,7 +751,7 @@ function driveSeekWarmth(s: Survivor): void {
 
   // 2. (Re)acquire a nearest-REACHABLE sheltered stand-cell when we have none or
   //    its route went locally stale. Throttled so the bounded scan + A* never
-  //    runs every tick (GDD §13).
+  //    runs every tick (GDD 13).
   const t = s.seekTarget;
   const valid =
     t !== null &&
@@ -770,7 +770,7 @@ function driveSeekWarmth(s: Survivor): void {
     }
   }
 
-  // 3. Nothing reachable → wander near home (colony fire warms; may still die).
+  // 3. Nothing reachable -> wander near home (colony fire warms; may still die).
   if (s.seekTarget === null) {
     driveWander(s);
     return;
@@ -782,19 +782,19 @@ function driveSeekWarmth(s: Survivor): void {
 }
 
 /**
- * Flee fire (GDD §6.1): steer directly AWAY from the nearest flame — no path
+ * Flee fire (GDD 6.1): steer directly AWAY from the nearest flame - no path
  * needed, just pick the horizontal direction that increases distance. If the
  * fire is gone (caller only enters this with fire present) we stand still.
  */
 function driveFleeFire(s: Survivor, fire: { x: number; y: number }): void {
   const body = s.body;
   const dx = Math.round(body.x) - fire.x;
-  body.moveDir = dx >= 0 ? 1 : -1; // fire to the left/under us → go right, else left
+  body.moveDir = dx >= 0 ? 1 : -1; // fire to the left/under us -> go right, else left
 }
 
 /**
- * Consume in place (GDD §6.1): stand still for the consume duration, then restore
- * the need (clamped to NEED_MAX). Eating also CONSUMES the FOLIAGE cell (→ AIR)
+ * Consume in place (GDD 6.1): stand still for the consume duration, then restore
+ * the need (clamped to NEED_MAX). Eating also CONSUMES the FOLIAGE cell (-> AIR)
  * and notifies the navgrid (markTerrainEdit) so any path over it goes stale;
  * drinking leaves the water be. When done, drop back to wander.
  */
@@ -821,12 +821,12 @@ function driveConsume(s: Survivor): void {
 }
 
 /**
- * Assign (or clear) a survivor's role with tool gating (GDD §6.2). Returns true
+ * Assign (or clear) a survivor's role with tool gating (GDD 6.2). Returns true
  * on success, false if the role can't be afforded/crafted.
- *   - role 'none' → always succeeds; keeps any held tool and resets the loop.
+ *   - role 'none' -> always succeeds; keeps any held tool and resets the loop.
  *   - otherwise canAssign() gates on owned tool / craftable cost. If the
  *     survivor already holds the required tool kind we keep it; else we
- *     craftToolFor() (spends the stockpile). A failed craft → false (unchanged).
+ *     craftToolFor() (spends the stockpile). A failed craft -> false (unchanged).
  * On success the role/tool are set and the loop restarts at 'toTarget'.
  */
 export function assignRole(s: Survivor, role: RoleName): boolean {
@@ -867,8 +867,8 @@ export function assignRole(s: Survivor, role: RoleName): boolean {
 
 /**
  * Nearest ALIVE zombie within `maxR` (Euclidean) of (cx, cy), or null. Cheap
- * squared-distance scan over the zombies list (no sqrt) — the guard's target
- * picker (GDD §7.2). Dead/dissolved zombies are skipped (their cells belong to
+ * squared-distance scan over the zombies list (no sqrt) - the guard's target
+ * picker (GDD 7.2). Dead/dissolved zombies are skipped (their cells belong to
  * the sim now).
  */
 function nearestZombie(
@@ -894,11 +894,11 @@ function nearestZombie(
 }
 
 /**
- * Guard combat (p7-t4, GDD §7.2 / §6.2): an armed guard engages the nearest
- * ALIVE zombie within GUARD_ENGAGE_RADIUS — close the distance, then strike on
+ * Guard combat (p7-t4, GDD 7.2 / 6.2): an armed guard engages the nearest
+ * ALIVE zombie within GUARD_ENGAGE_RADIUS - close the distance, then strike on
  * cooldown. The aim is the same emergent model both ways: LEG the front rank to
- * SLOW it (intact target → 'leg'), and HEADSHOT crawlers to FINISH them (target
- * already missing a leg → 'head'). No zombie in range → fall back to holding the
+ * SLOW it (intact target -> 'leg'), and HEADSHOT crawlers to FINISH them (target
+ * already missing a leg -> 'head'). No zombie in range -> fall back to holding the
  * stockpile point. Only called when the role is 'guard' and a weapon is held.
  */
 function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
@@ -908,7 +908,7 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
 
   const z = nearestZombie(bx, by, zombies, GUARD_ENGAGE_RADIUS);
 
-  // No target in range → hold the assigned point (the MVP guard default).
+  // No target in range -> hold the assigned point (the MVP guard default).
   if (z === null) {
     if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
       body.moveDir = 0;
@@ -918,14 +918,14 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
     return;
   }
 
-  // In range but out of reach → close the distance toward the zombie's cell.
+  // In range but out of reach -> close the distance toward the zombie's cell.
   if (!bodiesAdjacent(body, z.body)) {
     s.path = null; // chasing a moving target: don't reuse a stale resource route
     steerToCell(s, Math.round(z.body.x), Math.round(z.body.y), Math.round(z.body.x));
     return;
   }
 
-  // Adjacent → hold position and strike on cooldown. LEG an intact zombie to
+  // Adjacent -> hold position and strike on cooldown. LEG an intact zombie to
   // slow the front rank; HEADSHOT a crawler (already lost a leg) to finish it.
   body.moveDir = 0;
   if (s.attackCooldown <= 0) {
@@ -938,7 +938,7 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
 }
 
 /**
- * Run one tick of the role loop (GDD §6.2): find → path → work → deposit →
+ * Run one tick of the role loop (GDD 6.2): find -> path -> work -> deposit ->
  * repeat. Only called when no need/fire override is active, role !== 'none' and
  * a tool is held. Sets body.moveDir (locomotion does the walk); harvests edit
  * the live grid + navgrid; tool durability decrements per work action and a
@@ -948,7 +948,7 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
   const body = s.body;
   const role = s.role;
 
-  // Guard (GDD §6.2 / §7.2): an armed guard engages the nearest zombie in range
+  // Guard (GDD 6.2 / 7.2): an armed guard engages the nearest zombie in range
   // (LEG then HEADSHOT); with none in range it holds the stockpile point. Other
   // survivors never reach this branch.
   if (role === 'guard') {
@@ -962,7 +962,7 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
     return;
   }
 
-  // Builder (GDD §6.2 / §8, BQ-3): a queue-driven role, NOT a harvest role — it
+  // Builder (GDD 6.2 / 8, BQ-3): a queue-driven role, NOT a harvest role - it
   // claims a player blueprint, walks to it, builds it (BUILD_TICKS), then calls
   // placeStructure() to actualise the cell (atomic stockpile spend). Branch out
   // before the harvest switch (which only knows lumberjack/forager/miner and
@@ -983,7 +983,7 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
         // #3/#5). Reuse the path the reachable scan already computed.
         const rt = reachableWorkTarget(s, role);
         if (rt === null) {
-          driveWander(s); // nothing reachable in range → idle drift this tick
+          driveWander(s); // nothing reachable in range -> idle drift this tick
           return;
         }
         s.workTarget = rt.cell;
@@ -1028,19 +1028,19 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
       const m = get(t.x, t.y);
       let harvested = false;
       if (role === 'lumberjack' && m === FOLIAGE) {
-        set(t.x, t.y, AIR); // GDD §9: chop the tree → AIR
+        set(t.x, t.y, AIR); // GDD 9: chop the tree -> AIR
         markTerrainEdit(t.x, t.y);
         s.carrying += WOOD_PER_CHOP;
         s.carryKind = 'wood';
         harvested = true;
       } else if (role === 'forager' && m === FOLIAGE) {
-        set(t.x, t.y, AIR); // GDD §9: gather the bush → AIR
+        set(t.x, t.y, AIR); // GDD 9: gather the bush -> AIR
         markTerrainEdit(t.x, t.y);
         s.carrying += FOOD_PER_GATHER;
         s.carryKind = 'food';
         harvested = true;
       } else if (role === 'miner') {
-        const out = mineOutput(m); // STONE→stone, ORE→ore (GDD §6.2)
+        const out = mineOutput(m); // STONE->stone, ORE->ore (GDD 6.2)
         if (out !== null) {
           set(t.x, t.y, AIR);
           markTerrainEdit(t.x, t.y);
@@ -1053,13 +1053,13 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
       s.workStand = null;
       s.path = null;
       if (!harvested) {
-        // Target changed under us (burned/edited) — don't waste durability; re-find.
+        // Target changed under us (burned/edited) - don't waste durability; re-find.
         s.roleState = 'toTarget';
         return;
       }
-      // GDD §6.3: the breaking use STILL did its work above — then discard.
+      // GDD 6.3: the breaking use STILL did its work above - then discard.
       if (useTool(s.tool!)) {
-        console.log(`Tool broke: ${role} axe/tool — returning to idle`);
+        console.log(`Tool broke: ${role} axe/tool - returning to idle`);
         s.tool = null;
         s.role = 'none';
         s.roleState = 'toTarget';
@@ -1071,7 +1071,7 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
     }
 
     // 3. TO STOCKPILE: path to the deposit point; on arrival drop the carry into
-    //    the global stockpile (GDD §8) and loop back to find the next target.
+    //    the global stockpile (GDD 8) and loop back to find the next target.
     case 'toStockpile': {
       if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
         if (s.carryKind !== null && s.carrying > 0) {
@@ -1091,15 +1091,15 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
 }
 
 /**
- * Nearest REACHABLE, CLAIMABLE blueprint for a builder (BQ-3, GDD §6.2/§8).
+ * Nearest REACHABLE, CLAIMABLE blueprint for a builder (BQ-3, GDD 6.2/8).
  * The queue is a small overlay list (not a grid), so we scan it directly rather
  * than ring-by-ring: filter to jobs that are (a) unreserved, (b) still pending
  * (the cell doesn't already hold the target material), and (c) affordable RIGHT
- * NOW (canPlace) — a builder never claims a job the colony can't pay for, so it
+ * NOW (canPlace) - a builder never claims a job the colony can't pay for, so it
  * can't deadlock walking to an unbuildable cell. Then, nearest-first, return the
  * first job with a standable bank (findStandCell, same footprint as harvesting)
  * AND a route to it. A* calls are capped at REACH_MAX_PATH_ATTEMPTS like the
- * harvest scan. Returns null when nothing is claimable/reachable (→ wander).
+ * harvest scan. Returns null when nothing is claimable/reachable (-> wander).
  */
 function reachableBlueprint(
   s: Survivor,
@@ -1118,7 +1118,7 @@ function reachableBlueprint(
   let attempts = 0;
   for (const { bp } of cands) {
     const stand = findStandCell(bp.x, bp.y, bx);
-    if (!stand) continue; // no standable bank → can't reach this cell
+    if (!stand) continue; // no standable bank -> can't reach this cell
     if (attempts >= REACH_MAX_PATH_ATTEMPTS) return null; // give up this scan
     attempts++;
     const path = findPath(bx, by, stand.x, stand.y);
@@ -1130,7 +1130,7 @@ function reachableBlueprint(
 /**
  * True iff the builder's claimed blueprint is no longer a valid job: it was
  * cancelled (removed from the queue, so blueprintAt no longer returns THIS
- * object) or already built (the cell now holds the target material — e.g. the
+ * object) or already built (the cell now holds the target material - e.g. the
  * player painted it, or another builder finished it). Either way the claim is
  * stale and the builder should drop it and re-scan.
  */
@@ -1149,17 +1149,17 @@ function clearBuildClaim(s: Survivor): void {
 }
 
 /**
- * Builder loop (BQ-3, GDD §6.2/§8): the queue-driven sibling of driveRole's
+ * Builder loop (BQ-3, GDD 6.2/8): the queue-driven sibling of driveRole's
  * harvest machine. Two states reusing roleState ('toStockpile' is never entered
- * — a builder spends FROM the stockpile, it doesn't deposit):
+ * - a builder spends FROM the stockpile, it doesn't deposit):
  *
- *   toTarget → claim the nearest reachable blueprint (reserve it), walk to the
+ *   toTarget -> claim the nearest reachable blueprint (reserve it), walk to the
  *     standable bank beside it, enter 'working' once within reach. The claim
  *     PERSISTS across need-overrides (drink/eat pull the builder away; it walks
  *     back to the SAME job), and is dropped only when the job goes stale.
- *   working → stand still, count down BUILD_TICKS, then placeStructure() to
+ *   working -> stand still, count down BUILD_TICKS, then placeStructure() to
  *     actualise the cell (atomic stockpile spend) and removeBlueprint(). Hammer
- *     wear (useTool) may break the tool → idle. If the spend fails (raced
+ *     wear (useTool) may break the tool -> idle. If the spend fails (raced
  *     unaffordable), release the claim and re-scan WITHOUT spending durability.
  */
 function driveBuilder(s: Survivor): void {
@@ -1169,7 +1169,7 @@ function driveBuilder(s: Survivor): void {
       if (s.buildTarget === null) {
         const claim = reachableBlueprint(s);
         if (claim === null) {
-          driveWander(s); // nothing claimable/reachable → idle drift this tick
+          driveWander(s); // nothing claimable/reachable -> idle drift this tick
           return;
         }
         s.buildTarget = claim.bp;
@@ -1180,7 +1180,7 @@ function driveBuilder(s: Survivor): void {
         s.waypointIndex = 0;
       }
       const bp = s.buildTarget;
-      // Cancelled / built out from under us while walking → drop & re-scan.
+      // Cancelled / built out from under us while walking -> drop & re-scan.
       if (buildTargetStale(bp)) {
         clearBuildClaim(s);
         return;
@@ -1207,13 +1207,13 @@ function driveBuilder(s: Survivor): void {
       body.moveDir = 0;
       const bp = s.buildTarget;
       const t = s.workTarget;
-      // An override (drinking) pulled us off the job → walk back to the SAME bp.
+      // An override (drinking) pulled us off the job -> walk back to the SAME bp.
       if (bp === null || t === null || !cellWithinReach(body, t.x, t.y)) {
         s.roleState = 'toTarget';
         driveBuilder(s);
         return;
       }
-      // Job invalidated (cancelled / built) while we worked → drop & re-scan.
+      // Job invalidated (cancelled / built) while we worked -> drop & re-scan.
       if (buildTargetStale(bp)) {
         clearBuildClaim(s);
         s.roleState = 'toTarget';
@@ -1223,7 +1223,7 @@ function driveBuilder(s: Survivor): void {
         s.workTicksLeft--;
         return;
       }
-      // Build complete — actualise the blueprint (atomic stockpile spend).
+      // Build complete - actualise the blueprint (atomic stockpile spend).
       if (!placeStructure(bp.x, bp.y, bp.kind)) {
         // Raced unaffordable (another build/place drained the stockpile since we
         // claimed): keep the blueprint, hand the claim back, re-scan next tick.
@@ -1235,10 +1235,10 @@ function driveBuilder(s: Survivor): void {
       }
       removeBlueprint(bp);
       clearBuildClaim(s);
-      // GDD §6.3: the build consumed one hammer use; the breaking use still did
-      // its work above — then discard the tool and drop to idle.
+      // GDD 6.3: the build consumed one hammer use; the breaking use still did
+      // its work above - then discard the tool and drop to idle.
       if (useTool(s.tool!)) {
-        console.log('Tool broke: builder hammer — returning to idle');
+        console.log('Tool broke: builder hammer - returning to idle');
         s.tool = null;
         s.role = 'none';
         s.roleState = 'toTarget';
@@ -1251,7 +1251,7 @@ function driveBuilder(s: Survivor): void {
 }
 
 /**
- * Pick this tick's behaviour by priority (GDD §6.1 auto-override). Full priority
+ * Pick this tick's behaviour by priority (GDD 6.1 auto-override). Full priority
  * including the Phase-6 role loop is:
  *   fleeFire > seekWater(thirst) > seekFood(hunger) > seekWarmth(cold) > role-loop > wander.
  * This picker resolves the need/fire layer; when it lands on 'wander',
@@ -1279,8 +1279,8 @@ function selectBehaviour(s: Survivor): { x: number; y: number } | null {
   ) {
     // Warmth is the LOWEST-priority need (TUNABLE ordering): freezing is the
     // SLOWEST of the three deaths (WARMTH_RATE < THIRST/HUNGER), so a survivor
-    // that is BOTH cold and thirsty/hungry eats/drinks first (GDD §6.1). Don't
-    // seek if already warming — near a fire (nearWarmth) or already sheltered.
+    // that is BOTH cold and thirsty/hungry eats/drinks first (GDD 6.1). Don't
+    // seek if already warming - near a fire (nearWarmth) or already sheltered.
     // seekWarmth targets SHELTER ONLY, never fire (fleeFire owns flames).
     next = 'seekWarmth';
   } else {
@@ -1296,8 +1296,8 @@ function selectBehaviour(s: Survivor): { x: number; y: number } | null {
 }
 
 /**
- * Advance one survivor by one sim tick. OWNS the body drive: deplete needs →
- * resolve death (Phase-4 handoff) → pick a behaviour (sets moveDir) → step the
+ * Advance one survivor by one sim tick. OWNS the body drive: deplete needs ->
+ * resolve death (Phase-4 handoff) -> pick a behaviour (sets moveDir) -> step the
  * body. Call once per tick from main.
  */
 export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
@@ -1307,14 +1307,14 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   if (!body.alive) {
     return;
   }
-  // 1a. Turned guard (GDD §7.2): the body has reanimated as a zombie and is now
+  // 1a. Turned guard (GDD 7.2): the body has reanimated as a zombie and is now
   //     driven by a Zombie controller. This survivor controller must not touch
-  //     it (no needs, no drive, no body step — the zombie owns updateBody now).
+  //     it (no needs, no drive, no body step - the zombie owns updateBody now).
   if (s.turned) {
     return;
   }
-  // 1b. Prone/downed guard (GDD §7.2): an infected body that has dropped to a
-  //     downed state (pre-turn) acts no more — no needs-seek, no fight, no
+  // 1b. Prone/downed guard (GDD 7.2): an infected body that has dropped to a
+  //     downed state (pre-turn) acts no more - no needs-seek, no fight, no
   //     drive. It is still alive (the turn timer runs in updateInfection); we
   //     hold it still and let locomotion settle it (gravity/grounding only).
   //     MVP: no prone crawl (PRONE_CRAWL stays absent).
@@ -1327,22 +1327,22 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   // Melee cadence clock (p7-t4): only the guard combat branch ever arms it.
   if (s.attackCooldown > 0) s.attackCooldown--;
 
-  // 2. Deplete needs (GDD §6.1). Exertion (moving) drains both faster; heat
+  // 2. Deplete needs (GDD 6.1). Exertion (moving) drains both faster; heat
   //    (FIRE nearby) drains thirst on top of that. "moving" reads the moveDir
-  //    set last tick — a cheap, one-tick-lagged proxy for current exertion.
+  //    set last tick - a cheap, one-tick-lagged proxy for current exertion.
   const exertion = body.moveDir !== 0 ? EXERTION_RATE_MULT : 1;
   const heat = nearFire(body) ? HEAT_THIRST_MULT : 1;
   s.needs.hunger = Math.max(0, s.needs.hunger - HUNGER_RATE * exertion);
   s.needs.thirst = Math.max(0, s.needs.thirst - THIRST_RATE * exertion * heat);
 
-  // 2a. Warmth (Task W1, GDD §6.1/§10): under AMBIENT_COLD a survivor that is
+  // 2a. Warmth (Task W1, GDD 6.1/10): under AMBIENT_COLD a survivor that is
   //     COLD & EXPOSED (no heat source within FIRE_WARMTH_RADIUS, not sheltered)
   //     loses warmth; otherwise (by a fire, or sheltered) it warms back up fast.
-  //     Warmth is mainly cold-vs-heat — no exertion factor (you don't freeze
+  //     Warmth is mainly cold-vs-heat - no exertion factor (you don't freeze
   //     faster by walking). W3 wires REAL shelter: a sheltered survivor (under a
-  //     WOOD/WALL ROOF, OPEN sides) stops losing warmth and warms back up — and\n  //     can still walk OUT from under the canopy for water/food (open-camp fix).
-  const sheltered = isSheltered(body); // GDD §8/§6.1 shelter blocks the cold
-  // T4 (GDD §10): the cold gate is now DYNAMIC weather (isAmbientColdNow:
+  //     WOOD/WALL ROOF, OPEN sides) stops losing warmth and warms back up - and\n  //     can still walk OUT from under the canopy for water/food (open-camp fix).
+  const sheltered = isSheltered(body); // GDD 8/6.1 shelter blocks the cold
+  // T4 (GDD 10): the cold gate is now DYNAMIC weather (isAmbientColdNow:
   // WEATHER_ENABLED && temp<COLD_THRESHOLD), replacing the static AMBIENT_COLD.
   if (isAmbientColdNow() && !nearWarmth(body) && !sheltered) {
     s.needs.warmth = Math.max(0, s.needs.warmth - WARMTH_RATE);
@@ -1350,18 +1350,18 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
     s.needs.warmth = Math.min(NEED_MAX, s.needs.warmth + WARMTH_RESTORE_RATE);
   }
 
-  // 3. Death (GDD §6.1 failure states): a need at 0 kills the survivor. This is
-  //    a QUIET death — the rig LIES DOWN as a prone corpse (layDownCorpse),
-  //    NOT the extreme cell-dissolve (revised death model, GDD §5.1: starvation
-  //    / thirst → "lies down dead (corpse)"). Log the cause (UI is Phase 9) and
+  // 3. Death (GDD 6.1 failure states): a need at 0 kills the survivor. This is
+  //    a QUIET death - the rig LIES DOWN as a prone corpse (layDownCorpse),
+  //    NOT the extreme cell-dissolve (revised death model, GDD 5.1: starvation
+  //    / thirst -> "lies down dead (corpse)"). Log the cause (UI is Phase 9) and
   //    do NOT re-drive the corpse.
   if (s.needs.hunger <= 0) {
     s.deathCause = 'starvation';
   } else if (s.needs.thirst <= 0) {
     s.deathCause = 'thirst';
   } else if (s.needs.warmth <= 0) {
-    // GDD §6.1 warmth failure → FREEZE. Still a QUIET death: layDownCorpse
-    // (below) lies the rig down as a corpse — never dissolveBody.
+    // GDD 6.1 warmth failure -> FREEZE. Still a QUIET death: layDownCorpse
+    // (below) lies the rig down as a corpse - never dissolveBody.
     s.deathCause = 'frozen';
   }
   if (s.deathCause !== null) {
@@ -1370,8 +1370,8 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
     return;
   }
 
-  // 4. Auto-override (GDD §6.1): crossing a need threshold (or fire nearby) drops
-  //    wander and self-preserves. Select the behaviour, then drive it — each
+  // 4. Auto-override (GDD 6.1): crossing a need threshold (or fire nearby) drops
+  //    wander and self-preserves. Select the behaviour, then drive it - each
   //    driver only ever sets body.moveDir (local steering); locomotion walks.
   const fire = selectBehaviour(s);
   switch (s.behaviour) {
@@ -1393,7 +1393,7 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
       break;
     case 'wander':
     default:
-      // GDD §6.2 role loop: with a role + tool and no active override, work the
+      // GDD 6.2 role loop: with a role + tool and no active override, work the
       // job instead of idling. Otherwise (idle/unequipped) just wander.
       if (s.role !== 'none' && s.tool !== null) {
         driveRole(s, zombies);

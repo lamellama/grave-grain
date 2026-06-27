@@ -1,38 +1,38 @@
 /**
- * engine/reactions.ts — Cross-material adjacency reactions (Phase 2, GDD §5.2)
+ * engine/reactions.ts - Cross-material adjacency reactions (Phase 2, GDD 5.2)
  *
  * A single pass that applies the interactions which depend on two DIFFERENT
  * materials being neighbours (as opposed to a material's own fall/flow rule,
  * which lives in simulation.ts). It runs ONCE per tick, at the very start of
- * step() — before the movement scan — reading the start-of-tick grid so a
+ * step() - before the movement scan - reading the start-of-tick grid so a
  * reaction never fires on a half-moved mid-scan state (see step() for the full
  * rationale). It shares simulation's `moved`-guard so a cell it consumes is
  * skipped by the movement scan that follows.
  *
- * MVP scope (GDD §5.2 "Material interactions"):
+ * MVP scope (GDD 5.2 "Material interactions"):
  *
- *  1. water + fire → steam + extinguish  ........... IMPLEMENTED below.
+ *  1. water + fire -> steam + extinguish  ........... IMPLEMENTED below.
  *     A FIRE cell orthogonally adjacent to WATER becomes SMOKE (which doubles as
  *     steam) and its fire-lifetime is cleared, so it dies on this tick instead
  *     of aging out over FIRE_LIFETIME ticks. This is what makes a watered fire
  *     die measurably faster than a free burn (the phase Done-when).
  *
- *     Water consumption: the adjacent WATER is NOT consumed — it stays and keeps
+ *     Water consumption: the adjacent WATER is NOT consumed - it stays and keeps
  *     dousing further fire on later ticks. (Picking "water persists" keeps the
  *     douse robust: a small pool can extinguish a large fire front, matching the
  *     "water douses fire" intent. Mass non-conservation is already accepted for
  *     smoke/steam in MVP.)
  *
- *  2. undermined sand/dirt → collapse  ............. NO EXTRA RULE NEEDED.
+ *  2. undermined sand/dirt -> collapse  ............. NO EXTRA RULE NEEDED.
  *     Falling-sand cells have no cohesion: in updateSand/updateDirt a grain only
  *     rests when the cell BELOW it is blocked (a non-lighter / static material)
  *     AND both below-diagonals are blocked. A grain can therefore never rest
- *     over AIR — remove its support and it falls (or diagonally spills) on the
+ *     over AIR - remove its support and it falls (or diagonally spills) on the
  *     next tick. So an "unsupported overhang/ledge" cannot persist: the existing
  *     fall rule already collapses it. Adding a lateral-collapse nudge here would
  *     be redundant, so COLLAPSE_CHANCE is intentionally NOT introduced.
  *
- *  3. water + dirt → mud  .......................... DEFERRED (post-MVP).
+ *  3. water + dirt -> mud  .......................... DEFERRED (post-MVP).
  *     Would require inventing a MUD material; out of scope for this task.
  */
 
@@ -49,18 +49,18 @@ import {
 import { WATER, FIRE, SMOKE, SNOW } from './materials';
 
 /**
- * Unique salt for the SNOW→WATER melt roll (GDD §10, Beyond T3). Distinct from
- * every simRand salt used in simulation.ts (1–7, 100–108, weather-spawn 200) so
+ * Unique salt for the SNOW->WATER melt roll (GDD 10, Beyond T3). Distinct from
+ * every simRand salt used in simulation.ts (1-7, 100-108, weather-spawn 200) so
  * the melt decision never shares a stream with another roll at the same
  * (x, y, tick). The roll is keyed on the SNOW cell's OWN coords (see meltSnow),
  * so any number of fires adjacent to one snow cell compute the IDENTICAL melt
- * decision — making the reaction order-independent (chunk-equivalence-safe).
+ * decision - making the reaction order-independent (chunk-equivalence-safe).
  */
 const SALT_SNOW_MELT = 300;
 
 /**
- * Is the cell at (x, y) a DOUSING material — WATER, or SNOW (which melts and
- * douses, GDD §10)? Bounds-safe (out-of-bounds reads as not-dousing).
+ * Is the cell at (x, y) a DOUSING material - WATER, or SNOW (which melts and
+ * douses, GDD 10)? Bounds-safe (out-of-bounds reads as not-dousing).
  */
 function isDouser(x: number, y: number): boolean {
   if (x < 0 || x >= WORLD_W || y < 0 || y >= WORLD_H) {
@@ -71,9 +71,9 @@ function isDouser(x: number, y: number): boolean {
 }
 
 /**
- * If (x, y) is SNOW, roll its deterministic melt (GDD §10): with probability
+ * If (x, y) is SNOW, roll its deterministic melt (GDD 10): with probability
  * SNOW_MELT_CHANCE it becomes WATER. Keyed on the SNOW cell's OWN coords so the
- * outcome is a single value per snow-cell per tick — every adjacent fire applies
+ * outcome is a single value per snow-cell per tick - every adjacent fire applies
  * the identical decision, so the rule is order-independent and the chunked and
  * full-scan paths stay byte-identical. Reads/writes only this one cell.
  */
@@ -84,12 +84,12 @@ function meltSnow(x: number, y: number): void {
   if (simRand(x, y, SALT_SNOW_MELT) < SNOW_MELT_CHANCE) {
     material[i] = WATER; // melted snow becomes water (then flows as normal)
     integrity[i] = 0; // WATER carries no integrity
-    markCellActive(x, y); // SNOW→WATER is a change → wake the chunk (P11)
+    markCellActive(x, y); // SNOW->WATER is a change -> wake the chunk (P11)
   }
 }
 
 /**
- * Apply all adjacency reactions for this tick (GDD §5.2). Single full-grid pass.
+ * Apply all adjacency reactions for this tick (GDD 5.2). Single full-grid pass.
  *
  * Currently only the water+fire extinguish path: any FIRE cell with WATER in one
  * of its four orthogonal neighbours is converted to SMOKE (steam), its reused
@@ -97,13 +97,13 @@ function meltSnow(x: number, y: number): void {
  * the movement scan that follows skips it this tick.
  *
  * Scan direction is irrelevant: the reaction only reads WATER (which this pass
- * never creates or removes) and only writes the FIRE→SMOKE cell, so no fire's
+ * never creates or removes) and only writes the FIRE->SMOKE cell, so no fire's
  * outcome depends on another fire processed earlier in the same pass.
  */
 export function reactions(): void {
   // Chunked path (Phase 11): only active chunks can hold a FIRE cell whose state
   // could change this tick. A FIRE cell ages every tick, so it ALWAYS keeps its
-  // own chunk active (simulation.updateFire wakes it) — therefore iterating the
+  // own chunk active (simulation.updateFire wakes it) - therefore iterating the
   // active chunks visits every FIRE the full scan would, in any order (this pass
   // is order-independent: it only reads WATER, which it never modifies). Result
   // is byte-identical to the full scan. When chunking is OFF, scan everything.
@@ -128,9 +128,9 @@ export function reactions(): void {
 }
 
 /**
- * Apply the water+fire→steam reaction at a single cell (GDD §5.2). No-op unless
+ * Apply the water+fire->steam reaction at a single cell (GDD 5.2). No-op unless
  * the cell is FIRE with WATER in an orthogonal neighbour. Order-independent:
- * reads only WATER (untouched here) and writes only the FIRE→SMOKE cell.
+ * reads only WATER (untouched here) and writes only the FIRE->SMOKE cell.
  */
 function reactCell(x: number, y: number): void {
   const i = idx(x, y);
@@ -144,17 +144,17 @@ function reactCell(x: number, y: number): void {
     isDouser(x, y - 1) ||
     isDouser(x, y + 1);
 
-  // SNOW + fire → melt (GDD §10): each orthogonal SNOW neighbour may melt to
+  // SNOW + fire -> melt (GDD 10): each orthogonal SNOW neighbour may melt to
   // WATER. Keyed on the snow cell's coords, so order-independent across fires.
   meltSnow(x - 1, y);
   meltSnow(x + 1, y);
   meltSnow(x, y - 1);
   meltSnow(x, y + 1);
 
-  // water/snow + fire → steam + extinguish (GDD §5.2 / §10): orthogonal contact.
+  // water/snow + fire -> steam + extinguish (GDD 5.2 / 10): orthogonal contact.
   if (douse) {
     set(x, y, SMOKE); // fire becomes rising steam at the contact
     setIntegrity(x, y, 0); // clear the reused fire-lifetime slot
-    moved[i] = 1; // claim the cell — movement scan skips it this tick
+    moved[i] = 1; // claim the cell - movement scan skips it this tick
   }
 }

@@ -1,39 +1,39 @@
 /**
- * engine/chunks.ts — Chunked / dirty-rect activity tracking (Phase 11, task 11-2).
+ * engine/chunks.ts - Chunked / dirty-rect activity tracking (Phase 11, task 11-2).
  *
- * GDD §13 / App. B (Noita): the wide world + mobile budget are only viable if
+ * GDD 13 / App. B (Noita): the wide world + mobile budget are only viable if
  * the cellular update SKIPS regions that cannot change. We partition the grid
- * into CHUNK_SIZE×CHUNK_SIZE chunks and, each tick, process ONLY the chunks that
+ * into CHUNK_SIZExCHUNK_SIZE chunks and, each tick, process ONLY the chunks that
  * had activity last tick (or were edited). A settled sand pile, a flat pool, an
- * empty sky — their chunks go inactive and are skipped entirely.
+ * empty sky - their chunks go inactive and are skipped entirely.
  *
  * BYTE-IDENTITY (the non-negotiable bar). The chunked scan must produce output
  * identical to a full grid scan. Two properties make that possible:
  *
  *  1. Deterministic positional RNG (task 11-1): every cell's random decision is
- *     simRand(x, y, tick, …) — independent of how many other cells ran. So the
+ *     simRand(x, y, tick, ...) - independent of how many other cells ran. So the
  *     SUBSET of cells we visit draws the same randoms as a full scan.
  *
  *  2. The DIRTY-RECT INVARIANT: "if a cell changes this tick, its chunk is
  *     active this tick." We guarantee it by waking a chunk (for NEXT tick) on
- *     EVERY cell change, AND — because a falling-sand change only propagates one
- *     cell per tick — also waking the neighbour chunk across a shared border when
+ *     EVERY cell change, AND - because a falling-sand change only propagates one
+ *     cell per tick - also waking the neighbour chunk across a shared border when
  *     the changed cell sits on that border. A cell can only be made to move by a
  *     change within 1 cell of it (the cells it reads); that neighbour's change
  *     last tick therefore woke this cell's chunk. An interior change stays inside
  *     its own chunk (1-cell reach < CHUNK_SIZE), so only border changes spill to
- *     a neighbour chunk — exactly the Noita dirty-rect expansion. Given the
+ *     a neighbour chunk - exactly the Noita dirty-rect expansion. Given the
  *     invariant, a SKIPPED (inactive) chunk is provably a no-op this tick, so
  *     skipping it changes nothing.
  *
  * The movement scan in simulation.ts iterates active chunks in EXACT global
  * order (world-rows bottom-up, columns in the per-tick scan-flip direction) so
- * the relative order of every visited cell matches the full scan — the final
+ * the relative order of every visited cell matches the full scan - the final
  * piece needed for byte-identity (two cells that interact are within 1 cell, so
  * same-row / adjacent-row order must be preserved).
  *
  * Data-oriented: two flat Uint8Array bitsets (this/next tick), no per-chunk
- * objects (GDD §13, AGENTS §4).
+ * objects (GDD 13, AGENTS 4).
  */
 
 import { WORLD_W, WORLD_H, CHUNK_SIZE } from '../config';
@@ -45,7 +45,7 @@ const CHUNK_COUNT = CHUNK_COLS * CHUNK_ROWS;
 
 /**
  * Per-chunk "process this tick" / "process next tick" flags (0/1).
- * `beginTick()` swaps next→this and clears next. We deliberately INITIALISE
+ * `beginTick()` swaps next->this and clears next. We deliberately INITIALISE
  * `activeNextTick` to all-active so the FIRST tick processes the whole world
  * (a full scan), letting worldgen / hand-seeded scenes settle before any chunk
  * is skipped (brief: "Initialize ALL chunks active for tick 0").
@@ -56,7 +56,7 @@ activeNextTick.fill(1);
 
 /**
  * Master switch (default ON in production). When OFF, simulation.ts runs the
- * original full grid scan and ignores the active sets — this is the REFERENCE
+ * original full grid scan and ignores the active sets - this is the REFERENCE
  * path the equivalence harness diffs the chunked path against.
  */
 let chunkingEnabled = true;
@@ -77,7 +77,7 @@ export function chunkRowOf(y: number): number {
 }
 
 /**
- * Wake the chunk containing (x, y) for NEXT tick — plus the neighbour chunk(s)
+ * Wake the chunk containing (x, y) for NEXT tick - plus the neighbour chunk(s)
  * across any shared border the cell sits on (see the INVARIANT note above).
  * Called on EVERY cell-state change: moves/swaps (both endpoints), ignite, fire
  * aging/expiry, gas dissipate, reactions, gore fade, and all grid writes

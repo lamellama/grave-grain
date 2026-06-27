@@ -1,21 +1,21 @@
 /**
- * engine/simulation.ts — Falling-sand cellular update (Phase 1)
+ * engine/simulation.ts - Falling-sand cellular update (Phase 1)
  * MVP scope: AIR + SAND + STONE + WATER (task p1-t4 adds water + density swap).
  *
  * Three correctness pillars (all load-bearing):
  *  - BOTTOM-UP scan (GDD Appendix B takeaway #1): the world is updated from the
  *    bottom row to the top each tick. A top-down scan would carry one grain down
- *    through every row in a single tick (teleporting) — bottom-up only ever lets
+ *    through every row in a single tick (teleporting) - bottom-up only ever lets
  *    a grain advance one row per tick.
  *  - EXPLICIT moved-guard (new in p1-t4): a per-cell "moved this tick" flag.
  *    For sand the bottom-up order was a free moved-guard (sand only moves DOWN,
- *    into already-processed rows). That invariant breaks for water — water moves
+ *    into already-processed rows). That invariant breaks for water - water moves
  *    SIDEWAYS within a row the scan has not finished, and density swaps push the
- *    lighter material UP into the current cell — so without an explicit flag a
+ *    lighter material UP into the current cell - so without an explicit flag a
  *    grain could be re-processed and skid multiple cells per tick. The flag
  *    makes "one action per cell per tick" hold for every material.
- *  - DENSITY swap (GDD §5.2): a heavier non-static grain swaps with a lighter,
- *    non-static cell below it — so sand (density 3) sinks through water
+ *  - DENSITY swap (GDD 5.2): a heavier non-static grain swaps with a lighter,
+ *    non-static cell below it - so sand (density 3) sinks through water
  *    (density 1) and the water rises above it. Stone (static/255) never moves.
  *    Falling into AIR is just the swap with the lightest material, so the same
  *    rule covers "fall" and "sink".
@@ -61,7 +61,7 @@ import {
 import { CHUNK_SIZE } from '../config';
 
 // Re-export the chunking controls so tests/consumers have a single sim entry
-// point (the equivalence harness flips chunking off→on through these).
+// point (the equivalence harness flips chunking off->on through these).
 export {
   setChunkingEnabled,
   isChunkingEnabled,
@@ -97,21 +97,21 @@ import {
 let tick = 0;
 
 /**
- * Deterministic per-(x, y, tick) RNG (task 11-1, GDD §13 / App. B).
+ * Deterministic per-(x, y, tick) RNG (task 11-1, GDD 13 / App. B).
  *
  * Replaces every per-cell `Math.random()` in the cellular update. Returns a
  * float in [0, 1) by avalanche-mixing the cell coords, the current `tick`, the
  * config seed, and a `salt` that distinguishes independent rolls at the SAME
  * cell/tick (e.g. "spill chance" vs "which diagonal first"). Because the result
- * depends ONLY on (x, y, tick, SIM_RNG_SEED, salt) — never on call order or how
- * many other cells were processed — the sim becomes a pure function of initial
+ * depends ONLY on (x, y, tick, SIM_RNG_SEED, salt) - never on call order or how
+ * many other cells were processed - the sim becomes a pure function of initial
  * state + tick. That is the precondition for the chunked scan (11-2): a scan
  * that SKIPS settled chunks draws the exact same randoms as a full scan, so the
  * two stay byte-identical.
  *
  * Mix: a small Math.imul integer hash (xmxmx-style avalanche) folding each input
  * in turn, then dividing the unsigned 32-bit result by 2^32. The distribution is
- * uniform in [0, 1), so every threshold test keeps its original semantics — only
+ * uniform in [0, 1), so every threshold test keeps its original semantics - only
  * the SOURCE of the randomness changes from global to per-cell-deterministic.
  */
 export function simRand(x: number, y: number, salt: number): number {
@@ -140,13 +140,13 @@ const SALT_WATER = 3; // water/blood: L/R flow order
 const SALT_GAS_DISS = 4; // smoke/steam: dissipate-to-air roll
 const SALT_GAS_DIAG = 5; // smoke/steam: up-diagonal / drift L/R order
 const SALT_SMOKE_EMIT = 6; // fire expiry: puff SMOKE vs leave ASH
-const SALT_GROW = 7; // sapling: per-cell growth-countdown seeding jitter (GDD §9)
+const SALT_GROW = 7; // sapling: per-cell growth-countdown seeding jitter (GDD 9)
 // Fire spread rolls ONCE PER NEIGHBOUR, so the per-neighbour index (0..8) is
-// added to this base — each of the 8 neighbour rolls gets its own salt and so
+// added to this base - each of the 8 neighbour rolls gets its own salt and so
 // its own independent stream (no correlation between neighbours at one cell).
 const SALT_FIRE_SPREAD = 100;
-// Weather sky-spawn roll (GDD §10, Beyond T3): per sky-cell precipitation spawn
-// in applyWeather(). 200 is well clear of every other salt above (1–7, 100–108)
+// Weather sky-spawn roll (GDD 10, Beyond T3): per sky-cell precipitation spawn
+// in applyWeather(). 200 is well clear of every other salt above (1-7, 100-108)
 // AND of reactions.ts's SALT_SNOW_MELT (300), so no two rolls at the same
 // (x, y, tick) ever share a stream.
 const SALT_WEATHER_SPAWN = 200;
@@ -154,7 +154,7 @@ const SALT_WEATHER_SPAWN = 200;
 /**
  * "Moved this tick" guard, one byte per cell (0 = free, 1 = already acted).
  * Cleared at the start of every step(). Any cell that has already moved or been
- * swapped this tick is skipped, and is never chosen as a swap target — this is
+ * swapped this tick is skipped, and is never chosen as a swap target - this is
  * what prevents double-moves now that material travels sideways and swaps
  * upward within a single bottom-up pass.
  */
@@ -163,7 +163,7 @@ export const moved = new Uint8Array(WORLD_W * WORLD_H);
 /**
  * Advance the cellular simulation by one tick.
  *
- * Scan order is BOTTOM row (y = WORLD_H-1) → TOP row (y = 0), with the per-row
+ * Scan order is BOTTOM row (y = WORLD_H-1) -> TOP row (y = 0), with the per-row
  * column direction flipped every tick to kill lateral bias (GDD App. B).
  */
 export function step(): void {
@@ -174,7 +174,7 @@ export function step(): void {
   // THIS tick's work set. Done BEFORE reactions so it too can skip settled
   // chunks. When chunking is OFF (the equivalence reference path) we leave the
   // active sets untouched and fall through to the original full grid scan.
-  // Weather (GDD §10, Beyond T3) runs at the TOP of the tick, BEFORE beginTick.
+  // Weather (GDD 10, Beyond T3) runs at the TOP of the tick, BEFORE beginTick.
   //  - updateWeather advances the global rain/snow/clear state machine once per
   //    tick. It is pure (tick, seed) and touches no chunks, so it produces the
   //    SAME state on the chunked and full-scan paths.
@@ -182,9 +182,9 @@ export function step(): void {
   //    row, spawning WATER (rain) / SNOW (snow) into AIR cells. It marks every
   //    spawned cell active. We run it BEFORE beginTick on purpose: markCellActive
   //    sets the NEXT-tick set, and beginTick swaps that into THIS tick's work
-  //    set — so a spawned cell's chunk is processed THIS tick, exactly as the
+  //    set - so a spawned cell's chunk is processed THIS tick, exactly as the
   //    full scan visits row 0 this tick. (Spawning after beginTick would defer
-  //    the fall by one tick on the chunked path only → divergence.)
+  //    the fall by one tick on the chunked path only -> divergence.)
   updateWeather(tick);
   applyWeather();
 
@@ -193,14 +193,14 @@ export function step(): void {
   }
 
   // Cross-material adjacency reactions run FIRST, before the movement scan
-  // (GDD §5.2 interactions). Rationale:
+  // (GDD 5.2 interactions). Rationale:
   //  - They read the START-OF-TICK grid (a stable snapshot), so a reaction
-  //    never fires on a half-moved mid-scan state — deterministic and order-
+  //    never fires on a half-moved mid-scan state - deterministic and order-
   //    independent.
   //  - The extinguish path converts a watered FIRE to SMOKE and CLAIMS the cell
   //    in the shared moved-guard, so the movement scan skips it this tick. A
   //    fire touching water therefore dies on the SAME tick it is watered,
-  //    before it can age or spread — which is exactly the measurable speed-up
+  //    before it can age or spread - which is exactly the measurable speed-up
   //    the phase Done-when checks for.
   reactions();
 
@@ -210,7 +210,7 @@ export function step(): void {
     fullScan();
   }
 
-  // Mobile gore budget (task 10-8, GDD §13): keep loose body-debris bounded so
+  // Mobile gore budget (task 10-8, GDD 13): keep loose body-debris bounded so
   // it can't accumulate forever and sink the framerate. Runs AFTER the movement
   // scan so it never interferes with fall/settle/no-tunnel this tick.
   sweepGore();
@@ -219,16 +219,16 @@ export function step(): void {
 }
 
 /**
- * Deterministic sky-spawn pass (GDD §10, Beyond T3): precipitation enters the
+ * Deterministic sky-spawn pass (GDD 10, Beyond T3): precipitation enters the
  * world from the top row. Runs EVERY tick, UNCONDITIONALLY over the full sky row
  * (never chunk-gated) so the chunked and full-scan paths spawn byte-identically.
  *
  * For each x at WEATHER_SKY_ROW that is AIR, roll the per-cell deterministic
  * simRand (NOT Math.random) with SALT_WEATHER_SPAWN: under rain, below
- * RAIN_SPAWN_CHANCE → WATER; under snow, below SNOW_SPAWN_CHANCE → SNOW; under
+ * RAIN_SPAWN_CHANCE -> WATER; under snow, below SNOW_SPAWN_CHANCE -> SNOW; under
  * clear, nothing. The spawned cell is left UNCLAIMED in the moved-guard and its
  * chunk woken, so the normal fluid/powder movement scan lets it fall this tick
- * (no special-case fall here — brief requirement).
+ * (no special-case fall here - brief requirement).
  *
  * DETERMINISM/EQUIVALENCE: the only randomness is simRand(x, y, tick, salt), a
  * pure function of position+tick+seed. We touch only AIR cells and write only
@@ -255,7 +255,7 @@ function applyWeather(): void {
 
 /**
  * Original FULL grid scan (the byte-identical REFERENCE, used when chunking is
- * OFF). Bottom row → top row, columns flipped per tick to kill lateral bias
+ * OFF). Bottom row -> top row, columns flipped per tick to kill lateral bias
  * (GDD App. B). Every cell is visited every tick.
  */
 function fullScan(): void {
@@ -274,7 +274,7 @@ function fullScan(): void {
 }
 
 /**
- * CHUNKED movement scan (Phase 11) — visits ONLY active chunks but in the EXACT
+ * CHUNKED movement scan (Phase 11) - visits ONLY active chunks but in the EXACT
  * same global order as fullScan, so its output is byte-identical.
  *
  * Order is the crux. Two cells that can interact are within 1 cell of each
@@ -319,7 +319,7 @@ function chunkedScan(): void {
 /**
  * Last measured count of loose body-debris cells (FLESH + BONE + BLOOD).
  * Refreshed by a full grid scan every GORE_RECOUNT_INTERVAL ticks (the ONLY
- * full-grid scan this adds — see sweepGore for the amortised cost), and
+ * full-grid scan this adds - see sweepGore for the amortised cost), and
  * decremented as the fade AIR-ifies cells in between recounts.
  */
 let goreCount = 0;
@@ -339,16 +339,16 @@ let fadeCursor = 0;
 let ageFadeCursor = 0;
 
 /**
- * Global "settle clock" for the age/settle trickle (task 11-3, GDD §13).
- * APPROXIMATION of per-cell age (which we cannot store — FIRE already reuses the
+ * Global "settle clock" for the age/settle trickle (task 11-3, GDD 13).
+ * APPROXIMATION of per-cell age (which we cannot store - FIRE already reuses the
  * integrity slot): this counts how many consecutive ticks the loose-debris field
- * has been QUIESCENT — i.e. under MAX_GORE_CELLS AND unchanged since the last
+ * has been QUIESCENT - i.e. under MAX_GORE_CELLS AND unchanged since the last
  * recount (no fresh gore from combat, no scene reset). It advances while the
  * field sits still and RESETS to 0 the instant the field is over budget or its
  * recount disagrees with our predicted running count (fresh gore arrived / the
  * scene was edited). Once it reaches GORE_SETTLE_TICKS the field is "old" and the
  * trickle gently AIR-ifies a few debris cells per tick so the battlefield
- * self-cleans for readability — even while under the cap.
+ * self-cleans for readability - even while under the cap.
  */
 let goreSettleAge = 0;
 
@@ -358,27 +358,27 @@ function isLooseDebris(m: number): boolean {
 }
 
 /**
- * Gore budget sweep (task 10-8, GDD §13 "fade/settle gore so debris doesn't
- * accumulate forever"). A deliberately MVP-minimal cap+fade — NOT chunking
+ * Gore budget sweep (task 10-8, GDD 13 "fade/settle gore so debris doesn't
+ * accumulate forever"). A deliberately MVP-minimal cap+fade - NOT chunking
  * (Phase 11).
  *
  * Mechanism:
  *  - Every GORE_RECOUNT_INTERVAL ticks, recount the loose FLESH/BONE/BLOOD cells
- *    in one tight pass over the material array (a Uint8Array scan — fast). This
- *    is the only full-grid scan we add; amortised it is ~WORLD_W·WORLD_H /
- *    GORE_RECOUNT_INTERVAL reads/tick (≈10k/tick here), versus the main step()
- *    which already visits every cell each tick — so the overhead is a small
+ *    in one tight pass over the material array (a Uint8Array scan - fast). This
+ *    is the only full-grid scan we add; amortised it is ~WORLD_W.WORLD_H /
+ *    GORE_RECOUNT_INTERVAL reads/tick (~10k/tick here), versus the main step()
+ *    which already visits every cell each tick - so the overhead is a small
  *    fraction of one tick. We deliberately do NOT recount every tick.
  *  - While the count is at/under MAX_GORE_CELLS the function is a no-op past the
  *    cheap recount, so below the cap gore falls, piles and bleeds untouched.
  *  - When OVER budget, AIR-ify up to GORE_FADE_PER_TICK debris cells found by a
  *    rolling cursor (a slow fade, not a snap). The cursor walks the flat grid;
- *    because being over budget means ≥ MAX_GORE_CELLS debris cells exist, it
+ *    because being over budget means >= MAX_GORE_CELLS debris cells exist, it
  *    finds its quota within a few thousand reads, and the `scanned < total`
  *    guard caps the work so a sparse grid can never stall the tick.
  *
  * CRITICAL (THE GATE invariants): the fade ONLY ever converts loose
- * FLESH/BONE/BLOOD → AIR. Terrain/structure (STONE/DIRT/WOOD/WALL/…) and live
+ * FLESH/BONE/BLOOD -> AIR. Terrain/structure (STONE/DIRT/WOOD/WALL/...) and live
  * body SPRITES (which are not in the grid at all) are never touched.
  */
 function sweepGore(): void {
@@ -390,7 +390,7 @@ function sweepGore(): void {
     }
     // External-change detection (task 11-3): our running `goreCount` is already
     // decremented by every cell WE fade, so a recount that DISAGREES with it
-    // means the field changed outside the fade — fresh gore from combat, or a
+    // means the field changed outside the fade - fresh gore from combat, or a
     // scene reset/edit. Either way the field is no longer "settled", so restart
     // the age clock. This is what keeps a freshly-churned battlefield from being
     // instantly aged out (and keeps the trickle out of the just-reset gore
@@ -400,7 +400,7 @@ function sweepGore(): void {
   }
 
   // -------------------------------------------------------------------------
-  // Over-cap FAST fade (Phase 10 — unchanged). Being over budget is the
+  // Over-cap FAST fade (Phase 10 - unchanged). Being over budget is the
   // opposite of "settled", so hold the age clock at 0 while we drain.
   // -------------------------------------------------------------------------
   if (goreCount > MAX_GORE_CELLS) {
@@ -412,7 +412,7 @@ function sweepGore(): void {
       if (isLooseDebris(material[fadeCursor])) {
         material[fadeCursor] = AIR;
         integrity[fadeCursor] = 0; // clear any reused slot; AIR carries none
-        markIndexActive(fadeCursor); // gore→AIR is a change → wake the chunk (P11)
+        markIndexActive(fadeCursor); // gore->AIR is a change -> wake the chunk (P11)
         faded++;
       }
       fadeCursor++;
@@ -426,20 +426,20 @@ function sweepGore(): void {
   }
 
   // -------------------------------------------------------------------------
-  // Under-cap AGE/SETTLE trickle (task 11-3, GDD §13). Below the cap the field
+  // Under-cap AGE/SETTLE trickle (task 11-3, GDD 13). Below the cap the field
   // is "settled"; once it has sat quiescent for GORE_SETTLE_TICKS, gently
-  // trickle-fade old debris so the battlefield self-cleans for readability — a
+  // trickle-fade old debris so the battlefield self-cleans for readability - a
   // slow GORE_AGE_FADE_PER_TICK, never a snap. Same GATE invariants as the
-  // over-cap fade: ONLY loose FLESH/BONE/BLOOD → AIR; terrain/structure and live
+  // over-cap fade: ONLY loose FLESH/BONE/BLOOD -> AIR; terrain/structure and live
   // sprites are never touched.
   // -------------------------------------------------------------------------
   if (goreCount <= 0) {
-    goreSettleAge = 0; // nothing to age — keep the clock cold
+    goreSettleAge = 0; // nothing to age - keep the clock cold
     return;
   }
   goreSettleAge++;
   if (goreSettleAge < GORE_SETTLE_TICKS) {
-    return; // not old enough yet — leave the settled debris be
+    return; // not old enough yet - leave the settled debris be
   }
 
   const total = material.length;
@@ -449,7 +449,7 @@ function sweepGore(): void {
     if (isLooseDebris(material[ageFadeCursor])) {
       material[ageFadeCursor] = AIR;
       integrity[ageFadeCursor] = 0; // clear any reused slot; AIR carries none
-      markIndexActive(ageFadeCursor); // gore→AIR is a change → wake the chunk (P11)
+      markIndexActive(ageFadeCursor); // gore->AIR is a change -> wake the chunk (P11)
       faded++;
     }
     ageFadeCursor++;
@@ -494,15 +494,15 @@ function updateCell(x: number, y: number): void {
   } else if (m === SNOW) {
     updateSnow(x, y);
   }
-  // AIR is the empty target; STONE is static — neither has a rule.
+  // AIR is the empty target; STONE is static - neither has a rule.
 }
 
 /**
- * Shared POWDER fall (GDD §7.2 "severed parts are loose body cells that fall &
+ * Shared POWDER fall (GDD 7.2 "severed parts are loose body cells that fall &
  * settle"). Identical primitive to sand: fall straight down through anything
  * lighter and non-static (the density swap), else spill into the two diagonals
  * below in random per-cell order so the gore piles at an angle of repose. Used
- * by both released FLESH and BONE — they differ only in density (FLESH 3 sinks,
+ * by both released FLESH and BONE - they differ only in density (FLESH 3 sinks,
  * BONE 5 sinks faster/under flesh), and that falls out of trySwap for free.
  */
 function powderFall(x: number, y: number): void {
@@ -525,7 +525,7 @@ function powderFall(x: number, y: number): void {
 }
 
 /**
- * FLESH rule (GDD §5.2 / §7.2): a released flesh cell is a powder — it falls and
+ * FLESH rule (GDD 5.2 / 7.2): a released flesh cell is a powder - it falls and
  * piles like sand. Density 3, so it rests on the floor and is sunk-under by the
  * heavier BONE (density 5).
  */
@@ -534,7 +534,7 @@ function updateFlesh(x: number, y: number): void {
 }
 
 /**
- * BONE rule (GDD §5.2 / §7.2): a released bone cell is a heavier powder (density
+ * BONE rule (GDD 5.2 / 7.2): a released bone cell is a heavier powder (density
  * 5). Same fall/pile primitive as flesh; the density difference is what lets
  * bone settle beneath flesh in a gore pile.
  */
@@ -543,8 +543,8 @@ function updateBone(x: number, y: number): void {
 }
 
 /**
- * BLOOD rule (GDD §5.2: "thin fluid, stains, douses NOTHING"; §7.2 bleed).
- * A thin fluid — it falls and seeks its level exactly like water (density 1),
+ * BLOOD rule (GDD 5.2: "thin fluid, stains, douses NOTHING"; 7.2 bleed).
+ * A thin fluid - it falls and seeks its level exactly like water (density 1),
  * delegating to the same generic fluid logic. "Douses nothing" is handled by
  * reactions() keying extinguish on WATER only (untouched here), so a blood
  * smear never puts out a fire.
@@ -556,8 +556,8 @@ function updateBlood(x: number, y: number): void {
 }
 
 /**
- * Is any of the four orthogonal neighbours of (x, y) WATER? (GDD §9 "water
- * accelerates growth".) A bounds-safe grid query — no randomness, so it is
+ * Is any of the four orthogonal neighbours of (x, y) WATER? (GDD 9 "water
+ * accelerates growth".) A bounds-safe grid query - no randomness, so it is
  * chunk-equivalence-safe.
  */
 function waterAdjacent(x: number, y: number): boolean {
@@ -570,8 +570,8 @@ function waterAdjacent(x: number, y: number): boolean {
 }
 
 /**
- * SAPLING rule (post-MVP backlog, playtest v0.6 #G; GDD §9 ecology). A planted
- * seed that does NOT fall — it stays pinned and MATURES into FOLIAGE over time,
+ * SAPLING rule (post-MVP backlog, playtest v0.6 #G; GDD 9 ecology). A planted
+ * seed that does NOT fall - it stays pinned and MATURES into FOLIAGE over time,
  * sprouting a new sapling above so a plant grows UPWARD into a bush.
  *
  * GROWTH TIMER via the integrity slot: exactly the FIRE-lifetime trick. A
@@ -580,12 +580,12 @@ function waterAdjacent(x: number, y: number): boolean {
  * Plant tool, whose placeMaterial leaves a hasIntegrity:false cell at 0): on the
  * first visit we seed the countdown to GROW_TICKS plus a small simRand jitter so
  * neighbouring saplings don't mature in lockstep. Each tick we decrement it
- * (faster beside WATER — GDD §9), and rewrite the slot, which WAKES the chunk —
+ * (faster beside WATER - GDD 9), and rewrite the slot, which WAKES the chunk -
  * so the chunked/dirty-rect scan keeps visiting this cell every tick and stays
  * byte-identical to a full scan (the chunk-equivalence guarantee).
  *
  * DETERMINISM: the ONLY randomness is the seeding jitter, drawn from
- * simRand(x, y, SALT_GROW) (NOT Math.random) — a pure function of
+ * simRand(x, y, SALT_GROW) (NOT Math.random) - a pure function of
  * (x, y, tick, seed). The decrement, the water-speedup and the maturation are
  * deterministic grid queries. So a chunked run draws the exact same jitter as a
  * full scan and the two remain byte-identical.
@@ -596,7 +596,7 @@ function waterAdjacent(x: number, y: number): boolean {
  *   3) On expiry: if the cell below is soil (DIRT) or already-grown FOLIAGE,
  *      mature into FOLIAGE and (if there is AIR above and the foliage column is
  *      under FOLIAGE_GROW_MAX_HEIGHT) sprout a fresh sapling above. If there is
- *      NO soil below (a floating sapling) it WITHERS to AIR instead of growing —
+ *      NO soil below (a floating sapling) it WITHERS to AIR instead of growing -
  *      so a sapling planted in mid-air can never build an infinite tower.
  */
 function updateSapling(x: number, y: number): void {
@@ -608,45 +608,45 @@ function updateSapling(x: number, y: number): void {
     g = GROW_TICKS + Math.floor(simRand(x, y, SALT_GROW) * GROW_JITTER);
   }
 
-  // 2) Decrement — water accelerates growth (GDD §9); RAIN accelerates it on top
-  //    (GDD §10, T4). Both are pure multipliers on the per-tick countdown step.
+  // 2) Decrement - water accelerates growth (GDD 9); RAIN accelerates it on top
+  //    (GDD 10, T4). Both are pure multipliers on the per-tick countdown step.
   //    getWeather() is GLOBAL state, identical on chunked/unchunked scans, so the
   //    speedup stays chunk-byte-equivalent and deterministic (no Math.random).
   let dec = waterAdjacent(x, y) ? GROW_WATER_SPEEDUP : 1;
   if (getWeather() === 'rain') dec *= GROW_RAIN_SPEEDUP;
 
-  // 3) Expiry → mature or wither.
+  // 3) Expiry -> mature or wither.
   if (g <= dec) {
     growSapling(x, y);
     return;
   }
 
   integrity[s] = g - dec;
-  // Per-tick countdown change → keep the chunk live so the chunked scan keeps
+  // Per-tick countdown change -> keep the chunk live so the chunked scan keeps
   // visiting this sapling (Phase 11 dirty-rect, same as FIRE's ageing).
   markCellActive(x, y);
 }
 
 /**
- * Mature a sapling at (x, y) (GDD §9). The countdown has expired: if the cell is
+ * Mature a sapling at (x, y) (GDD 9). The countdown has expired: if the cell is
  * standing on soil it becomes FOLIAGE and may sprout a new sapling above;
  * otherwise (no soil below) it withers to AIR. Called only from updateSapling.
  */
 function growSapling(x: number, y: number): void {
   const s = idx(x, y);
 
-  // Validity: a sapling grows only on suitable soil — DIRT directly below, or
+  // Validity: a sapling grows only on suitable soil - DIRT directly below, or
   // already-grown FOLIAGE (so the plant stacks upward). Out-of-bounds below
-  // (bottom row) counts as no soil. (GDD §9 "grow over time on suitable soil".)
+  // (bottom row) counts as no soil. (GDD 9 "grow over time on suitable soil".)
   const belowM = y < WORLD_H - 1 ? material[idx(x, y + 1)] : AIR;
   const onSoil = belowM === DIRT || belowM === FOLIAGE;
 
   if (!onSoil) {
-    // No soil → wither (bounded; a floating sapling never towers — Done-when #3).
+    // No soil -> wither (bounded; a floating sapling never towers - Done-when #3).
     material[s] = AIR;
     integrity[s] = 0; // AIR carries no integrity / growth timer
     moved[s] = 1; // claim the cell so the freed AIR isn't re-processed this tick
-    markCellActive(x, y); // SAPLING→AIR is a change → wake the chunk (P11)
+    markCellActive(x, y); // SAPLING->AIR is a change -> wake the chunk (P11)
     return;
   }
 
@@ -657,7 +657,7 @@ function growSapling(x: number, y: number): void {
   markCellActive(x, y);
 
   // Sprout a new sapling directly above, if there is room and the plant is still
-  // under its max height (GDD §9 grows upward; capped so it never towers).
+  // under its max height (GDD 9 grows upward; capped so it never towers).
   const above = y - 1;
   if (above < 0) return;
   const a = idx(x, above);
@@ -669,7 +669,7 @@ function growSapling(x: number, y: number): void {
   for (let yy = y + 1; yy < WORLD_H && material[idx(x, yy)] === FOLIAGE; yy++) {
     height++;
   }
-  if (height >= FOLIAGE_GROW_MAX_HEIGHT) return; // capped — top stage, no sprout
+  if (height >= FOLIAGE_GROW_MAX_HEIGHT) return; // capped - top stage, no sprout
 
   // Place the new sapling above. Leave its integrity at 0 (auto-seeded on its
   // first visit) and CLAIM it in the moved-guard so it does NOT age this tick.
@@ -684,8 +684,8 @@ function growSapling(x: number, y: number): void {
 }
 
 /**
- * SAND rule (GDD §5.2): fall straight down (sinking through anything lighter and
- * non-static — AIR or WATER), otherwise spill into the two diagonals below in
+ * SAND rule (GDD 5.2): fall straight down (sinking through anything lighter and
+ * non-static - AIR or WATER), otherwise spill into the two diagonals below in
  * random per-cell order to pile at the angle of repose. Sand never moves
  * horizontally, so a mound stays stable.
  */
@@ -709,8 +709,8 @@ function updateSand(x: number, y: number): void {
 }
 
 /**
- * DIRT rule (GDD §5.2: "dirt piles steeper than sand").
- * Identical to sand for the straight-down fall (unconditional — sinks through
+ * DIRT rule (GDD 5.2: "dirt piles steeper than sand").
+ * Identical to sand for the straight-down fall (unconditional - sinks through
  * anything lighter and non-static via the same density swap, so dirt still falls
  * through air and sinks through water). The difference is the diagonal spill: it
  * is only ATTEMPTED with probability DIRT_SPILL_CHANCE this tick. When the spill
@@ -726,7 +726,7 @@ function updateDirt(x: number, y: number): void {
     return;
   }
 
-  // 2) Blocked below → only spill diagonally with DIRT_SPILL_CHANCE (steepness).
+  // 2) Blocked below -> only spill diagonally with DIRT_SPILL_CHANCE (steepness).
   if (simRand(x, y, SALT_SPILL) >= DIRT_SPILL_CHANCE) {
     return;
   }
@@ -743,11 +743,11 @@ function updateDirt(x: number, y: number): void {
 }
 
 /**
- * ASH rule (GDD §5.2: "falls lightly, inert").
+ * ASH rule (GDD 5.2: "falls lightly, inert").
  * A plain powder: identical fall/spill to sand (full diagonal spill, no fluid
- * sideways flow — it piles and rests, it does not seek level). "Light" is
+ * sideways flow - it piles and rests, it does not seek level). "Light" is
  * expressed purely by its low density (DENSITY_ASH = 2). "Inert" means it has no
- * reaction/ignition handling at all — it only ever falls and rests.
+ * reaction/ignition handling at all - it only ever falls and rests.
  *
  * NOTE: density(ASH)=2 > density(WATER)=1, so ash sinks through water and rests
  * on the floor beneath it. That is the physical/accepted MVP behaviour.
@@ -772,14 +772,14 @@ function updateAsh(x: number, y: number): void {
 }
 
 /**
- * SNOW rule (GDD §10, Beyond T3): snow is a LIGHT POWDER (density 2) that falls
+ * SNOW rule (GDD 10, Beyond T3): snow is a LIGHT POWDER (density 2) that falls
  * from the sky and accumulates into stable piles. Its movement contract is a
  * byte-for-byte copy of ASH's powder fall (same density, same no-tunnel / moved
  * discipline via trySwap): fall straight down through anything lighter and
  * non-static, else spill into the two diagonals below in deterministic per-cell
  * random order (SALT_DIAG) so it settles at an angle of repose. Like ash it
  * never flows sideways, so an accumulated snow drift holds its shape. Melt near
- * heat (→ WATER) is an adjacency reaction handled in reactions.ts, not here.
+ * heat (-> WATER) is an adjacency reaction handled in reactions.ts, not here.
  */
 function updateSnow(x: number, y: number): void {
   const below = y + 1;
@@ -801,21 +801,21 @@ function updateSnow(x: number, y: number): void {
 }
 
 /**
- * WATER rule (GDD §5.2: "flows, seeks level, never piles").
+ * WATER rule (GDD 5.2: "flows, seeks level, never piles").
  * Fall if possible, otherwise spread sideways so a column collapses to a flat
  * sheet rather than piling. Down-diagonals are tried before straight sideways so
  * water prefers to keep descending while it spreads. Left/right order is
  * randomised per cell so the sheet has no drift bias.
  *
  * NOTE on leveling vs. diffusion: this is the simple, robust local rule (the
- * GDD/PLAN one). It guarantees the two hard requirements — water never piles and
+ * GDD/PLAN one). It guarantees the two hard requirements - water never piles and
  * a column collapses to a flat sheet. Its only artifact is that a *truly
  * isolated* water cell on flat ground will slowly random-walk (it has air on
  * both sides, so each side is a valid swap). That reads as harmless shimmer for
  * MVP; true pressure-based leveling (a multi-cell flow scan) is deferred to the
  * flooding work in a later phase. A pressure gate (only flow when water is
  * directly above) was tried and rejected here because it makes water form a
- * stable *mound* — which violates "never piles".
+ * stable *mound* - which violates "never piles".
  */
 function updateWater(x: number, y: number): void {
   const below = y + 1;
@@ -829,12 +829,12 @@ function updateWater(x: number, y: number): void {
   const dx1 = leftFirst ? -1 : 1;
   const dx2 = leftFirst ? 1 : -1;
 
-  // 2) Blocked below → spread to a lower diagonal first (keeps water descending).
+  // 2) Blocked below -> spread to a lower diagonal first (keeps water descending).
   if (trySwap(x, y, x + dx1, below) || trySwap(x, y, x + dx2, below)) {
     return;
   }
 
-  // 3) Still blocked → flow straight sideways to seek its level (never piles).
+  // 3) Still blocked -> flow straight sideways to seek its level (never piles).
   if (trySwap(x, y, x + dx1, y)) {
     return;
   }
@@ -842,7 +842,7 @@ function updateWater(x: number, y: number): void {
 }
 
 /**
- * Ignite a cell (GDD §5.2 / §7.3): set it to FIRE and seed its lifetime.
+ * Ignite a cell (GDD 5.2 / 7.3): set it to FIRE and seed its lifetime.
  *
  * THE single ignition path. FIRE has no structural integrity, so it REUSES its
  * `integrity` slot as a per-cell countdown seeded to FIRE_LIFETIME (see
@@ -851,7 +851,7 @@ function updateWater(x: number, y: number): void {
  * and the player Ignite tool (next task) both call this so they can never get
  * out of sync. Bounds-safe via the grid set/setIntegrity helpers.
  *
- * NOTE: ignite does NOT touch the moved-guard — callers that need the freshly
+ * NOTE: ignite does NOT touch the moved-guard - callers that need the freshly
  * lit cell to skip the current tick's scan (e.g. fire spread, to avoid a
  * same-tick ignition chain) flag `moved` themselves right after calling.
  */
@@ -861,8 +861,8 @@ export function ignite(x: number, y: number): void {
 }
 
 /**
- * FIRE rule (GDD §5.2 "spreads to flammable neighbours, rises; consumes fuel,
- * makes smoke" + §7.3 fire spread). A short-lived state machine — it must never
+ * FIRE rule (GDD 5.2 "spreads to flammable neighbours, rises; consumes fuel,
+ * makes smoke" + 7.3 fire spread). A short-lived state machine - it must never
  * become an eternal flame.
  *
  * LIFETIME STORAGE: FIRE has no structural integrity, so we REUSE its slot in
@@ -874,14 +874,14 @@ export function ignite(x: number, y: number): void {
  *
  * Per tick:
  *   1) Spread: each adjacent flammable cell (4 orthogonal + 4 diagonal) is
- *      ignited with chance FIRE_SPREAD_CHANCE — converted to FIRE, its lifetime
+ *      ignited with chance FIRE_SPREAD_CHANCE - converted to FIRE, its lifetime
  *      seeded, and flagged moved so it ages from next tick (no same-tick chain).
- *   2) Age: decrement the countdown. On expiry → leave ASH, or with chance
+ *   2) Age: decrement the countdown. On expiry -> leave ASH, or with chance
  *      SMOKE_EMIT_CHANCE puff SMOKE instead (burned fuel = ash + some smoke).
  *
  * Note: the fire cell itself does not move (density 0), so it is never re-entered
  * by the bottom-up scan; aged-but-living fire needs no moved flag of its own.
- * Fire over AIR with no fuel still ages out — the countdown is unconditional.
+ * Fire over AIR with no fuel still ages out - the countdown is unconditional.
  */
 function updateFire(x: number, y: number): void {
   // 1) Spread to flammable neighbours (orthogonal + diagonal).
@@ -918,41 +918,41 @@ function updateFire(x: number, y: number): void {
     } else {
       material[s] = ASH;
     }
-    integrity[s] = 0; // clear reused slot — ASH/SMOKE carry no integrity
+    integrity[s] = 0; // clear reused slot - ASH/SMOKE carry no integrity
     moved[s] = 1; // claim the cell so the new ASH/SMOKE isn't re-processed now
-    markCellActive(x, y); // FIRE→ASH/SMOKE is a change → keep the chunk live.
+    markCellActive(x, y); // FIRE->ASH/SMOKE is a change -> keep the chunk live.
     return;
   }
   integrity[s] = life - 1;
   // FIRE ages every tick even when nothing around it changes (its reused
   // integrity slot counts down). That is a per-tick state change, so the fire
-  // must keep its OWN chunk active until it expires — otherwise the chunked scan
+  // must keep its OWN chunk active until it expires - otherwise the chunked scan
   // would stop visiting it and it would never burn out (Phase 11). Writing the
   // integrity directly (not via setIntegrity) means we wake the chunk here.
   markCellActive(x, y);
 }
 
 /**
- * SMOKE/STEAM rule (GDD §5.2: "gas, rises, dissipates"). SMOKE doubles as steam.
+ * SMOKE/STEAM rule (GDD 5.2: "gas, rises, dissipates"). SMOKE doubles as steam.
  *
  * Gas is the mirror image of sand: it travels UP, not down. That makes the
- * moved-guard load-bearing — gas rises into rows the BOTTOM-UP scan has NOT yet
+ * moved-guard load-bearing - gas rises into rows the BOTTOM-UP scan has NOT yet
  * processed this tick, so without flagging both cells on every move a single gas
  * cell would be re-scanned higher up and skid several rows in one tick. We use a
  * gas-specific move (gasMove) that only enters AIR and flags BOTH cells, never
  * the generic trySwap (whose "strictly lighter target" test can't move SMOKE
- * into AIR — both are density 0).
+ * into AIR - both are density 0).
  *
  * Order each tick:
- *   1) Dissipate with chance SMOKE_DISSIPATE → become AIR and stop (flag moved
+ *   1) Dissipate with chance SMOKE_DISSIPATE -> become AIR and stop (flag moved
  *      so nothing else touches this cell this tick).
  *   2) Rise straight up into AIR.
- *   3) Blocked → try the two up-diagonals in random order.
- *   4) Fully blocked above (under a ceiling) → drift sideways into AIR so a
+ *   3) Blocked -> try the two up-diagonals in random order.
+ *   4) Fully blocked above (under a ceiling) -> drift sideways into AIR so a
  *      plume spreads out under stone instead of stalling.
  *
- * Gas has density 0 (≈ air), so the generic density-fall never picks it up and
- * heavier grains fall straight through it — that behaviour is untouched here.
+ * Gas has density 0 (~ air), so the generic density-fall never picks it up and
+ * heavier grains fall straight through it - that behaviour is untouched here.
  */
 function updateGas(x: number, y: number): void {
   // 1) Dissipate: a fraction of the plume vanishes each tick (not conserved).
@@ -960,7 +960,7 @@ function updateGas(x: number, y: number): void {
     const s = idx(x, y);
     material[s] = AIR;
     moved[s] = 1; // Claim the cell so nothing re-processes the freed AIR.
-    markCellActive(x, y); // SMOKE→AIR is a change → keep the chunk live (P11).
+    markCellActive(x, y); // SMOKE->AIR is a change -> keep the chunk live (P11).
     return;
   }
 
@@ -971,7 +971,7 @@ function updateGas(x: number, y: number): void {
     return;
   }
 
-  // 3) Blocked → up-diagonals in random per-cell order (no lateral bias).
+  // 3) Blocked -> up-diagonals in random per-cell order (no lateral bias).
   const leftFirst = simRand(x, y, SALT_GAS_DIAG) < 0.5;
   const dx1 = leftFirst ? -1 : 1;
   const dx2 = leftFirst ? 1 : -1;
@@ -979,7 +979,7 @@ function updateGas(x: number, y: number): void {
     return;
   }
 
-  // 4) Under a ceiling → drift sideways into AIR so the plume spreads out.
+  // 4) Under a ceiling -> drift sideways into AIR so the plume spreads out.
   if (gasMove(x, y, x + dx1, y)) {
     return;
   }
@@ -987,11 +987,11 @@ function updateGas(x: number, y: number): void {
 }
 
 /**
- * Gas move (GDD §5.2): move the gas at (sx,sy) into (tx,ty) iff the target is
+ * Gas move (GDD 5.2): move the gas at (sx,sy) into (tx,ty) iff the target is
  * in-bounds, has NOT acted this tick, and is AIR. Unlike trySwap this does NOT
- * compare densities — SMOKE and AIR are both density 0, so a density test would
+ * compare densities - SMOKE and AIR are both density 0, so a density test would
  * never let gas advance. Both cells are flagged moved so neither is re-processed
- * — this is what stops a rising gas cell (moving into a not-yet-scanned row)
+ * - this is what stops a rising gas cell (moving into a not-yet-scanned row)
  * from being picked up again and advancing multiple rows in one tick.
  * Returns true if the move happened.
  */
@@ -1008,7 +1008,7 @@ function gasMove(sx: number, sy: number, tx: number, ty: number): boolean {
   material[s] = AIR;
   moved[t] = 1;
   moved[s] = 1;
-  // Both endpoints changed → wake their chunks (+ border neighbours) for next
+  // Both endpoints changed -> wake their chunks (+ border neighbours) for next
   // tick so the chunked scan keeps following the gas (Phase 11 dirty-rect).
   markCellActive(sx, sy);
   markCellActive(tx, ty);
@@ -1016,7 +1016,7 @@ function gasMove(sx: number, sy: number, tx: number, ty: number): boolean {
 }
 
 /**
- * Density swap (GDD §5.2): move the grain at (sx,sy) into (tx,ty), swapping the
+ * Density swap (GDD 5.2): move the grain at (sx,sy) into (tx,ty), swapping the
  * two cells, iff the target is in-bounds, has NOT acted this tick, and is a
  * LIGHTER, NON-STATIC material. Stone (static/255) is never displaced, so it is
  * what stops sand/water tunnelling through the floor. Both cells are flagged
@@ -1034,10 +1034,10 @@ function trySwap(sx: number, sy: number, tx: number, ty: number): boolean {
     return false;
   }
   const target = material[t];
-  // A faller may only displace AIR or a FLUID (water/blood) — NOT another powder
+  // A faller may only displace AIR or a FLUID (water/blood) - NOT another powder
   // or solid. This lets powders sink through air and water while RESTING on each
   // other (piling) instead of stratifying by density like liquids. (Playtest:
-  // sand spawned under dirt should NOT float to the top — two dry powders of
+  // sand spawned under dirt should NOT float to the top - two dry powders of
   // similar weight stay layered/mixed, they don't separate.) Static is never
   // displaceable.
   if (isStatic(target)) {
@@ -1055,7 +1055,7 @@ function trySwap(sx: number, sy: number, tx: number, ty: number): boolean {
   material[s] = target;
   moved[t] = 1;
   moved[s] = 1;
-  // Both endpoints changed → wake their chunks (+ border neighbours) for next
+  // Both endpoints changed -> wake their chunks (+ border neighbours) for next
   // tick so a grain crossing a chunk boundary keeps its destination chunk live
   // (Phase 11 dirty-rect invariant).
   markCellActive(sx, sy);
