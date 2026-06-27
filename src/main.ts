@@ -58,6 +58,7 @@ import {
   getSimSpeed,
   directionToWorldX,
   drawHitFlashes,
+  drawWeather,
   advanceHitFlashes,
 } from './game/ui';
 
@@ -485,6 +486,8 @@ function renderLoop(): void {
   const vpH = renderer.viewportHeightPx;
   // task 11-7: brief expanding ring at hit locations (GDD §12 UX readability).
   drawHitFlashes(ctx, camera, vpW, vpH);
+  // VS-1 T5: precipitation overlay + always-on weather/temperature readout (GDD §10).
+  drawWeather(ctx);
   drawNeedsBars(ctx, survivors);
   drawEdgeArrows(ctx, zombies, camera, vpW, vpH);
   // task 11-4: off-screen breach alert (GDD §12.1 / §7.4).

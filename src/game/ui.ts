@@ -21,6 +21,7 @@ import type { GameState } from './state';
 import { worldToScreen, effectiveCellPx } from '../camera';
 import { stockpilePoint } from './resources';
 import { recentChips, getBreachTick } from './breaching';
+import { getWeather, getTemperature, type WeatherState } from '../engine/weather';
 import {
   NEED_MAX,
   HUNGER_THRESHOLD,
@@ -32,6 +33,11 @@ import {
   WORLD_W,
   CHIP_FLASH_TICKS,
   UNDER_ATTACK_ALERT,
+  RAIN_STREAK_COLOR,
+  SNOW_FLECK_COLOR,
+  WEATHER_OVERLAY_DENSITY,
+  WEATHER_SKY_DARKEN_RAIN,
+  WEATHER_SKY_DARKEN_SNOW,
 } from '../config';
 
 // ---------------------------------------------------------------------------
@@ -144,6 +150,104 @@ export function drawToasts(ctx: CanvasRenderingContext2D): void {
   }
 
   ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Weather HUD + precipitation overlay (VS-1 T5, GDD §10)
+//
+// Two cosmetic, draw-time-only pieces:
+//   1. A precipitation overlay (rain streaks / snow flakes) drawn over the
+//      world so the active weather is felt, not just labelled.
+//   2. A top-of-screen readout — "icon  Label  N°" — so the HUD ALWAYS shows
+//      the current weather and temperature (the VS-1 Done-when).
+// Animation is wall-clock driven (performance.now): it never touches the sim
+// grid or RNG, so chunk-equivalence / replay determinism are unaffected.
+// ---------------------------------------------------------------------------
+
+/** Per-weather presentation (icon, label, particle + text colour). */
+const WEATHER_VIS: Record<WeatherState, { icon: string; label: string; tint: string }> = {
+  clear: { icon: '\u2600', label: 'Clear', tint: '#ffd866' }, // ☀
+  rain:  { icon: '\u2602', label: 'Rain',  tint: '#7fb8ff' }, // ☂
+  snow:  { icon: '\u2744', label: 'Snow',  tint: '#cfe8ff' }, // ❄
+};
+
+/**
+ * Stable pseudo-random in [0,1) from an integer seed — gives each particle a
+ * fixed lane/offset so the field looks coherent frame-to-frame (no per-frame
+ * Math.random sparkle). Cheap LCG-style hash.
+ */
+function particleRand(i: number): number {
+  const x = Math.sin(i * 12.9898) * 43758.5453;
+  return x - Math.floor(x);
+}
+
+/**
+ * Draw the precipitation overlay + the weather/temperature HUD readout.
+ * No-op for the smoke stub (no real canvas) and when weather is 'clear'
+ * (overlay only — the readout still shows for clear).
+ */
+export function drawWeather(ctx: CanvasRenderingContext2D): void {
+  const canvas = ctx.canvas;
+  if (!canvas) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  if (cw === 0 || ch === 0) return;
+
+  const weather = getWeather();
+  const temp = getTemperature();
+  const vis = WEATHER_VIS[weather];
+  const t = (typeof performance !== 'undefined' ? performance.now() : Date.now()) / 1000;
+
+  ctx.save();
+
+  // --- 1. Precipitation overlay (skip when clear) ---
+  const PRECIP_PARTICLES = WEATHER_OVERLAY_DENSITY;
+  if (weather === 'rain' || weather === 'snow') {
+    // Sky-darken wash so storms read as gloomier (config-driven tint).
+    ctx.fillStyle = weather === 'rain' ? WEATHER_SKY_DARKEN_RAIN : WEATHER_SKY_DARKEN_SNOW;
+    ctx.fillRect(0, 0, cw, ch);
+    if (weather === 'rain') {
+      ctx.strokeStyle = RAIN_STREAK_COLOR;
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      for (let i = 0; i < PRECIP_PARTICLES; i++) {
+        const laneX = particleRand(i) * cw;
+        const speed = 700 + particleRand(i + 999) * 300; // px/s, fast
+        const y = ((particleRand(i + 7) * ch + t * speed) % (ch + 20)) - 10;
+        const x = (laneX + y * 0.25) % cw; // slight diagonal slant
+        ctx.moveTo(x, y);
+        ctx.lineTo(x - 2, y + 10);
+      }
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = SNOW_FLECK_COLOR;
+      for (let i = 0; i < PRECIP_PARTICLES; i++) {
+        const speed = 60 + particleRand(i + 999) * 50; // px/s, slow drift
+        const baseX = particleRand(i) * cw;
+        const y = ((particleRand(i + 7) * ch + t * speed) % (ch + 8)) - 4;
+        const x = (baseX + Math.sin((y + i * 30) * 0.05) * 8 + cw) % cw; // sway
+        const r = 1 + particleRand(i + 3) * 1.2;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  // --- 2. Weather + temperature readout (always shown) ---
+  // Sits just below the minimap strip at the top of the canvas.
+  const text = `${vis.icon} ${vis.label}  ${Math.round(temp)}\u00b0`; // °
+  ctx.font = 'bold 13px monospace';
+  ctx.textAlign = 'right';
+  ctx.textBaseline = 'top';
+  const x = cw - 6;
+  const y = (MINIMAP_AT_TOP ? MINIMAP_HEIGHT_PX : 0) + 4;
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.fillText(text, x + 1, y + 1); // shadow
+  ctx.fillStyle = vis.tint;
+  ctx.fillText(text, x, y);
+
   ctx.restore();
 }
 
