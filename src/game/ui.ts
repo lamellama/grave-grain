@@ -27,6 +27,7 @@ import {
   HUNGER_THRESHOLD,
   THIRST_THRESHOLD,
   WARMTH_THRESHOLD,
+  WET_ICON_THRESHOLD,
   SIM_SPEEDS,
   CELL_SIZE,
   BODY_W,
@@ -364,13 +365,29 @@ export function drawNeedsBars(
 
     // Warmth bar (bottom, distinct warm-orange hue; GDD 12.2 Task W4).
     // Uses warmthBarColor() so it reads differently from hunger/thirst green.
+    const warmthY = py + (BAR_H + BAR_GAP) * 2;
     drawBar(
       ctx,
       px,
-      py + (BAR_H + BAR_GAP) * 2,
+      warmthY,
       s.needs.warmth / NEED_MAX,
       warmthBarColor(s.needs.warmth),
     );
+
+    // Wet icon (VS-2 T-C, GDD 6.1 HUD "a wet icon"): a small blue droplet glyph
+    // just right of the warmth bar when the survivor is meaningfully wet
+    // (wetness >= WET_ICON_THRESHOLD). Wetness amplifies the cold, so the player
+    // sees at a glance who needs to dry off by a fire.
+    if (s.wetness >= WET_ICON_THRESHOLD * NEED_MAX) {
+      const ix = px + BAR_W + 3;
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillStyle = 'rgba(0,0,0,0.7)';
+      ctx.fillText('\u2614', ix + 1, warmthY + 1); // shadow (umbrella w/ rain)
+      ctx.fillStyle = '#7fb8ff'; // wet blue
+      ctx.fillText('\u2614', ix, warmthY);
+    }
   }
 
   ctx.restore();

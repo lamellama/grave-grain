@@ -627,6 +627,10 @@ export const FENCE_INTEGRITY = WOOD_INTEGRITY;
 // so they drop straight into resources.canAfford/spend.
 export const FENCE_COST: Partial<Record<ResourceKind, number>> = { wood: 1 };
 export const WALL_COST: Partial<Record<ResourceKind, number>> = { stone: 1 };
+// VS-2 Task T-C: a campfire costs WOOD (logs as fuel). One placed CAMPFIRE cell
+// burns ~CAMPFIRE_FUEL/CAMPFIRE_BURN_CHANCE ticks of warmth; priced as a few
+// logs so a camp commits real gathered wood to a hearth (15-Q4 scarcity).
+export const CAMPFIRE_COST: Partial<Record<ResourceKind, number>> = { wood: 3 };
 
 // 8 - Starting stone stockpile so a wall is buildable on load (used by main
 // in task 8-4).

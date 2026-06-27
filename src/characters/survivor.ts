@@ -373,6 +373,22 @@ function nearWarmth(body: Body): boolean {
 }
 
 /**
+ * Is a CAMPFIRE within FIRE_WARMTH_RADIUS of (rx, ry)? (VS-2 T-C.) CAMPFIRE-only
+ * variant of nearWarmth used to validate a seekWarmth huddle target stand-cell:
+ * a survivor deliberately retreats to a campfire (safe, contained) but NEVER to
+ * raw FIRE (fleeFire owns flames), so this excludes FIRE. Cheap bounded box scan.
+ */
+function campfireNear(rx: number, ry: number): boolean {
+  const R = FIRE_WARMTH_RADIUS;
+  for (let dy = -R; dy <= R; dy++) {
+    for (let dx = -R; dx <= R; dx++) {
+      if (get(rx + dx, ry + dy) === CAMPFIRE) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * Local effective temperature at the body (VS-2 Task T-B, GDD 6.1/10): the
  * single scalar that drives the warmth need. Composes the global ambient temp
  * (VS-1 weather) with cheap LOCAL modifiers:
@@ -716,6 +732,28 @@ function nearestReachableShelter(s: Survivor): ReachTarget | null {
 }
 
 /**
+ * Nearest REACHABLE WARMTH destination (VS-2 T-C, GDD 6.1 "huddle by a campfire
+ * OR step into a roofed shelter"). Generalises seekWarmth's old shelter-only
+ * target: returns the NEARER (by path length) of
+ *   (a) a reachable sheltered stand-cell (nearestReachableShelter), and
+ *   (b) a reachable standable BANK beside a CAMPFIRE (nearestReachable(CAMPFIRE),
+ *       whose bank is adjacent to the fire => within FIRE_WARMTH_RADIUS => warm).
+ * Both sub-scans are bounded + A*-capped + cooldown-throttled by the caller, so
+ * this stays O(scan)+O(K.A*). Still NEVER targets raw FIRE. Returns null when no
+ * shelter AND no campfire is reachable (caller falls back to wander).
+ */
+function nearestReachableWarmth(s: Survivor): ReachTarget | null {
+  const shelter = nearestReachableShelter(s);
+  const fire = nearestReachable(s, (x, y) => get(x, y) === CAMPFIRE);
+  if (shelter === null) return fire;
+  if (fire === null) return shelter;
+  // Both reachable: prefer the shorter route (fewer waypoints ~ closer).
+  return fire.path.waypoints.length < shelter.path.waypoints.length
+    ? fire
+    : shelter;
+}
+
+/**
  * Nearest REACHABLE work target for a harvest role (playtest #3/#5): exposed
  * STONE/ORE for the miner, FOLIAGE for the lumberjack/forager - each filtered to
  * one with a standable bank and a route, so the survivor walks to and works a
@@ -837,40 +875,47 @@ function driveSeek(
 }
 
 /**
- * Seek warmth = retreat to SHELTER (Task W3, GDD 6.1 "they retreat to a shelter
- * when too cold"). NEVER seeks fire (fleeFire owns flames). Drive order each tick:
- *   1. ARRIVAL - already sheltered -> stand still. Warmth then restores PASSIVELY
- *      via the deplete block (sheltered => warm); no `consuming` state needed.
- *   2. TARGET - (re)acquire the nearest REACHABLE sheltered stand-cell (standable
- *      + isShelteredAt + a route), throttled by PATH_REPATH_COOLDOWN like seek.
- *   3. NO SHELTER - none reachable -> fall back to wander (the survivor stays near
- *      home; the colony fire passively warms it, W5). May still freeze if there
- *      is genuinely no heat anywhere - the W1 graceful-degradation behaviour.
- *   4. STEER - local steering toward the sheltered stand-cell.
+ * Seek warmth = retreat to a HEARTH or SHELTER (Task W3 + VS-2 T-C, GDD 6.1
+ * "huddle by a campfire OR step into a roofed shelter when too cold"). NEVER
+ * seeks raw fire (fleeFire owns flames) - only a contained CAMPFIRE or a roof.
+ * Drive order each tick:
+ *   1. ARRIVAL - already warm (sheltered, or beside a fire/campfire => nearWarmth)
+ *      -> stand still. Warmth then restores PASSIVELY via the deplete block; no
+ *      `consuming` state needed.
+ *   2. TARGET - (re)acquire the nearest REACHABLE warmth stand-cell (a sheltered
+ *      cell, or a standable bank beside a campfire), throttled by
+ *      PATH_REPATH_COOLDOWN like seek.
+ *   3. NONE - no shelter and no campfire reachable -> fall back to wander (the
+ *      survivor stays near home; a colony fire passively warms it). May still
+ *      freeze if there is genuinely no heat anywhere - graceful degradation.
+ *   4. STEER - local steering toward the warmth stand-cell.
  */
 function driveSeekWarmth(s: Survivor): void {
   const body = s.body;
 
-  // 1. Already sheltered -> stand; warmth restores via the deplete block.
-  if (isSheltered(body)) {
+  // 1. Already warm (sheltered OR beside a campfire/fire) -> stand; warmth
+  //    restores via the deplete block.
+  if (isSheltered(body) || nearWarmth(body)) {
     s.path = null;
     s.seekTarget = null;
     body.moveDir = 0;
     return;
   }
 
-  // 2. (Re)acquire a nearest-REACHABLE sheltered stand-cell when we have none or
-  //    its route went locally stale. Throttled so the bounded scan + A* never
-  //    runs every tick (GDD 13).
+  // 2. (Re)acquire a nearest-REACHABLE warmth stand-cell when we have none or its
+  //    route went locally stale. A target stays valid while its stand-cell is
+  //    still sheltered OR still beside a campfire. Throttled so the bounded scan
+  //    + A* never runs every tick (GDD 13).
   const t = s.seekTarget;
   const valid =
     t !== null &&
-    isShelteredAt(t.standCell.x, t.standCell.y) &&
+    (isShelteredAt(t.standCell.x, t.standCell.y) ||
+      campfireNear(t.standCell.x, t.standCell.y)) &&
     s.path !== null &&
     !isPathStale(s.path);
   if (!valid && s.tick - s.lastRepath >= PATH_REPATH_COOLDOWN) {
     s.lastRepath = s.tick;
-    const next = nearestReachableShelter(s);
+    const next = nearestReachableWarmth(s);
     s.seekTarget = next;
     if (next) {
       s.path = next.path;
@@ -886,7 +931,7 @@ function driveSeekWarmth(s: Survivor): void {
     return;
   }
 
-  // 4. Steer toward the sheltered stand-cell.
+  // 4. Steer toward the warmth stand-cell.
   const tgt = s.seekTarget;
   steerToCell(s, tgt.standCell.x, tgt.standCell.y, tgt.cell.x);
 }
