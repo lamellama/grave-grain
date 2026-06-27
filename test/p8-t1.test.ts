@@ -42,8 +42,9 @@ assert(getIntegrity(6, 5) === 0, 'placeMaterial(STONE) integrity === 0 (raw ston
 assert(isSolidForBody(WALL) === true, 'isSolidForBody(WALL) === true');
 assert(isFlammable(WALL) === false, 'isFlammable(WALL) === false');
 
-// Table shape / spot-checks of existing rows.
-assert(MATERIALS.length === 15, 'MATERIALS.length === 15');
+// Table shape / spot-checks of existing rows. Length grew past Phase 8's 15
+// when VS-1 (weather) added SNOW at id 16 (-> length 17); WALL stays id 14.
+assert(MATERIALS.length === 17, 'MATERIALS.length === 17 (Phase 8 + VS-1 SNOW)');
 assert(WALL === 14, 'WALL id === 14');
 assert(MATERIALS[STONE].hasIntegrity === false, 'STONE.hasIntegrity === false (unchanged)');
 assert(MATERIALS[WOOD].baseIntegrity === 60, 'WOOD.baseIntegrity === 60 (unchanged)');

@@ -39,7 +39,7 @@ import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
 import { get, set } from '../engine/grid';
 import { FIRE, WATER, SNOW, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
-import { isAmbientColdNow, getWeather } from '../engine/weather';
+import { getWeather, getTemperature } from '../engine/weather';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
 import type { RoleName, Tool, ToolKind } from '../game/roles';
@@ -71,6 +71,16 @@ import {
   DRY_RATE,
   DRY_FIRE_MULT,
   WET_WARMTH_MULT,
+  WARMTH_SAMPLE_TICKS,
+  FIRE_WARMTH_BONUS,
+  SHELTER_WARMTH_BONUS,
+  SNOW_CONTACT_PENALTY,
+  WARMTH_COLD_SPAN,
+  WARMTH_COLD_FACTOR_MIN,
+  WARMTH_COLD_FACTOR_MAX,
+  COLD_THRESHOLD,
+  TEMP_CLEAR,
+  WEATHER_ENABLED,
   FIRE_WARMTH_RADIUS,
   EXERTION_RATE_MULT,
   HEAT_THIRST_MULT,
@@ -139,6 +149,20 @@ export interface Survivor {
   // on WATER|SNOW contact, dries slowly (fast by a fire); a wet survivor loses
   // warmth faster (WET_WARMTH_MULT). 0 = dry, NEED_MAX = soaked.
   wetness: number;
+  // Local effective-temperature sample cache (VS-2 Task T-B, GDD 6.1/10/13).
+  // The composite effTemp + the spatial booleans it is built from are re-probed
+  // only every WARMTH_SAMPLE_TICKS (perf) and reused between samples. effTemp
+  // drives the warmth drain/refill; the booleans feed the wetness rules.
+  //   lastWarmthSample : tick of the last sample (-1 = never sampled).
+  //   smpEffTemp       : cached effective temperature (degC).
+  //   smpWarm          : a heat source was within FIRE_WARMTH_RADIUS.
+  //   smpSheltered     : standing under a roof.
+  //   smpWetContact    : footprint touching WATER or SNOW.
+  lastWarmthSample: number;
+  smpEffTemp: number;
+  smpWarm: boolean;
+  smpSheltered: boolean;
+  smpWetContact: boolean;
   home: { x: number; y: number };
   role: RoleName;
   behaviour: Behaviour;
@@ -198,6 +222,14 @@ export function createSurvivor(x: number, y: number): Survivor {
     turned: false,
     needs: { hunger: NEED_MAX, thirst: NEED_MAX, warmth: NEED_MAX },
     wetness: 0, // start bone dry (VS-2 Task T-A)
+    // Warmth sample cache (VS-2 Task T-B): unsampled (-1) -> sampled on the first
+    // updateSurvivor tick. Default to a warm temp so a survivor never reads as
+    // "freezing" before its first probe.
+    lastWarmthSample: -1,
+    smpEffTemp: TEMP_CLEAR,
+    smpWarm: false,
+    smpSheltered: false,
+    smpWetContact: false,
     home: { x, y },
     role: 'none',
     behaviour: 'wander',
@@ -334,6 +366,47 @@ function nearWarmth(body: Body): boolean {
       FIRE_WARMTH_RADIUS,
     ) !== null
   );
+}
+
+/**
+ * Local effective temperature at the body (VS-2 Task T-B, GDD 6.1/10): the
+ * single scalar that drives the warmth need. Composes the global ambient temp
+ * (VS-1 weather) with cheap LOCAL modifiers:
+ *   + FIRE_WARMTH_BONUS    if a heat source is within FIRE_WARMTH_RADIUS
+ *   + SHELTER_WARMTH_BONUS if under a roof (isSheltered)
+ *   - SNOW_CONTACT_PENALTY if the footprint touches WATER or SNOW
+ * Wetness is NOT folded in here - it stays the separate WET_WARMTH_MULT drain
+ * multiplier (Task T-A) so the two are not double-counted. Pure read over the
+ * live grid + globals; no RNG, no cell writes (chunk/replay-safe).
+ *
+ * NOTE: a single per-survivor scalar, sampled on an interval - NOT a per-cell
+ * temperature grid (too expensive, GDD 13).
+ */
+export function effectiveTemp(body: Body): number {
+  let t = getTemperature();
+  if (nearWarmth(body)) t += FIRE_WARMTH_BONUS;
+  if (isSheltered(body)) t += SHELTER_WARMTH_BONUS;
+  if (inWaterOrSnow(body)) t -= SNOW_CONTACT_PENALTY;
+  return t;
+}
+
+/**
+ * Re-sample the warmth cache for survivor `s` (VS-2 Task T-B): re-probe the
+ * spatial booleans and recompute the effective temperature, then stamp the
+ * sample tick. Called only every WARMTH_SAMPLE_TICKS from the deplete loop, so
+ * the ring/roof/contact scans run on an interval, not every tick (perf, GDD 13).
+ */
+function sampleWarmth(s: Survivor): void {
+  const body = s.body;
+  s.smpWarm = nearWarmth(body);
+  s.smpSheltered = isSheltered(body);
+  s.smpWetContact = inWaterOrSnow(body);
+  let t = getTemperature();
+  if (s.smpWarm) t += FIRE_WARMTH_BONUS;
+  if (s.smpSheltered) t += SHELTER_WARMTH_BONUS;
+  if (s.smpWetContact) t -= SNOW_CONTACT_PENALTY;
+  s.smpEffTemp = t;
+  s.lastWarmthSample = s.tick;
 }
 
 /** Inclusive random integer in [lo, hi]. */
@@ -1375,30 +1448,51 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   //     faster by walking). W3 wires REAL shelter: a sheltered survivor (under a
   //     WOOD/WALL ROOF, OPEN sides) stops losing warmth and warms back up - and
   //     can still walk OUT from under the canopy for water/food (open-camp fix).
-  const sheltered = isSheltered(body); // GDD 8/6.1 shelter blocks the cold
-  const warm = nearWarmth(body); // FIRE within FIRE_WARMTH_RADIUS (passive)
+  //     T-B (GDD 6.1/10/13): the boolean cold-gate is replaced by a graded LOCAL
+  //     effective temperature, re-sampled on an interval (the spatial probes -
+  //     fire ring, roof, water/snow contact - only run every WARMTH_SAMPLE_TICKS;
+  //     the cached value drives every tick in between).
+  if (
+    s.lastWarmthSample < 0 ||
+    s.tick - s.lastWarmthSample >= WARMTH_SAMPLE_TICKS
+  ) {
+    sampleWarmth(s);
+  }
 
   // 2b. Wetness (VS-2 Task T-A, GDD 6.1 "wet" half of cold-and-wet): rises in
   //     RAIN (unless under a roof) and on WATER/SNOW contact; dries slowly
   //     otherwise, FAST by a fire. Pure per-survivor float - touches no grid
   //     cell, so it is chunk- and replay-safe. Wetness does not kill; it makes
-  //     the cold bite harder via wetMult below.
+  //     the cold bite harder via wetMult below. Reads the sampled booleans.
   const wetSource =
-    (getWeather() === 'rain' && !sheltered) || inWaterOrSnow(body);
+    (getWeather() === 'rain' && !s.smpSheltered) || s.smpWetContact;
   if (wetSource) {
     s.wetness = Math.min(NEED_MAX, s.wetness + WETNESS_RATE);
   } else {
-    const dryRate = warm ? DRY_RATE * DRY_FIRE_MULT : DRY_RATE;
+    const dryRate = s.smpWarm ? DRY_RATE * DRY_FIRE_MULT : DRY_RATE;
     s.wetness = Math.max(0, s.wetness - dryRate);
   }
   // Wet survivors lose warmth faster (WET_WARMTH_MULT). Linear in the wet
   // fraction: dry = 1x, soaked = WET_WARMTH_MULT x.
   const wetMult = 1 + (WET_WARMTH_MULT - 1) * (s.wetness / NEED_MAX);
 
-  // T4 (GDD 10): the cold gate is now DYNAMIC weather (isAmbientColdNow:
-  // WEATHER_ENABLED && temp<COLD_THRESHOLD), replacing the static AMBIENT_COLD.
-  if (isAmbientColdNow() && !warm && !sheltered) {
-    s.needs.warmth = Math.max(0, s.needs.warmth - WARMTH_RATE * wetMult);
+  // 2c. Warmth (GDD 6.1/10): the sampled effective temperature drives it. Below
+  //     COLD_THRESHOLD warmth DRAINS, faster the colder it is (coldFactor scales
+  //     with how far below freezing, clamped); at/above it warmth RESTORES. The
+  //     drain is amplified by wetMult (T-A). WEATHER_ENABLED gates it so the
+  //     master switch off => never cold (mirrors the old isAmbientColdNow gate).
+  if (WEATHER_ENABLED && s.smpEffTemp < COLD_THRESHOLD) {
+    const coldFactor = Math.min(
+      WARMTH_COLD_FACTOR_MAX,
+      Math.max(
+        WARMTH_COLD_FACTOR_MIN,
+        (COLD_THRESHOLD - s.smpEffTemp) / WARMTH_COLD_SPAN,
+      ),
+    );
+    s.needs.warmth = Math.max(
+      0,
+      s.needs.warmth - WARMTH_RATE * coldFactor * wetMult,
+    );
   } else {
     s.needs.warmth = Math.min(NEED_MAX, s.needs.warmth + WARMTH_RESTORE_RATE);
   }

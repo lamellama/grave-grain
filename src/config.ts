@@ -852,6 +852,50 @@ export const WET_WARMTH_MULT = 2.5;
 // survivor only reads as visibly wet once meaningfully damp, not on a stray drop.
 export const WET_ICON_THRESHOLD = 0.35;
 
+// Local effective temperature (post-MVP, VS-2 Task T-B, GDD 6.1/10).
+// ---------------------------------------------------------------------------
+// Each survivor samples a single LOCAL temperature, cheaply, on an interval:
+//   effTemp = ambientTemp (VS-1) + FIRE_WARMTH_BONUS (near fire)
+//             + SHELTER_WARMTH_BONUS (under a roof) - SNOW_CONTACT_PENALTY
+//             (standing in WATER/SNOW). Wetness's contribution to the cold is
+//   kept SEPARATE as the WET_WARMTH_MULT drain multiplier (Task T-A), not a temp
+//   subtraction, to avoid double-counting. effTemp < COLD_THRESHOLD => warmth
+//   drains (faster the colder it is); otherwise warmth restores. A single scalar
+//   per survivor - NOT a per-cell temperature grid (too expensive, GDD 13).
+
+// How often (ticks) each survivor re-samples its local effective temperature.
+// Between samples the cached value drives warmth, so the spatial probes (fire
+// ring-scan, roof scan, water/snow contact box) only run every N ticks (perf).
+export const WARMTH_SAMPLE_TICKS = 30;
+
+// Temperature bonus (degC) for being within FIRE_WARMTH_RADIUS of a heat source.
+// INVARIANT: must lift the coldest ambient (TEMP_SNOW = -8) at/above
+// COLD_THRESHOLD (5) so a fire reliably stops the cold: >= 13. Set comfortably
+// above so it also offsets a SNOW_CONTACT_PENALTY.
+export const FIRE_WARMTH_BONUS = 20;
+
+// Temperature bonus (degC) for standing under a roof (isSheltered). Same
+// INVARIANT as FIRE_WARMTH_BONUS (>= 13) so a roof alone stops the cold.
+export const SHELTER_WARMTH_BONUS = 18;
+
+// Temperature PENALTY (degC) for standing in/touching WATER or SNOW: snow/water
+// contact makes the cold bite sharper (GDD 10 "snow contact is what makes a
+// survivor cold/wet"). Small enough that a fire (FIRE_WARMTH_BONUS) still wins.
+export const SNOW_CONTACT_PENALTY = 6;
+
+// Reference span (degC) over which the cold-drain factor ramps from 0 to 1.
+// CALIBRATED to COLD_THRESHOLD - TEMP_SNOW (= 5 - (-8) = 13) so that PURE snow
+// exposure (effTemp == TEMP_SNOW) gives coldFactor EXACTLY 1.0 - i.e. baseline
+// WARMTH_RATE drain, matching the pre-T-B model. Colder than snow (contact
+// penalty) ramps above 1; barely-cold ramps below 1 (clamped).
+export const WARMTH_COLD_SPAN = 13;
+
+// Clamp bounds for the cold-drain factor = (COLD_THRESHOLD - effTemp)/SPAN.
+// MIN keeps a barely-cold survivor draining at a floor rate; MAX caps how fast
+// a deeply-cold (contact-penalised) survivor loses warmth.
+export const WARMTH_COLD_FACTOR_MIN = 0.4;
+export const WARMTH_COLD_FACTOR_MAX = 2.5;
+
 // Shelter detection (GDD 8 / 6.1): isSheltered() bounded scan limit.
 // SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
 //   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).
