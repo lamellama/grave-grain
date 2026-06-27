@@ -40,9 +40,13 @@ import {
   GROW_WATER_SPEEDUP,
   FOLIAGE_GROW_MAX_HEIGHT,
   FOLIAGE_INTEGRITY,
+  WEATHER_SKY_ROW,
+  RAIN_SPAWN_CHANCE,
+  SNOW_SPAWN_CHANCE,
 } from '../config';
 import { material, integrity, idx, set, setIntegrity } from './grid';
 import { reactions } from './reactions';
+import { updateWeather, getWeather } from './weather';
 import {
   markCellActive,
   markIndexActive,
@@ -77,6 +81,7 @@ import {
   BLOOD,
   FOLIAGE,
   SAPLING,
+  SNOW,
   density,
   isStatic,
   isFluid,
@@ -108,7 +113,7 @@ let tick = 0;
  * uniform in [0, 1), so every threshold test keeps its original semantics — only
  * the SOURCE of the randomness changes from global to per-cell-deterministic.
  */
-function simRand(x: number, y: number, salt: number): number {
+export function simRand(x: number, y: number, salt: number): number {
   let h = SIM_RNG_SEED >>> 0;
   h = Math.imul(h ^ (x >>> 0), 0x85ebca6b);
   h ^= h >>> 13;
@@ -139,6 +144,11 @@ const SALT_GROW = 7; // sapling: per-cell growth-countdown seeding jitter (GDD �
 // added to this base — each of the 8 neighbour rolls gets its own salt and so
 // its own independent stream (no correlation between neighbours at one cell).
 const SALT_FIRE_SPREAD = 100;
+// Weather sky-spawn roll (GDD §10, Beyond T3): per sky-cell precipitation spawn
+// in applyWeather(). 200 is well clear of every other salt above (1–7, 100–108)
+// AND of reactions.ts's SALT_SNOW_MELT (300), so no two rolls at the same
+// (x, y, tick) ever share a stream.
+const SALT_WEATHER_SPAWN = 200;
 
 /**
  * "Moved this tick" guard, one byte per cell (0 = free, 1 = already acted).
@@ -163,6 +173,20 @@ export function step(): void {
   // THIS tick's work set. Done BEFORE reactions so it too can skip settled
   // chunks. When chunking is OFF (the equivalence reference path) we leave the
   // active sets untouched and fall through to the original full grid scan.
+  // Weather (GDD §10, Beyond T3) runs at the TOP of the tick, BEFORE beginTick.
+  //  - updateWeather advances the global rain/snow/clear state machine once per
+  //    tick. It is pure (tick, seed) and touches no chunks, so it produces the
+  //    SAME state on the chunked and full-scan paths.
+  //  - applyWeather then does a deterministic, NON-chunk-gated sweep of the sky
+  //    row, spawning WATER (rain) / SNOW (snow) into AIR cells. It marks every
+  //    spawned cell active. We run it BEFORE beginTick on purpose: markCellActive
+  //    sets the NEXT-tick set, and beginTick swaps that into THIS tick's work
+  //    set — so a spawned cell's chunk is processed THIS tick, exactly as the
+  //    full scan visits row 0 this tick. (Spawning after beginTick would defer
+  //    the fall by one tick on the chunked path only → divergence.)
+  updateWeather(tick);
+  applyWeather();
+
   if (isChunkingEnabled()) {
     beginTick();
   }
@@ -191,6 +215,41 @@ export function step(): void {
   sweepGore();
 
   tick++;
+}
+
+/**
+ * Deterministic sky-spawn pass (GDD §10, Beyond T3): precipitation enters the
+ * world from the top row. Runs EVERY tick, UNCONDITIONALLY over the full sky row
+ * (never chunk-gated) so the chunked and full-scan paths spawn byte-identically.
+ *
+ * For each x at WEATHER_SKY_ROW that is AIR, roll the per-cell deterministic
+ * simRand (NOT Math.random) with SALT_WEATHER_SPAWN: under rain, below
+ * RAIN_SPAWN_CHANCE → WATER; under snow, below SNOW_SPAWN_CHANCE → SNOW; under
+ * clear, nothing. The spawned cell is left UNCLAIMED in the moved-guard and its
+ * chunk woken, so the normal fluid/powder movement scan lets it fall this tick
+ * (no special-case fall here — brief requirement).
+ *
+ * DETERMINISM/EQUIVALENCE: the only randomness is simRand(x, y, tick, salt), a
+ * pure function of position+tick+seed. We touch only AIR cells and write only
+ * that cell, so the pass is order-independent and identical regardless of
+ * chunking.
+ */
+function applyWeather(): void {
+  const w = getWeather();
+  if (w === 'clear') return; // clear sky spawns nothing
+  const spawn = w === 'rain' ? WATER : SNOW;
+  const chance = w === 'rain' ? RAIN_SPAWN_CHANCE : SNOW_SPAWN_CHANCE;
+  const y = WEATHER_SKY_ROW;
+  const base = y * WORLD_W;
+  for (let x = 0; x < WORLD_W; x++) {
+    const i = base + x;
+    if (material[i] !== AIR) continue; // only seed empty sky
+    if (simRand(x, y, SALT_WEATHER_SPAWN) < chance) {
+      material[i] = spawn;
+      integrity[i] = 0; // WATER/SNOW carry no integrity (clear any stale slot)
+      markCellActive(x, y); // wake the chunk so the chunked scan sees the spawn
+    }
+  }
 }
 
 /**
@@ -431,6 +490,8 @@ function updateCell(x: number, y: number): void {
     updateBlood(x, y);
   } else if (m === SAPLING) {
     updateSapling(x, y);
+  } else if (m === SNOW) {
+    updateSnow(x, y);
   }
   // AIR is the empty target; STONE is static — neither has a rule.
 }
@@ -687,6 +748,35 @@ function updateDirt(x: number, y: number): void {
  * on the floor beneath it. That is the physical/accepted MVP behaviour.
  */
 function updateAsh(x: number, y: number): void {
+  const below = y + 1;
+
+  // 1) Fall straight down through any lighter, non-static cell (AIR or WATER).
+  if (trySwap(x, y, x, below)) {
+    return;
+  }
+
+  // 2) Otherwise pile via the two diagonals below (random order, full spill).
+  const leftFirst = simRand(x, y, SALT_DIAG) < 0.5;
+  const firstDx = leftFirst ? -1 : 1;
+  const secondDx = leftFirst ? 1 : -1;
+
+  if (trySwap(x, y, x + firstDx, below)) {
+    return;
+  }
+  trySwap(x, y, x + secondDx, below);
+}
+
+/**
+ * SNOW rule (GDD §10, Beyond T3): snow is a LIGHT POWDER (density 2) that falls
+ * from the sky and accumulates into stable piles. Its movement contract is a
+ * byte-for-byte copy of ASH's powder fall (same density, same no-tunnel / moved
+ * discipline via trySwap): fall straight down through anything lighter and
+ * non-static, else spill into the two diagonals below in deterministic per-cell
+ * random order (SALT_DIAG) so it settles at an angle of repose. Like ash it
+ * never flows sideways, so an accumulated snow drift holds its shape. Melt near
+ * heat (→ WATER) is an adjacency reaction handled in reactions.ts, not here.
+ */
+function updateSnow(x: number, y: number): void {
   const below = y + 1;
 
   // 1) Fall straight down through any lighter, non-static cell (AIR or WATER).

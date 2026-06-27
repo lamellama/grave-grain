@@ -148,3 +148,26 @@ export function resetWeather(): void {
   state = 'clear';
   stateUntilTick = WEATHER_ENABLED ? durationFor('clear', 0) : Infinity;
 }
+
+/**
+ * TEST-ONLY: pin the weather to a fixed state (T3 sim wiring). Sets the state
+ * AND parks `stateUntilTick` at Infinity so the next `updateWeather(tick)` is a
+ * no-op and the forced state holds for the whole run — exactly what the
+ * chunk-equivalence / rain-douse / snow-pile sim tests need to FORCE a rain or
+ * snow phase deterministically without driving thousands of ticks. Production
+ * code never calls this; the double-underscore marks it test-only.
+ */
+export function __setWeatherForTest(s: WeatherState): void {
+  state = s;
+  stateUntilTick = Infinity;
+}
+
+// Module-init: start in a long CLEAR period (a fresh duration drawn from tick
+// 0), NOT the bare `stateUntilTick = 0` default — otherwise the very first
+// `updateWeather(0)` inside `step()` would immediately roll a transition and
+// could spawn precipitation at tick 0. With WEATHER_CLEAR_MIN_TICKS in the
+// thousands, every pre-existing sim test (p11 equivalence/perf, p2 fire) runs
+// its few-hundred ticks entirely within this clear window, so wiring weather
+// into step() is a no-op for them. New-game init / tests call resetWeather()
+// to re-draw this from a known point.
+resetWeather();

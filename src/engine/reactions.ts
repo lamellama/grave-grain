@@ -36,25 +36,56 @@
  *     Would require inventing a MUD material; out of scope for this task.
  */
 
-import { WORLD_W, WORLD_H, CHUNK_SIZE } from '../config';
-import { material, idx, set, setIntegrity } from './grid';
-import { moved } from './simulation';
+import { WORLD_W, WORLD_H, CHUNK_SIZE, SNOW_MELT_CHANCE } from '../config';
+import { material, integrity, idx, set, setIntegrity } from './grid';
+import { moved, simRand } from './simulation';
 import {
+  markCellActive,
   isChunkingEnabled,
   isActiveThisTick,
   CHUNK_COLS,
   CHUNK_ROWS,
 } from './chunks';
-import { WATER, FIRE, SMOKE } from './materials';
+import { WATER, FIRE, SMOKE, SNOW } from './materials';
 
 /**
- * Is the cell at (x, y) WATER? Bounds-safe (out-of-bounds reads as not-water).
+ * Unique salt for the SNOW→WATER melt roll (GDD §10, Beyond T3). Distinct from
+ * every simRand salt used in simulation.ts (1–7, 100–108, weather-spawn 200) so
+ * the melt decision never shares a stream with another roll at the same
+ * (x, y, tick). The roll is keyed on the SNOW cell's OWN coords (see meltSnow),
+ * so any number of fires adjacent to one snow cell compute the IDENTICAL melt
+ * decision — making the reaction order-independent (chunk-equivalence-safe).
  */
-function isWater(x: number, y: number): boolean {
+const SALT_SNOW_MELT = 300;
+
+/**
+ * Is the cell at (x, y) a DOUSING material — WATER, or SNOW (which melts and
+ * douses, GDD §10)? Bounds-safe (out-of-bounds reads as not-dousing).
+ */
+function isDouser(x: number, y: number): boolean {
   if (x < 0 || x >= WORLD_W || y < 0 || y >= WORLD_H) {
     return false;
   }
-  return material[idx(x, y)] === WATER;
+  const m = material[idx(x, y)];
+  return m === WATER || m === SNOW;
+}
+
+/**
+ * If (x, y) is SNOW, roll its deterministic melt (GDD §10): with probability
+ * SNOW_MELT_CHANCE it becomes WATER. Keyed on the SNOW cell's OWN coords so the
+ * outcome is a single value per snow-cell per tick — every adjacent fire applies
+ * the identical decision, so the rule is order-independent and the chunked and
+ * full-scan paths stay byte-identical. Reads/writes only this one cell.
+ */
+function meltSnow(x: number, y: number): void {
+  if (x < 0 || x >= WORLD_W || y < 0 || y >= WORLD_H) return;
+  const i = idx(x, y);
+  if (material[i] !== SNOW) return;
+  if (simRand(x, y, SALT_SNOW_MELT) < SNOW_MELT_CHANCE) {
+    material[i] = WATER; // melted snow becomes water (then flows as normal)
+    integrity[i] = 0; // WATER carries no integrity
+    markCellActive(x, y); // SNOW→WATER is a change → wake the chunk (P11)
+  }
 }
 
 /**
@@ -104,13 +135,24 @@ export function reactions(): void {
 function reactCell(x: number, y: number): void {
   const i = idx(x, y);
   if (material[i] !== FIRE) return;
-  // water + fire → steam + extinguish (GDD §5.2): orthogonal contact only.
-  if (
-    isWater(x - 1, y) ||
-    isWater(x + 1, y) ||
-    isWater(x, y - 1) ||
-    isWater(x, y + 1)
-  ) {
+
+  // Determine douse from the START-OF-TICK neighbours (WATER or SNOW). Computed
+  // BEFORE any melt so a snow neighbour still counts even on the tick it melts.
+  const douse =
+    isDouser(x - 1, y) ||
+    isDouser(x + 1, y) ||
+    isDouser(x, y - 1) ||
+    isDouser(x, y + 1);
+
+  // SNOW + fire → melt (GDD §10): each orthogonal SNOW neighbour may melt to
+  // WATER. Keyed on the snow cell's coords, so order-independent across fires.
+  meltSnow(x - 1, y);
+  meltSnow(x + 1, y);
+  meltSnow(x, y - 1);
+  meltSnow(x, y + 1);
+
+  // water/snow + fire → steam + extinguish (GDD §5.2 / §10): orthogonal contact.
+  if (douse) {
     set(x, y, SMOKE); // fire becomes rising steam at the contact
     setIntegrity(x, y, 0); // clear the reused fire-lifetime slot
     moved[i] = 1; // claim the cell — movement scan skips it this tick
