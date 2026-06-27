@@ -14,6 +14,12 @@ See `AGENTS.md` → *Autonomous run & escalation protocol* for the rules this lo
 - **USER AUTHORIZATION (this session):** after the MVP, **continue with ALL deferred + added tasks** (the vertical-slice tier is now greenlit). See “Authorized backlog” below and the PLAN.md “Deferred” + playtest sections.
 - **NOTE:** GDD was revised externally (commit 6af1cbf — death model: extreme→dissolve, quiet→corpse, bite→turn). Re-read GDD §5.1/§7 before building the death/turn work; it may add a ‘bitten survivor turns into a zombie’ mechanic to the backlog.
 
+## GDD §14 Beyond — user-chosen order (this session)
+
+Tackle in THIS order (user-prioritized): **1. Weather (§10) → 2. Tree reproduction (§9) → 3. Herd dynamics (§7.1) → 4. Diggers/Fisherman roles (§6.2) → 5. Iron tools (§6.3) → 6. Dual-edge spawns (§7.1).** Same loop per item: planner decomposes → route per policy → verify Done-when → commit per item. Re-read the named GDD § each item. Keep all invariants green (GATE, chunk byte-equivalence, win/lose, no-tunnel, ImageData==backing).
+
+- **Weather context for the planner:** the Warmth slice already ships a WARMTH need driven by a GLOBAL `AMBIENT_COLD=true` flag (always cold). config.ts comments explicitly DEFER "§10 ambient temperature fields + day/night cycles" to "a later warmth task" — weather is that task. Weather should make ambient temperature/conditions DYNAMIC (clear/rain/snow), add rain (fills water, douses fire, grows plants), snow (accumulation cells, sharper cold), and feed the existing WARMTH need — NOT rebuild warmth. New SNOW material + rain/fire/plant interactions = sim-correctness → expensive_coder for the core.
+
 ## Authorized backlog (post-MVP — do after Phase 11, in roughly this order)
 
 1. **Finish Phase 11:** 11-5 role outfits, 11-6 react-earlier needs, 11-7 balance/juice. (cheap)
