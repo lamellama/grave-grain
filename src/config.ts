@@ -861,3 +861,16 @@ export const SHELTER_SIDE_SCAN = 7;
 //     never span the body height → they do NOT seal the side or block exit.
 export const CAMP_HALF_WIDTH = 6;
 export const CAMP_ROOF_CLEARANCE = 4;
+
+// ---------------------------------------------------------------------------
+// CB-5 — Blueprint overlay rendering (GDD §8 building feedback, §12 UI)
+// ---------------------------------------------------------------------------
+// Translucent ghost colours for player-queued blueprints drawn over the cell
+// layer (ctx.fillRect pass, NOT ImageData — the backing-store invariant must be
+// preserved). Reserved blueprints (builder has claimed the job) appear more
+// opaque so the player can see the builder is on it.
+export const BLUEPRINT_FILL_FENCE = 'rgba(160,120,60,0.35)';
+export const BLUEPRINT_FILL_WALL  = 'rgba(150,150,160,0.35)';
+// Multiplier applied to the base alpha when a blueprint is reserved. Clamp
+// the resulting alpha to ≤1.0 at draw time.
+export const BLUEPRINT_RESERVED_ALPHA_MULT = 1.6;

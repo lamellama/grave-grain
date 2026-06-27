@@ -4,7 +4,8 @@
  * Honour devicePixelRatio; keep cells chunky.
  */
 
-import { WORLD_W, WORLD_H, BREACH_DARKEN_MAX, CHIP_FLASH_TICKS, ROLE_TINT_MIX, CORPSE_TINT } from '../config';
+import { WORLD_W, WORLD_H, BREACH_DARKEN_MAX, CHIP_FLASH_TICKS, ROLE_TINT_MIX, CORPSE_TINT, BLUEPRINT_FILL_FENCE, BLUEPRINT_FILL_WALL, BLUEPRINT_RESERVED_ALPHA_MULT } from '../config';
+import { getBlueprints } from '../game/buildqueue';
 import { camera, clampCamera, effectiveCellPx } from '../camera';
 import * as grid from '../engine/grid';
 import { MATERIALS } from '../engine/materials';
@@ -352,6 +353,10 @@ class Renderer {
     }
     this.drawBodyList(this.zombieBodies, tintZombie);
 
+    // CB-5: Blueprint overlay — translucent ghost rects drawn AFTER putImageData
+    // (ctx pass only, never writes into ImageData — backing-store invariant safe).
+    this.drawBlueprintOverlay();
+
     // Draw FPS counter.
     this.drawFps();
 
@@ -413,6 +418,49 @@ class Renderer {
           ctx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
         }
       }
+    }
+  }
+
+  /**
+   * CB-5 — Draw queued blueprint ghosts over the cell layer.
+   * Mirrors the body drawBodyList screen-rect math exactly (floor-of-edges,
+   * camera offset, effectiveCellPx) so blueprint rects align with grid cells.
+   * Runs AFTER putImageData; never touches the ImageData buffer.
+   */
+  private drawBlueprintOverlay(): void {
+    const vw = this.viewportWidthPx;
+    const vh = this.viewportHeightPx;
+    const ctx = this.ctx;
+    const effCell = effectiveCellPx();
+
+    for (const bp of getBlueprints()) {
+      const sx0 = Math.floor((bp.x - camera.x) * effCell);
+      const sy0 = Math.floor((bp.y - camera.y) * effCell);
+      const sx1 = Math.floor((bp.x + 1 - camera.x) * effCell);
+      const sy1 = Math.floor((bp.y + 1 - camera.y) * effCell);
+
+      // Viewport cull — skip fully off-screen blueprints.
+      if (sx1 <= 0 || sx0 >= vw) continue;
+      if (sy1 <= 0 || sy0 >= vh) continue;
+
+      // Pick base fill by kind.
+      const baseColor = bp.kind === 'fence' ? BLUEPRINT_FILL_FENCE : BLUEPRINT_FILL_WALL;
+
+      if (bp.reserved) {
+        // Boost alpha by BLUEPRINT_RESERVED_ALPHA_MULT, clamped to 1.0.
+        // Parse 'rgba(r,g,b,a)' to extract components, scale alpha, re-emit.
+        const m = baseColor.match(/rgba\((\d+),(\d+),(\d+),([\d.]+)\)/);
+        if (m) {
+          const boosted = Math.min(1, parseFloat(m[4]) * BLUEPRINT_RESERVED_ALPHA_MULT);
+          ctx.fillStyle = `rgba(${m[1]},${m[2]},${m[3]},${boosted})`;
+        } else {
+          ctx.fillStyle = baseColor;
+        }
+      } else {
+        ctx.fillStyle = baseColor;
+      }
+
+      ctx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
     }
   }
 
