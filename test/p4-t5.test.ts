@@ -6,7 +6,9 @@
  * Covers GDD §5.2 ("water drowns bodies when head submerged too long") + §7.3
  * ("buried by collapsing sand, drowned in water"):
  *   1. DROWN: head held under WATER in a sealed stone tank → drownTicks climbs,
- *      body dissolves (alive=false, all bones destroyed) at ~DROWN_TICKS.
+ *      and at ~DROWN_TICKS the body lays down as a prone CORPSE (revised death
+ *      model, GDD §5.1: drowning is a QUIET death → corpse=true, alive=false,
+ *      bones stay WHOLE — NOT the cell-dissolve path).
  *      Control: head in AIR for the same ticks → alive, drownTicks stays 0.
  *   2. PIN: SAND piled directly on the head → moveDir=+1 makes ~0 progress vs a
  *      free body that walks away.
@@ -90,15 +92,19 @@ for (let t = 0; t < DROWN_TICKS + 5; t++) {
   if (!drowner.alive && deathTick < 0) deathTick = t;
 }
 if (drowner.alive) fail('submerged body never drowned');
-if (!allBonesDestroyed(drowner)) fail('drowned body did not fully dissolve (bones remain)');
+// Revised death model (GDD §5.1): drowning is a QUIET death → prone corpse,
+// not the cell-dissolve. The body must be flagged a corpse and its skeleton
+// must stay WHOLE (the dissolve path is reserved for EXTREME deaths).
+if (!drowner.corpse) fail('drowned body is not a corpse (quiet-death model)');
+if (allBonesDestroyed(drowner)) fail('drowned body dissolved (should lay down a whole corpse)');
 console.log(
   `DROWN: died on tick ${deathTick} (DROWN_TICKS=${DROWN_TICKS}); ` +
-    `alive=${drowner.alive}, allBonesDestroyed=${allBonesDestroyed(drowner)}`,
+    `alive=${drowner.alive}, corpse=${drowner.corpse}, allBonesDestroyed=${allBonesDestroyed(drowner)}`,
 );
 if (deathTick < DROWN_TICKS - 1 || deathTick > DROWN_TICKS + 2) {
   fail(`death tick ${deathTick} not within ~DROWN_TICKS`);
 }
-ok('water over head past DROWN_TICKS → drown → dissolve (death-collapse)');
+ok('water over head past DROWN_TICKS → drown → prone corpse (quiet death, bones whole)');
 
 // === Scenario 1b: control — head in AIR, same tick budget, never drowns =====
 buildFlat();
