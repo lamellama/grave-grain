@@ -29,6 +29,7 @@ import * as grid from './engine/grid';
 import { AIR, SAND, STONE, WATER, DIRT, FOLIAGE, SAPLING, isFlammable } from './engine/materials';
 import { ignite } from './engine/simulation';
 import { placeStructure, canPlace, type StructureKind } from './game/building';
+import { addBlueprint, blueprintAt, cancelBlueprintAt } from './game/buildqueue';
 import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP, SELECT_TAP_RADIUS, TAP_CYCLE_RESET_MS } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
@@ -49,7 +50,7 @@ export { pickBone } from './characters/pick';
  * 'Assign' (tap a survivor to open role menu — GDD §6.2, p6-t5).
  * GDD §12.3: the currently selected tool defines what a drag does.
  */
-type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Assign' | 'Build';
+type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Assign' | 'Build' | 'Plan';
 
 const toolState = {
   mode: 'Pan' as ToolMode,
@@ -557,6 +558,15 @@ function onPointerDown(event: PointerEvent): void {
     const cellX = Math.floor(worldCoords.x);
     const cellY = Math.floor(worldCoords.y);
     placeStructure(cellX, cellY, toolState.buildStructure);
+  } else if (toolState.mode === 'Plan') {
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    const cellX = Math.floor(worldCoords.x);
+    const cellY = Math.floor(worldCoords.y);
+    // Drag-plan is ADD-ONLY (idempotent: addBlueprint dedups). Toggling here
+    // would flicker a blueprint on/off as repeated move events hit one cell;
+    // tap-to-cancel lives on pointer-down (applyPlanAt) only.
+    addBlueprint(cellX, cellY, toolState.buildStructure);
   } else if (toolState.mode === 'Ignite') {
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
@@ -634,6 +644,12 @@ function onPointerMove(event: PointerEvent): void {
     const cellX = Math.floor(worldCoords.x);
     const cellY = Math.floor(worldCoords.y);
     placeStructure(cellX, cellY, toolState.buildStructure);
+  } else if (toolState.mode === 'Plan') {
+    const canvasCoords = getCanvasRelativeCoords(event, canvas);
+    const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
+    const cellX = Math.floor(worldCoords.x);
+    const cellY = Math.floor(worldCoords.y);
+    applyPlanAt(cellX, cellY);
   } else if (toolState.mode === 'Ignite') {
     const canvasCoords = getCanvasRelativeCoords(event, canvas);
     const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
@@ -798,14 +814,27 @@ export function setToolMode(mode: 'Ignite'): void;
 export function setToolMode(mode: 'Shoot'): void;
 export function setToolMode(mode: 'Assign'): void;
 export function setToolMode(mode: 'Build', structure: StructureKind): void;
+export function setToolMode(mode: 'Plan', structure: StructureKind): void;
 export function setToolMode(mode: ToolMode, materialIdOrStructure?: number | StructureKind): void {
   toolState.mode = mode;
   if (mode === 'Paint' && typeof materialIdOrStructure === 'number') {
     toolState.paintMaterialId = materialIdOrStructure;
-  } else if (mode === 'Build' && typeof materialIdOrStructure === 'string') {
+  } else if ((mode === 'Build' || mode === 'Plan') && typeof materialIdOrStructure === 'string') {
     toolState.buildStructure = materialIdOrStructure as StructureKind;
   }
   updateToolbarUI();
+}
+
+/**
+ * Apply the Plan tool action at a grid cell: toggle blueprint (add or cancel).
+ * Exported for headless testing (CB-4).
+ */
+export function applyPlanAt(cellX: number, cellY: number): void {
+  if (blueprintAt(cellX, cellY) !== null) {
+    cancelBlueprintAt(cellX, cellY);
+  } else {
+    addBlueprint(cellX, cellY, toolState.buildStructure);
+  }
 }
 
 /**
@@ -832,6 +861,9 @@ function updateToolbarUI(): void {
     } else if (btnMode === 'build') {
       const btnStructure = btn.getAttribute('data-structure');
       isActive = toolState.mode === 'Build' && btnStructure === toolState.buildStructure;
+    } else if (btnMode === 'plan') {
+      const btnStructure = btn.getAttribute('data-structure');
+      isActive = toolState.mode === 'Plan' && btnStructure === toolState.buildStructure;
     }
 
     btn.classList.toggle('active', isActive);
@@ -927,6 +959,11 @@ export function initInput(canvas: HTMLCanvasElement): void {
         const structure = button.getAttribute('data-structure');
         if (structure) {
           setToolMode('Build', structure as StructureKind);
+        }
+      } else if (mode === 'plan') {
+        const structure = button.getAttribute('data-structure');
+        if (structure) {
+          setToolMode('Plan', structure as StructureKind);
         }
       }
     });
