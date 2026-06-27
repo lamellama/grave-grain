@@ -218,3 +218,4 @@ Phase 8 (complete) — commit 1631561.
 Phase 9 WIP — commit a0ae3ba; playtest #2/#6/#7 + PLAN — commit 644e32e.
 Phase 9 (complete) — commit 8998254 (+ v0.4b/v0.5/v0.6 patches).
 Phase 10 (complete) — see commit below.
+VS-1 (Weather, complete) — T1–T5 pass; commit 7f9efb4 (T5). Weather cycles, rain douses fire, snow piles/melts, HUD shows weather+temp.
