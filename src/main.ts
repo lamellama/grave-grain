@@ -44,6 +44,7 @@ import { createWaveState, updateWaves } from './game/waves';
 import { makeTool, ROLE_TINT } from './game/roles';
 import { rebuildNavgrid } from './engine/navgrid';
 import { addResource, setStockpilePoint, getStockpile, setAmmo, getAmmo } from './game/resources';
+import { resetQueue } from './game/buildqueue';
 import { generateWorld } from './game/worldgen';
 import { createGameState, updateGameState } from './game/state';
 import {
@@ -160,6 +161,12 @@ frameCameraVertically();
 
 // Colony stockpile sits on the surface inside the spawn zone (GDD §8 deposit loc).
 setStockpilePoint(world.stockpilePoint.x, world.stockpilePoint.y);
+
+// CB-6 (GDD §6.2): clear the global Blueprint queue on world (re)init so no
+// stale player blueprints leak across a restart/hot-reload. Mirrors the fresh
+// wave/state init below; the builder role drains this same live queue that the
+// Plan tool fills and the CB-5 overlay renders (getBlueprints() — one global).
+resetQueue();
 
 // Starting resources so the first tool/wall can be crafted/built on load
 // (GDD §6.2 tool-gating, §8 build affordability).
