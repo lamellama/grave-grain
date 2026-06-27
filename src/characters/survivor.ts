@@ -37,9 +37,9 @@ import { layDownCorpse } from './damage';
 import type { Zombie } from './zombie';
 import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
 import { get, set } from '../engine/grid';
-import { FIRE, WATER, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
+import { FIRE, WATER, SNOW, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
-import { isAmbientColdNow } from '../engine/weather';
+import { isAmbientColdNow, getWeather } from '../engine/weather';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
 import type { RoleName, Tool, ToolKind } from '../game/roles';
@@ -67,6 +67,10 @@ import {
   WARMTH_RATE,
   WARMTH_RESTORE_RATE,
   WARMTH_THRESHOLD,
+  WETNESS_RATE,
+  DRY_RATE,
+  DRY_FIRE_MULT,
+  WET_WARMTH_MULT,
   FIRE_WARMTH_RADIUS,
   EXERTION_RATE_MULT,
   HEAT_THIRST_MULT,
@@ -130,6 +134,11 @@ export interface Survivor {
   // controller-swap concept; the Body stays alive===true throughout.
   turned: boolean;
   needs: { hunger: number; thirst: number; warmth: number };
+  // Wetness in [0, NEED_MAX] (VS-2 Task T-A, GDD 6.1). NOT a killing need - kept
+  // OUT of `needs` so the need-at-zero death loop never reads it. Rises in rain /
+  // on WATER|SNOW contact, dries slowly (fast by a fire); a wet survivor loses
+  // warmth faster (WET_WARMTH_MULT). 0 = dry, NEED_MAX = soaked.
+  wetness: number;
   home: { x: number; y: number };
   role: RoleName;
   behaviour: Behaviour;
@@ -188,6 +197,7 @@ export function createSurvivor(x: number, y: number): Survivor {
     body: createBody(x, y),
     turned: false,
     needs: { hunger: NEED_MAX, thirst: NEED_MAX, warmth: NEED_MAX },
+    wetness: 0, // start bone dry (VS-2 Task T-A)
     home: { x, y },
     role: 'none',
     behaviour: 'wander',
@@ -234,6 +244,29 @@ function nearFire(body: Body): boolean {
   for (let y = y0; y <= y1; y++) {
     for (let x = x0; x <= x1; x++) {
       if (get(x, y) === FIRE) return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Is any cell in/around the body's footprint WATER or SNOW? (VS-2 Task T-A, GDD
+ * 6.1 wetness "on contact with WATER/SNOW".) Same cheap bounded box-scan as
+ * nearFire, early-exiting on the first wet cell. Read-only over the live grid -
+ * no autonomy or simulation change.
+ */
+function inWaterOrSnow(body: Body): boolean {
+  const rx = Math.round(body.x);
+  const ry = Math.round(body.y);
+  const halfW = Math.ceil(BODY_W / 2) + 1;
+  const x0 = rx - halfW;
+  const x1 = rx + halfW;
+  const y0 = ry - BODY_H; // one row above the head (catches rain pooling / drips)
+  const y1 = ry + 1; // one row below the feet (standing in a puddle / snow)
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const m = get(x, y);
+      if (m === WATER || m === SNOW) return true;
     }
   }
   return false;
@@ -1340,12 +1373,32 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
   //     loses warmth; otherwise (by a fire, or sheltered) it warms back up fast.
   //     Warmth is mainly cold-vs-heat - no exertion factor (you don't freeze
   //     faster by walking). W3 wires REAL shelter: a sheltered survivor (under a
-  //     WOOD/WALL ROOF, OPEN sides) stops losing warmth and warms back up - and\n  //     can still walk OUT from under the canopy for water/food (open-camp fix).
+  //     WOOD/WALL ROOF, OPEN sides) stops losing warmth and warms back up - and
+  //     can still walk OUT from under the canopy for water/food (open-camp fix).
   const sheltered = isSheltered(body); // GDD 8/6.1 shelter blocks the cold
+  const warm = nearWarmth(body); // FIRE within FIRE_WARMTH_RADIUS (passive)
+
+  // 2b. Wetness (VS-2 Task T-A, GDD 6.1 "wet" half of cold-and-wet): rises in
+  //     RAIN (unless under a roof) and on WATER/SNOW contact; dries slowly
+  //     otherwise, FAST by a fire. Pure per-survivor float - touches no grid
+  //     cell, so it is chunk- and replay-safe. Wetness does not kill; it makes
+  //     the cold bite harder via wetMult below.
+  const wetSource =
+    (getWeather() === 'rain' && !sheltered) || inWaterOrSnow(body);
+  if (wetSource) {
+    s.wetness = Math.min(NEED_MAX, s.wetness + WETNESS_RATE);
+  } else {
+    const dryRate = warm ? DRY_RATE * DRY_FIRE_MULT : DRY_RATE;
+    s.wetness = Math.max(0, s.wetness - dryRate);
+  }
+  // Wet survivors lose warmth faster (WET_WARMTH_MULT). Linear in the wet
+  // fraction: dry = 1x, soaked = WET_WARMTH_MULT x.
+  const wetMult = 1 + (WET_WARMTH_MULT - 1) * (s.wetness / NEED_MAX);
+
   // T4 (GDD 10): the cold gate is now DYNAMIC weather (isAmbientColdNow:
   // WEATHER_ENABLED && temp<COLD_THRESHOLD), replacing the static AMBIENT_COLD.
-  if (isAmbientColdNow() && !nearWarmth(body) && !sheltered) {
-    s.needs.warmth = Math.max(0, s.needs.warmth - WARMTH_RATE);
+  if (isAmbientColdNow() && !warm && !sheltered) {
+    s.needs.warmth = Math.max(0, s.needs.warmth - WARMTH_RATE * wetMult);
   } else {
     s.needs.warmth = Math.min(NEED_MAX, s.needs.warmth + WARMTH_RESTORE_RATE);
   }

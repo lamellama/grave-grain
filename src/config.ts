@@ -820,6 +820,38 @@ export const FIRE_WARMTH_RADIUS = 8;
 // fields are deferred to a later warmth task.
 export const AMBIENT_COLD = true;
 
+// Wetness (post-MVP, VS-2 Task T-A) - the "wet" half of cold-and-wet (GDD 6.1).
+// ---------------------------------------------------------------------------
+// A per-survivor WETNESS float in [0, NEED_MAX] (0 = bone dry, NEED_MAX =
+// soaked). Distinct from the killing needs (hunger/thirst/warmth): wetness never
+// kills directly - it AMPLIFIES the cold by making warmth drain faster. It rises
+// in RAIN and on contact with WATER/SNOW, and dries slowly otherwise (much
+// faster near a fire). Pure per-survivor state - touches no grid/sim cell, so it
+// is chunk- and replay-safe (no RNG).
+
+// Wetness gained per tick while in rain or standing in/touching WATER or SNOW.
+// Tuned so a survivor caught in the open soaks through in a few hundred ticks.
+export const WETNESS_RATE = 0.06;
+
+// Wetness lost per tick when dry-conditions hold (not raining, no water/snow
+// contact). Deliberately SLOW so a soaking lingers - getting caught out in the
+// rain is a lasting threat, not a momentary one.
+export const DRY_RATE = 0.015;
+
+// Multiplier on DRY_RATE when a heat source is within FIRE_WARMTH_RADIUS: a fire
+// dries you off FAST (the camp payoff - huddle by the fire to dry out).
+export const DRY_FIRE_MULT = 10;
+
+// How much faster a fully-soaked survivor (wetness == NEED_MAX) loses warmth in
+// the cold, vs bone dry. The effective drain multiplier scales LINEARLY with the
+// wet fraction: mult = 1 + (WET_WARMTH_MULT - 1) * (wetness / NEED_MAX). So dry
+// = 1x (unchanged), soaked = WET_WARMTH_MULT x. >1 by definition.
+export const WET_WARMTH_MULT = 2.5;
+
+// Wetness fraction at/above which the HUD shows the "wet" icon (VS-2 HUD). A
+// survivor only reads as visibly wet once meaningfully damp, not on a stray drop.
+export const WET_ICON_THRESHOLD = 0.35;
+
 // Shelter detection (GDD 8 / 6.1): isSheltered() bounded scan limit.
 // SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
 //   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).

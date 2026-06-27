@@ -33,6 +33,7 @@ import { rebuildNavgrid } from '../src/engine/navgrid';
 import { findPath } from '../src/game/pathfinding';
 import { generateWorld } from '../src/game/worldgen';
 import { createGameState, updateGameState } from '../src/game/state';
+import { __setWeatherForTest } from '../src/engine/weather';
 import type { WaveState } from '../src/game/waves';
 import {
   WORLD_H,
@@ -58,6 +59,13 @@ function surfaceRow(x: number): number {
   }
   return WORLD_H;
 }
+
+// T4 (GDD 10): the warmth cold-gate is now DYNAMIC weather (isAmbientColdNow:
+// WEATHER_ENABLED && temp < COLD_THRESHOLD). This suite models an always-cold
+// world, so pin the weather to SNOW (temp < COLD_THRESHOLD) at module scope -
+// updateSurvivor never advances the weather machine, so the forced cold holds
+// for every scenario below. (Same refresh T4 applied to p12-warmth/seekwarmth.)
+__setWeatherForTest('snow');
 
 console.log(`AMBIENT_COLD=${AMBIENT_COLD} (the world is cold so warmth matters)`);
 
