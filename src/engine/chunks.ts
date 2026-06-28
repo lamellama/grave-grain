@@ -160,3 +160,15 @@ export function resetChunks(): void {
   activeThisTick.fill(0);
   activeNextTick.fill(1);
 }
+
+/**
+ * Wake EVERY chunk for next tick (sets the NEXT-tick work set all-active).
+ * For rare GLOBAL state changes that can affect any cell with no local active
+ * neighbour to wake it - e.g. the weather warm-up edge that lets a SETTLED
+ * snowpack begin ambient melt (simulation.ts). After beginTick() swaps, the
+ * whole world is scanned that one tick; cells that don't change re-settle and
+ * sleep again next tick, so it is a one-off full scan, not a permanent cost.
+ */
+export function markAllActiveNextTick(): void {
+  activeNextTick.fill(1);
+}

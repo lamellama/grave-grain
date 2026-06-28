@@ -44,15 +44,24 @@ import {
   WEATHER_SKY_ROW,
   RAIN_SPAWN_CHANCE,
   SNOW_SPAWN_CHANCE,
+  SNOW_BAND_WIDTH,
+  SNOW_BAND_GAP,
+  SNOW_DRIFT,
+  SNOW_INTENSITY_MIN,
+  SNOW_INTENSITY_MAX,
+  SNOW_INTENSITY_FREQ,
   CAMPFIRE_FUEL,
   CAMPFIRE_BURN_CHANCE,
+  SNOW_MELT_TEMP,
+  SNOW_AMBIENT_MELT_CHANCE,
 } from '../config';
 import { material, integrity, idx, set, setIntegrity } from './grid';
 import { reactions } from './reactions';
-import { updateWeather, getWeather } from './weather';
+import { updateWeather, getWeather, getTemperature } from './weather';
 import {
   markCellActive,
   markIndexActive,
+  markAllActiveNextTick,
   beginTick,
   isActiveThisTick,
   chunkRowHasActive,
@@ -157,6 +166,13 @@ const SALT_WEATHER_SPAWN = 200;
 // one fuel unit. 400 is clear of every salt above (1-7, 100-108, 200) and of
 // reactions.ts's SALT_SNOW_MELT (300), so its stream never collides.
 const SALT_CAMPFIRE_BURN = 400;
+// Ambient snow-melt roll (v0.8 playtest M): per warm SNOW cell per tick. 500 is
+// clear of every salt above (1-7, 100-108, 200, 300, 400), so its stream never
+// collides at the same (x, y, tick).
+const SALT_SNOW_AMBIENT_MELT = 500;
+// Last tick's ambient temperature, to detect the cold->warm EDGE that wakes a
+// settled snowpack for ambient melt. Cold sentinel so the first warm tick fires.
+let lastTemp = -1e9;
 
 /**
  * "Moved this tick" guard, one byte per cell (0 = free, 1 = already acted).
@@ -194,6 +210,21 @@ export function step(): void {
   //    the fall by one tick on the chunked path only -> divergence.)
   updateWeather(tick);
   applyWeather();
+
+  // Ambient-melt warm-up edge (v0.8 playtest M): a SETTLED snowpack has no local
+  // active neighbour to wake it, so when the GLOBAL temperature crosses above
+  // SNOW_MELT_TEMP we wake EVERY chunk once. updateSnow then keeps warm snow
+  // self-active until it melts, so the chunked scan melts byte-identically to the
+  // full scan. Only meaningful when chunking is on (the full scan ignores chunks).
+  const curTemp = getTemperature();
+  if (
+    isChunkingEnabled() &&
+    lastTemp <= SNOW_MELT_TEMP &&
+    curTemp > SNOW_MELT_TEMP
+  ) {
+    markAllActiveNextTick();
+  }
+  lastTemp = curTemp;
 
   if (isChunkingEnabled()) {
     beginTick();
@@ -245,16 +276,45 @@ export function step(): void {
 function applyWeather(): void {
   const w = getWeather();
   if (w === 'clear') return; // clear sky spawns nothing
-  const spawn = w === 'rain' ? WATER : SNOW;
-  const chance = w === 'rain' ? RAIN_SPAWN_CHANCE : SNOW_SPAWN_CHANCE;
   const y = WEATHER_SKY_ROW;
   const base = y * WORLD_W;
+
+  // RAIN: unchanged uniform sky sweep (rain forms sheets, not drifts).
+  if (w === 'rain') {
+    for (let x = 0; x < WORLD_W; x++) {
+      const i = base + x;
+      if (material[i] !== AIR) continue;
+      if (simRand(x, y, SALT_WEATHER_SPAWN) < RAIN_SPAWN_CHANCE) {
+        material[i] = WATER;
+        integrity[i] = 0;
+        markCellActive(x, y);
+      }
+    }
+    return;
+  }
+
+  // SNOW (v0.8 playtest M): drifting FLURRY BANDS of light->heavy intensity, so
+  // snow falls in drips and drabs that cross the map instead of a uniform
+  // burying curtain. The band mask + intensity are pure functions of (x, tick),
+  // so this stays deterministic and identical on the chunked + full-scan paths.
+  const period = SNOW_BAND_WIDTH + SNOW_BAND_GAP;
+  // Intensity oscillates slowly between MIN and MAX (a light<->heavy cycle).
+  const wave = 0.5 + 0.5 * Math.sin(tick * SNOW_INTENSITY_FREQ);
+  const intensity =
+    SNOW_INTENSITY_MIN + (SNOW_INTENSITY_MAX - SNOW_INTENSITY_MIN) * wave;
+  const chance = SNOW_SPAWN_CHANCE * intensity;
+  // Bands drift sideways with the tick; a cell is "in a flurry" when its phase
+  // within the drifting period falls inside the band width.
+  const shift = tick * SNOW_DRIFT;
   for (let x = 0; x < WORLD_W; x++) {
     const i = base + x;
     if (material[i] !== AIR) continue; // only seed empty sky
+    // phase in [0, period); ((v % p) + p) % p keeps it non-negative for any shift.
+    const phase = (((x - shift) % period) + period) % period;
+    if (phase >= SNOW_BAND_WIDTH) continue; // in a gap between flurries -> no snow
     if (simRand(x, y, SALT_WEATHER_SPAWN) < chance) {
-      material[i] = spawn;
-      integrity[i] = 0; // WATER/SNOW carry no integrity (clear any stale slot)
+      material[i] = SNOW;
+      integrity[i] = 0; // SNOW carries no integrity (clear any stale slot)
       markCellActive(x, y); // wake the chunk so the chunked scan sees the spawn
     }
   }
@@ -791,6 +851,27 @@ function updateAsh(x: number, y: number): void {
  * heat (-> WATER) is an adjacency reaction handled in reactions.ts, not here.
  */
 function updateSnow(x: number, y: number): void {
+  // 0) Ambient melt (v0.8 playtest M, GDD 10): above SNOW_MELT_TEMP, snow melts
+  //    to WATER over time. getTemperature() is GLOBAL state (identical on the
+  //    chunked + full scans) and the roll is per-cell, so this is deterministic
+  //    and order-independent. While warm, the cell keeps its OWN chunk active so
+  //    the chunked scan keeps visiting it until it melts (the warm-up edge in
+  //    step() wakes a settled pack in the first place) - keeping chunk
+  //    byte-equivalence. The fast FIRE-adjacent melt (reactions.meltSnow) is
+  //    unchanged and independent.
+  if (getTemperature() > SNOW_MELT_TEMP) {
+    const s = idx(x, y);
+    if (simRand(x, y, SALT_SNOW_AMBIENT_MELT) < SNOW_AMBIENT_MELT_CHANCE) {
+      material[s] = WATER;
+      integrity[s] = 0; // WATER carries no integrity
+      moved[s] = 1; // claim the cell so the new water isn't re-processed now
+      markCellActive(x, y); // SNOW->WATER is a change -> keep the chunk live
+      return;
+    }
+    markCellActive(x, y); // warm but not melting this tick: stay awake to re-roll
+    // ...then still allow the snow to fall/settle while it slowly melts.
+  }
+
   const below = y + 1;
 
   // 1) Fall straight down through any lighter, non-static cell (AIR or WATER).

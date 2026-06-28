@@ -1030,7 +1030,24 @@ export const WEATHER_TO_SNOW_CHANCE = 0.3;
 
 // Per sky-cell per-tick spawn probabilities for precipitation particles.
 export const RAIN_SPAWN_CHANCE = 0.03;
-export const SNOW_SPAWN_CHANCE = 0.02;
+
+// Snow spawn (VS-1, rebalanced by v0.8 playtest M). The old model seeded the
+// WHOLE sky row every tick -> a uniform curtain that buried the map before you
+// could build. Snow now falls in drifting FLURRY BANDS of varying intensity:
+//   - Per IN-BAND sky cell, per tick, this is the spawn chance at FULL intensity.
+export const SNOW_SPAWN_CHANCE = 0.06;
+// A flurry is a band SNOW_BAND_WIDTH cells wide; bands repeat every
+// (WIDTH + GAP) cells, so only ~WIDTH/(WIDTH+GAP) of the sky spawns at once
+// (drips and drabs, not everywhere). Bands DRIFT sideways at SNOW_DRIFT
+// cells/tick so flurries cross the map.
+export const SNOW_BAND_WIDTH = 14;
+export const SNOW_BAND_GAP = 70;
+export const SNOW_DRIFT = 0.4;
+// Snowfall INTENSITY oscillates light->heavy over time (a slow sine on the tick),
+// scaling the in-band spawn chance between MIN and MAX so squalls come and go.
+export const SNOW_INTENSITY_MIN = 0.25;
+export const SNOW_INTENSITY_MAX = 1.0;
+export const SNOW_INTENSITY_FREQ = 0.0015; // radians/tick (~4200-tick light<->heavy cycle)
 
 // Top row from which weather precipitation is spawned (row 0 = very top).
 export const WEATHER_SKY_ROW = 0;
@@ -1049,6 +1066,14 @@ export const DENSITY_SNOW = 2;
 
 // Chance (per tick, per SNOW cell adjacent to heat) that SNOW melts -> WATER (T3).
 export const SNOW_MELT_CHANCE = 0.5;
+
+// Ambient snow melt (v0.8 playtest M, GDD 10 "slow ambient melt above freezing").
+// When the GLOBAL ambient temperature is strictly above SNOW_MELT_TEMP, each SNOW
+// cell melts to WATER with SNOW_AMBIENT_MELT_CHANCE per tick - so a snowpack
+// RECEDES once the weather warms (snow at TEMP_SNOW=-8 never melts; clear=10 and
+// rain=2 both do). Distinct from the fast FIRE-adjacent melt (SNOW_MELT_CHANCE).
+export const SNOW_MELT_TEMP = 0; // above freezing
+export const SNOW_AMBIENT_MELT_CHANCE = 0.02;
 
 // Sapling growth speed-up multiplier while it is raining (T4).
 // Analogous to GROW_WATER_SPEEDUP but driven by weather state, not adjacency.

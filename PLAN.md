@@ -394,6 +394,8 @@ Live playtest of the post-VS-1/VS-2 build (dynamic weather + warmth + campfire).
 
 **Routing/sequencing:** K + L are light **cheap_coder** UX/render fixes — fold into a VS-3 polish pass or land as quick patches. M is **sim-correctness (expensive_coder)** — it touches `applyWeather`/snow spawn + a new ambient-melt rule, so **re-run `p11-chunk-equiv` + `weather-sim`/`weather-state` + the warmth suites** after. M is the priority: the snow phase is currently unplayable for the camp/shelter loop, so it should land before (or alongside) VS-3's cooperative shelter build.
 
+> **✅ M DONE** (orchestrator direct): snow now falls in drifting **flurry bands** of light→heavy intensity (`SNOW_BAND_WIDTH`/`SNOW_BAND_GAP`/`SNOW_DRIFT`/`SNOW_INTENSITY_*`, in-band rate `SNOW_SPAWN_CHANCE`) instead of a whole-row curtain, and a snowpack **melts above `SNOW_MELT_TEMP`** at `SNOW_AMBIENT_MELT_CHANCE`/tick (chunk-safe via a warm-up edge that wakes settled snow). Verified `test/weather-snow.test.ts` (bands/sparse/drift + melt + **byte-identical chunked-vs-full melt**); `weather-sim`/`weather-state`/`p11-chunk-equiv` still green. **K + L still open.**
+
 ---
 
 ## Vertical slice (post-MVP — prove the *feel*)  *(GDD §14 "Vertical slice")*
