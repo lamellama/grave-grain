@@ -987,8 +987,8 @@ function driveConsume(s: Survivor): void {
 export function assignRole(s: Survivor, role: RoleName): boolean {
   // A reassigned/cleared builder hands its claimed blueprint back to the queue,
   // else the Blueprint stays reserved=true forever and no builder can re-claim it
-  // (orphaned job). TODO (BQ-4): also release on death/turn, which bypass
-  // assignRole entirely.
+  // (orphaned job). Death/turn bypass assignRole, so they release via
+  // releaseBuildClaim() in updateSurvivor's dead/turned guards (VS-3 T3).
   if (s.buildTarget !== null) release(s.buildTarget);
   if (role === 'none') {
     s.role = 'none';
@@ -1304,6 +1304,19 @@ function clearBuildClaim(s: Survivor): void {
 }
 
 /**
+ * RELEASE the builder's claim back to the queue and drop the local handle (VS-3
+ * T3, GDD 13). For death/turn, which bypass assignRole: a builder that dies or
+ * reanimates while holding a reserved Blueprint would otherwise leave it
+ * reserved=true forever (an orphaned, un-reclaimable job - the BQ-4 TODO). Called
+ * once from the dead/turned guards; idempotent (no-op once buildTarget is null).
+ */
+function releaseBuildClaim(s: Survivor): void {
+  if (s.buildTarget === null) return;
+  release(s.buildTarget);
+  s.buildTarget = null;
+}
+
+/**
  * Builder loop (BQ-3, GDD 6.2/8): the queue-driven sibling of driveRole's
  * harvest machine. Two states reusing roleState ('toStockpile' is never entered
  * - a builder spends FROM the stockpile, it doesn't deposit):
@@ -1460,12 +1473,14 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
 
   // 1. Dead-survivor guard: a dissolved body's cells belong to the sim now.
   if (!body.alive) {
+    releaseBuildClaim(s); // VS-3 T3: a builder that died holding a claim frees it
     return;
   }
   // 1a. Turned guard (GDD 7.2): the body has reanimated as a zombie and is now
   //     driven by a Zombie controller. This survivor controller must not touch
   //     it (no needs, no drive, no body step - the zombie owns updateBody now).
   if (s.turned) {
+    releaseBuildClaim(s); // VS-3 T3: a turned builder frees its claim too
     return;
   }
   // 1b. Prone/downed guard (GDD 7.2): an infected body that has dropped to a

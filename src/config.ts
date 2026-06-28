@@ -967,6 +967,15 @@ export const SHELTER_WALL_HEIGHT = 16;
 // Must be >= BODY_H so a survivor can walk through without clipping the wall.
 export const SHELTER_DOORWAY_HEIGHT = 13;
 
+// Cooperative build wiring (VS-3 T3, GDD 8/6.1/13). Cap on how many of ONE
+// shelter project's cells are streamed into the build queue (and thus claimable
+// by its group's builders) AT ONCE. Bounding work-in-progress is the GDD 13 cost-
+// discipline knob: it keeps the global queue small, divides the blueprint among
+// builders a few cells at a time (roof-first so the hut shelters early), and tops
+// the claim pool back up as cells are finished. >= the expected builders/group so
+// no builder ever idles for want of a claimable cell.
+export const MAX_BUILD_CLAIMS = 6;
+
 // Shelter detection (GDD 8 / 6.1): isSheltered() bounded scan limit.
 // SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
 //   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).
