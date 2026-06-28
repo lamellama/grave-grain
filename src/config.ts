@@ -921,6 +921,27 @@ export const CAMPFIRE_FUEL = 200;
 // chunk byte-equivalence + replay hold.
 export const CAMPFIRE_BURN_CHANCE = 0.04;
 
+// Survivor grouping by sight (post-MVP, VS-3, GDD 6.2/7.1/13).
+// ---------------------------------------------------------------------------
+// Survivors partition into GROUPS by mutual visibility (within SIGHT_RADIUS AND
+// line-of-sight - no solid wall between). Clustering recomputes on an INTERVAL
+// (not every tick). A member out of sight of its group for SPLIT_DEBOUNCE_TICKS
+// forks into its own group; groups back in mutual sight for MERGE_DEBOUNCE_TICKS
+// rejoin. Debounce stops flicker when someone briefly dips behind terrain.
+
+// Max distance (cells) two survivors can be apart and still "see" each other.
+export const SIGHT_RADIUS = 70;
+
+// How often (ticks) the sight clustering is recomputed (GDD 13: not every tick).
+export const GROUP_RECHECK_TICKS = 30;
+
+// A group fragmented (a member/sub-cluster out of sight of the rest) for at least
+// this many ticks splits into separate groups. > MERGE so it does not thrash.
+export const SPLIT_DEBOUNCE_TICKS = 240;
+
+// Two groups in mutual sight for at least this many ticks merge into one.
+export const MERGE_DEBOUNCE_TICKS = 120;
+
 // Shelter detection (GDD 8 / 6.1): isSheltered() bounded scan limit.
 // SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
 //   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).
