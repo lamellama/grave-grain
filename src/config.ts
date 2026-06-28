@@ -1053,6 +1053,13 @@ export const WEATHER_SNOW_MAX_TICKS = 3000;
 export const WEATHER_TO_RAIN_CHANCE = 0.5;
 export const WEATHER_TO_SNOW_CHANCE = 0.3;
 
+// No EXTREME weather (snow) before this tick (v0.8 round 2 playtest): an early
+// snowstorm buried/froze a colony that had no shelter yet. Until then a "snow"
+// transition is redirected to mild RAIN, so the early game stays survivable and
+// snow only arrives once the colony has had time to dig in. Pure function of the
+// tick -> deterministic + chunk-safe. ~12000 ticks of grace (several waves in).
+export const WEATHER_SNOW_EARLIEST_TICK = 12000;
+
 // Per sky-cell per-tick spawn probabilities for precipitation particles.
 export const RAIN_SPAWN_CHANCE = 0.03;
 
@@ -1060,7 +1067,10 @@ export const RAIN_SPAWN_CHANCE = 0.03;
 // WHOLE sky row every tick -> a uniform curtain that buried the map before you
 // could build. Snow now falls in drifting FLURRY BANDS of varying intensity:
 //   - Per IN-BAND sky cell, per tick, this is the spawn chance at FULL intensity.
-export const SNOW_SPAWN_CHANCE = 0.06;
+// Lowered ~10x (v0.8 round 2 playtest: snow STILL buried players+zombies before
+// it could melt) so accumulation stays a light dusting (drips and drabs across
+// the map, < ~1 flake/tick world-wide), not a burying snowpack.
+export const SNOW_SPAWN_CHANCE = 0.006;
 // A flurry is a band SNOW_BAND_WIDTH cells wide; bands repeat every
 // (WIDTH + GAP) cells, so only ~WIDTH/(WIDTH+GAP) of the sky spawns at once
 // (drips and drabs, not everywhere). Bands DRIFT sideways at SNOW_DRIFT

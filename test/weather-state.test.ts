@@ -31,6 +31,7 @@ import {
   WEATHER_RAIN_MAX_TICKS,
   WEATHER_SNOW_MIN_TICKS,
   WEATHER_SNOW_MAX_TICKS,
+  WEATHER_SNOW_EARLIEST_TICK,
 } from '../src/config';
 
 // ---------------------------------------------------------------------------
@@ -49,7 +50,9 @@ function label(name: string): void {
   console.log(`\n=== ${name} ===`);
 }
 
-const N = 30000;
+// Long horizon: snow is gated out of the early game (WEATHER_SNOW_EARLIEST_TICK),
+// so we sample far enough past the grace period that a snow phase reliably occurs.
+const N = 90000;
 
 interface Sample {
   state: WeatherState;
@@ -121,16 +124,22 @@ for (let i = 1; i < a.length; i++) {
     curLen = 1;
   }
 }
-// First run starts at t=0 (its true start duration is well-defined via reset),
-// last run is truncated by N — drop only the last (truncated) one.
-const completed = runs; // every entry in `runs` ended with an observed transition
+// First run starts at t=0 (a true reset start, full duration); the LAST run is
+// truncated by the sample horizon N, so drop it.
+const completed = runs.slice(0, -1);
 let allInRange = true;
 let offender = '';
 for (const r of completed) {
   const [lo, hi] = bounds[r.state];
-  if (r.len < lo || r.len > hi) {
+  // CLEAR can SELF-REPEAT: a clear->clear roll (the ~20% "stay clear" branch)
+  // re-rolls a fresh clear duration, so consecutive clears read as one long run
+  // -> only its LOWER bound is meaningful. RAIN/SNOW always transition back to
+  // clear, so each is exactly one instance and BOTH bounds apply.
+  const bad = r.state === 'clear' ? r.len < lo : r.len < lo || r.len > hi;
+  if (bad) {
     allInRange = false;
     offender = `${r.state} len=${r.len} not in [${lo},${hi}]`;
+    break;
   }
 }
 ok(completed.length > 0, `observed ${completed.length} completed runs`);
@@ -154,6 +163,22 @@ label('5 both rain and snow occur within N ticks');
 ok(seen.clear > 0, `clear occurred (${seen.clear} ticks)`);
 ok(seen.rain > 0, `rain occurred (${seen.rain} ticks)`);
 ok(seen.snow > 0, `snow occurred (${seen.snow} ticks)`);
+
+// ===========================================================================
+// 6. EARLY-GAME GATE (v0.8 round 2) — no SNOW before WEATHER_SNOW_EARLIEST_TICK
+//    (an early snow roll is redirected to mild rain), but snow DOES arrive after.
+// ===========================================================================
+label('6 snow gated out of the early game');
+let earlySnow = -1;
+let lateSnow = -1;
+for (let t = 0; t < a.length; t++) {
+  if (a[t].state === 'snow') {
+    if (t < WEATHER_SNOW_EARLIEST_TICK && earlySnow < 0) earlySnow = t;
+    if (t >= WEATHER_SNOW_EARLIEST_TICK && lateSnow < 0) lateSnow = t;
+  }
+}
+ok(earlySnow === -1, `no snow before tick ${WEATHER_SNOW_EARLIEST_TICK} (first early-snow tick=${earlySnow})`);
+ok(lateSnow >= 0, `snow still arrives after the grace period (first at tick ${lateSnow})`);
 
 // ---------------------------------------------------------------------------
 console.log(`\n${totalFailed === 0 ? 'OVERALL: PASS' : `OVERALL: FAIL (${totalFailed})`}`);

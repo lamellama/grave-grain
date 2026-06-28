@@ -90,10 +90,9 @@ assert(WEATHER_TO_RAIN_CHANCE + WEATHER_TO_SNOW_CHANCE <= 1.0, 'transition chanc
 
 // Spawn chances
 assert(RAIN_SPAWN_CHANCE === 0.03, 'RAIN_SPAWN_CHANCE === 0.03');
-// SNOW_SPAWN_CHANCE raised to 0.06 by v0.8 playtest M (per IN-BAND cell now, not
-// whole-row), with drifting flurry bands + intensity scaling the effective rate
-// far below the old uniform 0.02-everywhere. See weather-snow.test.ts.
-assert(SNOW_SPAWN_CHANCE === 0.06, 'SNOW_SPAWN_CHANCE === 0.06 (v0.8 in-band rate)');
+// SNOW_SPAWN_CHANCE: per IN-BAND cell rate (v0.8 playtest M drifting flurries).
+// Lowered to 0.006 in round 2 (snow still buried the colony) for a light dusting.
+assert(SNOW_SPAWN_CHANCE === 0.006, 'SNOW_SPAWN_CHANCE === 0.006 (v0.8 light in-band rate)');
 
 // Sky row
 assert(WEATHER_SKY_ROW === 0, 'WEATHER_SKY_ROW === 0');

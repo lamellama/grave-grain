@@ -24,6 +24,7 @@ import {
   WEATHER_SNOW_MAX_TICKS,
   WEATHER_TO_RAIN_CHANCE,
   WEATHER_TO_SNOW_CHANCE,
+  WEATHER_SNOW_EARLIEST_TICK,
   TEMP_CLEAR,
   TEMP_RAIN,
   TEMP_SNOW,
@@ -109,7 +110,10 @@ export function updateWeather(tick: number): void {
     if (r < WEATHER_TO_RAIN_CHANCE) {
       state = 'rain';
     } else if (r < WEATHER_TO_RAIN_CHANCE + WEATHER_TO_SNOW_CHANCE) {
-      state = 'snow';
+      // Snow is the EXTREME state - not allowed in the early game (playtest v0.8
+      // round 2): before WEATHER_SNOW_EARLIEST_TICK a "snow" roll falls back to
+      // mild RAIN, so a shelterless colony is never buried/frozen at the start.
+      state = tick < WEATHER_SNOW_EARLIEST_TICK ? 'rain' : 'snow';
     } else {
       state = 'clear';
     }

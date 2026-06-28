@@ -40,46 +40,37 @@ function snowColumns(rows: number): number[] {
 
 // Fresh module load => tick starts at 0; pin snow so applyWeather seeds snow.
 __setWeatherForTest('snow');
-material.fill(AIR); // empty world: spawned snow falls a row, nothing to bury
 
 // ---------------------------------------------------------------------------
-// One step at tick 0 (drift shift = 0): snow spawns at row 0 and falls to row 1.
-// Every spawned column must lie INSIDE a band: (x % PERIOD) < SNOW_BAND_WIDTH.
+// M-1: drifting flurry bands. The spawn rate is light (< ~1 flake/tick world-
+// wide), so a single tick may spawn nothing - we run a window and check the
+// BAND property per tick (each step k processes tick k, drift shift = k*DRIFT):
+//   - snow only ever appears INSIDE that tick's bands (gaps stay clear),
+//   - some snow appears (drips present),
+//   - coverage per tick stays sparse (never a full-width curtain),
+//   - bands DRIFT (snow reaches columns that are GAPS under the tick-0 mask).
 // ---------------------------------------------------------------------------
-step(); // processes tick 0, then tick -> 1
-const cols0 = snowColumns(4);
-check(cols0.length > 0, '1: snow spawned (drips present)');
-const allInBand = cols0.every((x) => x % PERIOD < SNOW_BAND_WIDTH);
-check(allInBand, '1: every snow column lies inside a flurry band (gaps stay clear)');
-
-// Coverage is sparse - nowhere near a full-width curtain.
-const coverage = cols0.length / WORLD_W;
-check(coverage < 0.1, `2: snow coverage is sparse (${(coverage * 100).toFixed(1)}% of width, drips not a curtain)`);
-// And the gaps are real: with band duty ~WIDTH/PERIOD, most columns are clear.
-const bandDuty = SNOW_BAND_WIDTH / PERIOD;
-check(coverage <= bandDuty + 0.02, `2: coverage within band duty (~${(bandDuty * 100).toFixed(0)}%)`);
-
-// ---------------------------------------------------------------------------
-// 3. Bands DRIFT: after enough ticks for the drift to move a band by > a band
-//    width, the in-band column set shifts (snow appears in columns that were in
-//    a GAP at tick 0). Run until shift exceeds one band period.
-// ---------------------------------------------------------------------------
-{
-  // ticks needed for the band pattern to drift a full period (so gap<->band swap)
-  const ticks = Math.ceil(PERIOD / SNOW_DRIFT) + 2;
-  let sawShiftedColumn = false;
-  for (let t = 0; t < ticks; t++) {
-    material.fill(AIR);
-    step();
-    const cols = snowColumns(4);
-    // a column that is in a GAP under the tick-0 mask but now has snow => drift.
-    if (cols.some((x) => x % PERIOD >= SNOW_BAND_WIDTH)) {
-      sawShiftedColumn = true;
-      break;
-    }
+const STEPS = 120;
+let sawSnow = false;
+let sawOutsideBand = false;
+let sawDrift = false;
+let maxCoverage = 0;
+for (let k = 0; k < STEPS; k++) {
+  material.fill(AIR); // empty world: this tick's spawn falls one row, nothing to bury
+  step(); // processes tick k, drift shift = k * SNOW_DRIFT
+  const cols = snowColumns(4);
+  if (cols.length > 0) sawSnow = true;
+  maxCoverage = Math.max(maxCoverage, cols.length / WORLD_W);
+  for (const x of cols) {
+    const phase = (((x - k * SNOW_DRIFT) % PERIOD) + PERIOD) % PERIOD;
+    if (phase >= SNOW_BAND_WIDTH) sawOutsideBand = true; // spawned in a gap -> wrong
+    if (x % PERIOD >= SNOW_BAND_WIDTH) sawDrift = true; // a tick-0 gap column got snow
   }
-  check(sawShiftedColumn, '3: flurry bands drift over time (snow reaches tick-0 gap columns)');
 }
+check(sawSnow, '1: snow spawns over the window (drips present)');
+check(!sawOutsideBand, "1: every snow column lies inside its tick's flurry band (gaps stay clear)");
+check(maxCoverage < 0.1, `2: snow coverage stays sparse (max ${(maxCoverage * 100).toFixed(2)}% of width)`);
+check(sawDrift, '3: flurry bands drift over time (snow reaches tick-0 gap columns)');
 
 // ===========================================================================
 // M-2: AMBIENT MELT. A snowpack laid down cold must RECEDE once it warms, and
