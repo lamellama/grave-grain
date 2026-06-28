@@ -944,6 +944,29 @@ export const SPLIT_DEBOUNCE_TICKS = 240;
 // Two groups in mutual sight for at least this many ticks merge into one.
 export const MERGE_DEBOUNCE_TICKS = 120;
 
+// Per-group shelter project geometry (post-MVP, VS-3, GDD 8/6.1).
+// ---------------------------------------------------------------------------
+// Each group plans ONE shelter: a roofed hut (left/right WALL columns + a WOOD
+// roof) with a full-height DOORWAY on one side so survivors can walk in/out
+// (a sealed box kills a colony - see the VS-2 open-camp lesson). The roof is the
+// functional part (it satisfies isSheltered); walls + doorway give it form.
+
+// Interior FOOTPRINT cells targeted per group member, and the floor under it.
+export const SHELTER_PER_SURVIVOR_AREA = 18;
+export const SHELTER_MIN_SIZE = 48; // min interior area regardless of headcount
+export const SHELTER_MIN_WIDTH = 8; // min interior width (cells)
+
+// Hut wall height (cells, floor to roof). INVARIANT: chosen so a standing body's
+// head (BODY_H above the floor) sees the roof within SHELTER_ROOF_SCAN, i.e.
+// BODY_H < SHELTER_WALL_HEIGHT <= BODY_H + SHELTER_ROOF_SCAN. With BODY_H=12 and
+// SHELTER_ROOF_SCAN=6 that is (12, 18]; 16 leaves head-clearance + a little wall
+// above the doorway.
+export const SHELTER_WALL_HEIGHT = 16;
+
+// Doorway opening height (cells) cut from the bottom of the doorway-side wall.
+// Must be >= BODY_H so a survivor can walk through without clipping the wall.
+export const SHELTER_DOORWAY_HEIGHT = 13;
+
 // Shelter detection (GDD 8 / 6.1): isSheltered() bounded scan limit.
 // SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
 //   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).
