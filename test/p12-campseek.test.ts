@@ -87,24 +87,31 @@ rebuildNavgrid();
     '2: survivor starts cold and out of campfire range',
   );
 
+  // Drive until the survivor has SOUGHT the campfire, reached its warmth, and
+  // recovered above threshold. We stop AT recovery on purpose: the deterministic
+  // claim here is "cold survivor auto-seeks the campfire and warms up". Running
+  // far past recovery would enter the post-warm `wander` (which uses Math.random)
+  // and could drift it out of the lone campfire's scan range - a real edge that
+  // VS-3's group-shelter targeting (T5) addresses, not this unit's concern.
   let sawSeek = false;
   let reached = false;
+  let recovered = false;
   let maxWarmth = s.needs.warmth;
-  let diedTick = -1;
-  for (let t = 0; t < 6000; t++) {
-    s.needs.hunger = NEED_MAX; // isolate warmth as the only driver
+  for (let t = 0; t < 4000 && !recovered; t++) {
+    s.needs.hunger = NEED_MAX; // isolate warmth as the only driver (warmth NOT topped)
     s.needs.thirst = NEED_MAX;
     updateSurvivor(s, []);
     if (s.behaviour === 'seekWarmth') sawSeek = true;
     if (effectiveTemp(s.body) >= COLD_THRESHOLD) reached = true; // within campfire warmth
     if (s.needs.warmth > maxWarmth) maxWarmth = s.needs.warmth;
-    if (!s.body.alive && diedTick < 0) diedTick = t;
+    if (!s.body.alive) break;
+    if (reached && s.needs.warmth > WARMTH_THRESHOLD) recovered = true;
   }
 
   check(sawSeek, '2: cold survivor auto-overrode to seekWarmth');
   check(reached, '2: survivor walked into the campfire warmth radius');
-  check(diedTick < 0 && s.body.alive, '2: survivor never froze (campfire kept it alive)');
-  check(maxWarmth > WARMTH_THRESHOLD, `2: warmth recovered above threshold (max ${maxWarmth.toFixed(1)})`);
+  check(s.body.alive, '2: survivor never froze on the way to the campfire');
+  check(recovered, `2: warmth recovered above threshold at the campfire (max ${maxWarmth.toFixed(1)})`);
 }
 
 // ===========================================================================

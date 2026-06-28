@@ -396,7 +396,9 @@ Live playtest of the post-VS-1/VS-2 build (dynamic weather + warmth + campfire).
 
 > **✅ M DONE** (orchestrator direct): snow now falls in drifting **flurry bands** of light→heavy intensity (`SNOW_BAND_WIDTH`/`SNOW_BAND_GAP`/`SNOW_DRIFT`/`SNOW_INTENSITY_*`, in-band rate `SNOW_SPAWN_CHANCE`) instead of a whole-row curtain, and a snowpack **melts above `SNOW_MELT_TEMP`** at `SNOW_AMBIENT_MELT_CHANCE`/tick (chunk-safe via a warm-up edge that wakes settled snow). Verified `test/weather-snow.test.ts` (bands/sparse/drift + melt + **byte-identical chunked-vs-full melt**); `weather-sim`/`weather-state`/`p11-chunk-equiv` still green.
 
-> **✅ K DONE** (cheap, orchestrator direct): a dashed **selection box now tracks the selected survivor each frame** (`ui.drawSelectionHighlight` via `worldToScreen`, fed by `input.getSelectedSurvivor()`, drawn in the main render loop), so you can see who the floating role-menu applies to even while they move; clears if the survivor dies. `SELECT_TAP_RADIUS` widened 6 -> 12 so a MOVING sprite is easy to grab. Verified `test/k-select-highlight.test.ts` (box tracks body, none for null/dead, radius widened). **L still open** (colour-match the Assign-menu buttons to `ROLE_TINT`).
+> **✅ K DONE** (cheap, orchestrator direct): a dashed **selection box now tracks the selected survivor each frame** (`ui.drawSelectionHighlight` via `worldToScreen`, fed by `input.getSelectedSurvivor()`, drawn in the main render loop), so you can see who the floating role-menu applies to even while they move; clears if the survivor dies. `SELECT_TAP_RADIUS` widened 6 -> 12 so a MOVING sprite is easy to grab. Verified `test/k-select-highlight.test.ts` (box tracks body, none for null/dead, radius widened).
+
+> **✅ L DONE** (cheap, orchestrator direct): each Assign-menu role button gets a left-edge colour swatch derived from `ROLE_TINT` (new `roles.roleTintCss`, applied in `input.ts` at wire time; Unassign = neutral grey), so the menu legend matches the on-screen body tint and can't drift. Verified `test/l-role-legend.test.ts` (swatches == ROLE_TINT, distinct, Unassign neutral). **All v0.8 playtest items (K, L, M) now done.**
 
 ---
 

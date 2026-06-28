@@ -83,6 +83,18 @@ export function tintForRole(
   ];
 }
 
+/**
+ * CSS `rgb(...)` swatch colour for a role's sprite tint (v0.8 playtest L). Used
+ * to colour-match the Assign-menu buttons to the on-screen body tint - derived
+ * from ROLE_TINT so the menu and the sprite never drift. 'none' (Unassign) has
+ * no tint, so it gets a neutral grey.
+ */
+export function roleTintCss(role: RoleName): string {
+  if (role === 'none') return 'rgb(120,120,120)'; // neutral - Unassign
+  const t = ROLE_TINT[role];
+  return `rgb(${t[0]},${t[1]},${t[2]})`;
+}
+
 /** Wood-tier tool kinds. Weapons are tools too (GDD 6.3). */
 export type ToolKind = 'pickaxe' | 'axe' | 'basket' | 'weapon' | 'hammer';
 

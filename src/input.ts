@@ -38,6 +38,7 @@ import type { Survivor } from './characters/survivor';
 import { assignRole } from './characters/survivor';
 import type { Zombie } from './characters/zombie';
 import type { RoleName } from './game/roles';
+import { roleTintCss } from './game/roles';
 import { canAssign } from './game/roles';
 
 // Re-export the pure picking query so callers can reach it via the input module
@@ -986,13 +987,18 @@ export function initInput(canvas: HTMLCanvasElement): void {
   // assignRole on the selected survivor, refreshes greyed state, then closes.
   const roleMenuBtns = document.querySelectorAll('[data-role]');
   roleMenuBtns.forEach((btn) => {
+    // v0.8 playtest L: colour-match each button to its role's sprite tint, via a
+    // left-edge swatch derived from ROLE_TINT (single source of truth -> the menu
+    // legend can never drift from the on-screen body colour).
+    const role = (btn as HTMLElement).getAttribute('data-role') as RoleName;
+    (btn as HTMLElement).style.borderLeft = `6px solid ${roleTintCss(role)}`;
+
     btn.addEventListener('click', () => {
       if (!selectedSurvivor) {
         closeRoleMenu();
         return;
       }
-      const roleAttr = (btn as HTMLElement).getAttribute('data-role') as RoleName;
-      assignRole(selectedSurvivor, roleAttr);
+      assignRole(selectedSurvivor, role);
       closeRoleMenu();
     });
   });
