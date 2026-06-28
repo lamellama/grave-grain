@@ -31,6 +31,7 @@ import {
   SIM_SPEEDS,
   CELL_SIZE,
   BODY_W,
+  BODY_H,
   WORLD_W,
   CHIP_FLASH_TICKS,
   UNDER_ATTACK_ALERT,
@@ -390,6 +391,47 @@ export function drawNeedsBars(
     }
   }
 
+  ctx.restore();
+}
+
+/**
+ * Selection highlight (v0.8 playtest K): a dashed box that TRACKS the selected
+ * survivor's body each frame (drawn in screen space via worldToScreen), so the
+ * player can see who the floating role-menu applies to - even while the survivor
+ * walks around. No-op for a null/dead survivor or a missing/zero-size canvas.
+ */
+export function drawSelectionHighlight(
+  ctx: CanvasRenderingContext2D,
+  survivor: Survivor | null,
+): void {
+  if (!survivor || !survivor.body.alive) return;
+  const canvas = ctx.canvas;
+  if (!canvas) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  if (cw === 0 || ch === 0) return;
+
+  const cell = effectiveCellPx();
+  const margin = 2; // world cells of padding around the figure
+  // Body anchor is feet-centre: figure spans x in [-BODY_W/2, BODY_W/2], y in
+  // [-(BODY_H-1), 0] above the feet. Box that, padded.
+  const left = survivor.body.x - BODY_W / 2 - margin;
+  const top = survivor.body.y - (BODY_H - 1) - margin;
+  const sc = worldToScreen(left, top);
+  const w = (BODY_W + margin * 2) * cell;
+  const h = (BODY_H + margin * 2) * cell;
+  if (sc.x + w < 0 || sc.x > cw || sc.y + h < 0 || sc.y > ch) return; // off-screen
+
+  ctx.save();
+  ctx.strokeStyle = '#ffe066'; // bright yellow selection
+  ctx.lineWidth = 2;
+  if (ctx.setLineDash) ctx.setLineDash([4, 3]);
+  ctx.strokeRect(
+    Math.round(sc.x) + 0.5,
+    Math.round(sc.y) + 0.5,
+    Math.round(w),
+    Math.round(h),
+  );
   ctx.restore();
 }
 

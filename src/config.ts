@@ -733,7 +733,9 @@ export const STARTING_AMMO = 15;
 
 // Generous pick radius (cells, Euclidean) used by long-press, right-click, and
 // tap-cycle selection so players can tap near a survivor without pixel precision.
-export const SELECT_TAP_RADIUS = 6;
+// Raised to ~2 body-widths (v0.8 playtest K) so a MOVING survivor is easy to grab
+// even if it drifts a little between the tap-down point and selection.
+export const SELECT_TAP_RADIUS = 12;
 
 // Max time (ms) between two taps at ~the same world position that are considered
 // a "same-spot" repeated tap, causing the cycle to advance to the next survivor

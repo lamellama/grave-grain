@@ -343,6 +343,19 @@ function closeRoleMenu(): void {
   if (menu) menu.style.display = 'none';
 }
 
+/**
+ * The survivor whose role-menu is open (null = none). Exposed so the render loop
+ * can draw a selection highlight that TRACKS the sprite each frame (v0.8 playtest
+ * K - the menu floats centred, so without this the player can't tell who is
+ * selected, especially while they move). Cleared if the selected survivor dies.
+ */
+export function getSelectedSurvivor(): Survivor | null {
+  if (selectedSurvivor && (!selectedSurvivor.body.alive || selectedSurvivor.turned)) {
+    closeRoleMenu();
+  }
+  return selectedSurvivor;
+}
+
 // ---------------------------------------------------------------------------
 // Disc brush helpers (unchanged)
 // ---------------------------------------------------------------------------

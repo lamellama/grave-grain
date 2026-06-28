@@ -27,7 +27,7 @@ import {
   STARTING_AMMO,
   SURFACE_BASE_Y,
 } from './config';
-import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons } from './input';
+import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons, getSelectedSurvivor } from './input';
 import { initRenderer, getRenderer, setBodies, setZombieBodies, setSurvivorRender, setCorpseBodies } from './render/renderer';
 import { tickCorpseDecay, buildCorpseRenderList } from './characters/corpseLifecycle';
 import { camera, clampCamera, effectiveCellPx } from './camera';
@@ -60,6 +60,7 @@ import {
   drawHitFlashes,
   drawWeather,
   advanceHitFlashes,
+  drawSelectionHighlight,
 } from './game/ui';
 
 // ============================================================================
@@ -488,6 +489,8 @@ function renderLoop(): void {
   drawHitFlashes(ctx, camera, vpW, vpH);
   // VS-1 T5: precipitation overlay + always-on weather/temperature readout (GDD 10).
   drawWeather(ctx);
+  // v0.8 playtest K: selection box that tracks the role-menu's survivor.
+  drawSelectionHighlight(ctx, getSelectedSurvivor());
   drawNeedsBars(ctx, survivors);
   drawEdgeArrows(ctx, zombies, camera, vpW, vpH);
   // task 11-4: off-screen breach alert (GDD 12.1 / 7.4).
