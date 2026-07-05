@@ -316,11 +316,15 @@ export const P3_STALL_TICKS = 20;
 // Full scale for every need bar (Hunger, Thirst).
 export const NEED_MAX = 100;
 
-// Hunger depletion per simulation tick (GDD 6.1).
-export const HUNGER_RATE = 0.01;
+// Hunger depletion per simulation tick (GDD 6.1). Halved in the v0.10 balance
+// pass (playtest round 8 "survivors die quickly"): a full bar now lasts ~5.5
+// idle minutes at 60Hz (half that while moving), so deaths come from crises -
+// sieges, cold snaps, floods - not from the clock alone.
+export const HUNGER_RATE = 0.005;
 
 // Thirst depletion per simulation tick - slightly faster than hunger (GDD 6.1).
-export const THIRST_RATE = 0.015;
+// Halved with HUNGER_RATE (playtest round 8 pacing).
+export const THIRST_RATE = 0.0075;
 
 // Multiplier applied to both depletion rates while the survivor is moving
 // (moveDir !== 0) - exertion drains needs faster (GDD 6.1).
@@ -626,8 +630,11 @@ export const HAMMER_WOOD_COST = 2;
 // wall line (12 actions before the hammer breaks vs 5 for other wood tools).
 export const HAMMER_DURABILITY = 12;
 
-// Ticks to build one cell - slightly slower than chopping (CHOP_TICKS=90).
-export const BUILD_TICKS = 120;
+// Ticks to build one cell. Was 120 ("slightly slower than chopping") - dropped
+// to 40 in the v0.10 balance pass (playtest round 8 "building is quite slow"):
+// most of a builder's time is WALKING between claims, so the per-cell work is
+// now brisk and a shelter goes up in minutes, not tens of minutes.
+export const BUILD_TICKS = 40;
 
 // Amber/tan tint for builder survivors - distinct from lumberjack brown.
 export const BUILDER_TINT: [number, number, number] = [205, 170, 95];

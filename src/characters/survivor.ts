@@ -52,7 +52,7 @@ import {
   craftToolFor,
 } from '../game/roles';
 import type { ResourceKind } from '../game/resources';
-import { addResource, stockpilePoint } from '../game/resources';
+import { addResource, stockpilePoint, getStockpile, spend } from '../game/resources';
 import type { Blueprint } from '../game/buildqueue';
 import { getBlueprints, blueprintAt, removeBlueprint, reserve, release } from '../game/buildqueue';
 import { placeStructure, canPlace, STRUCTURES } from '../game/building';
@@ -923,9 +923,34 @@ function driveSeek(
     }
   }
 
-  // 3. Nothing reachable in range -> wander (and keep depleting -> may die). This
-  //    is the intended failure state (no reachable water/food -> death).
+  // 3. Nothing reachable in range. For FOOD there is one more larder to try
+  //    (playtest v0.10 R "do survivors use the stored food?" - now they do):
+  //    the COLONY STOCKPILE. Forager-gathered food is spent 1 unit per meal
+  //    (atomic spend - two hungry survivors can't eat the same ration), eaten
+  //    at the stockpile point via the normal consume flow (consumeCell null:
+  //    a stockpile meal clears no bush). Wild foliage stays preferred (it is
+  //    checked first, above); the stockpile is the fallback larder, so stored
+  //    food is what carries the colony through winter/siege scarcity (GDD 8).
+  //    Otherwise -> wander and keep depleting; genuine famine still kills.
   if (s.seekTarget === null) {
+    if (kind === 'food' && getStockpile().food > 0) {
+      if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
+        if (spend({ food: 1 })) {
+          s.behaviour = 'consuming';
+          s.consumeTicks = EAT_TICKS;
+          s.consumeKind = 'food';
+          s.consumeCell = null; // stockpile ration - no cell to eat
+          s.path = null;
+          body.moveDir = 0;
+          return;
+        }
+        // Another survivor took the last ration between the check and the
+        // spend - fall through to wander and re-evaluate next pass.
+      } else {
+        steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
+        return;
+      }
+    }
     driveWander(s);
     return;
   }
