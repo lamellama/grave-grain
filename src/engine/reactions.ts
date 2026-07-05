@@ -46,7 +46,7 @@ import {
   CHUNK_COLS,
   CHUNK_ROWS,
 } from './chunks';
-import { WATER, FIRE, SMOKE, SNOW } from './materials';
+import { WATER, FIRE, SMOKE, SNOW, CAMPFIRE, ASH } from './materials';
 
 /**
  * Unique salt for the SNOW->WATER melt roll (GDD 10, Beyond T3). Distinct from
@@ -134,7 +134,33 @@ export function reactions(): void {
  */
 function reactCell(x: number, y: number): void {
   const i = idx(x, y);
-  if (material[i] !== FIRE) return;
+  const m = material[i];
+
+  // CAMPFIRE + water -> wet ASH (v0.10 playtest R8 "when the campfire gets wet
+  // it doesn't seem to affect it"). WATER ONLY - snow does NOT kill a hearth
+  // (a tended, contained fire sheds flakes; campfires must survive the very
+  // snowstorms they exist for - see p12-campfire/campseek). Living here in the
+  // reactions pass, on the START-OF-TICK grid, makes the douse scan-order-proof:
+  // a drop that lands beside the hearth douses it even if the movement scan
+  // would have flowed it away later this same tick. A campfire keeps its own
+  // chunk active every tick (updateCampfire), so the chunked reactions pass
+  // always visits it - byte-identical to the full scan.
+  if (m === CAMPFIRE) {
+    const wet =
+      (x > 0 && material[idx(x - 1, y)] === WATER) ||
+      (x < WORLD_W - 1 && material[idx(x + 1, y)] === WATER) ||
+      (y > 0 && material[idx(x, y - 1)] === WATER) ||
+      (y < WORLD_H - 1 && material[idx(x, y + 1)] === WATER);
+    if (wet) {
+      material[i] = ASH;
+      integrity[i] = 0; // clear the reused fuel slot - ASH carries no integrity
+      moved[i] = 1; // claim the cell - movement scan skips it this tick
+      markCellActive(x, y);
+    }
+    return;
+  }
+
+  if (m !== FIRE) return;
 
   // Determine douse from the START-OF-TICK neighbours (WATER or SNOW). Computed
   // BEFORE any melt so a snow neighbour still counts even on the tick it melts.

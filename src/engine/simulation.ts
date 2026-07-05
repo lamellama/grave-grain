@@ -43,7 +43,11 @@ import {
   FOLIAGE_INTEGRITY,
   WEATHER_SKY_ROW,
   RAIN_SPAWN_CHANCE,
+  RAIN_MAX_POOL_DEPTH,
+  EVAPORATE_CHANCE,
   SNOW_SPAWN_CHANCE,
+  SNOW_MAX_DEPTH,
+  SNOW_MELT_WATER_FRACTION,
   SNOW_BAND_WIDTH,
   SNOW_BAND_GAP,
   SNOW_DRIFT,
@@ -188,6 +192,14 @@ const SALT_REPRO_DIST = 601;
 // Snow-kill roll for saplings (GDD 9 "snow slows or kills plants"): per tick
 // per snow-touching sapling. 700 is clear of every other salt.
 const SALT_SNOW_KILL = 700;
+// Evaporation roll (v0.10 playtest R8 "rain floods everything"): per COLUMN per
+// clear-weather tick, the sky-exposed surface WATER cell may evaporate. 800 is
+// clear of every other salt.
+const SALT_EVAPORATE = 800;
+// Melt-yield roll (v0.10 playtest R8 "melt floods everything"): when ambient
+// melt fires, does this SNOW cell become WATER or just vanish (fluffy snow is
+// mostly air)? Distinct salt so it is independent of the melt roll itself.
+const SALT_MELT_KIND = 810;
 // Last tick's ambient temperature, to detect the cold->warm EDGE that wakes a
 // settled snowpack for ambient melt. Cold sentinel so the first warm tick fires.
 let lastTemp = -1e9;
@@ -298,18 +310,89 @@ export function step(): void {
  * that cell, so the pass is order-independent and identical regardless of
  * chunking.
  */
+/**
+ * First non-AIR cell in column x scanning down from the sky row (v0.10 R8
+ * weather balance). Returns its y, or WORLD_H if the column is pure air.
+ * Deterministic grid read - identical on the chunked and full-scan paths
+ * (applyWeather runs on the start-of-tick grid in both).
+ */
+function skySurface(x: number): number {
+  for (let y = WEATHER_SKY_ROW; y < WORLD_H; y++) {
+    if (material[y * WORLD_W + x] !== AIR) return y;
+  }
+  return WORLD_H;
+}
+
+/** Contiguous depth of material `m` at column x from row y down, capped. */
+function depthOf(x: number, y: number, m: number, cap: number): number {
+  let d = 0;
+  while (d < cap && y + d < WORLD_H && material[(y + d) * WORLD_W + x] === m) d++;
+  return d;
+}
+
+/**
+ * WATER content of column x from row y down to the first cell that is neither
+ * WATER nor AIR, early-exiting at `cap`. Rain-cap probe (v0.10 R8): an agitated
+ * pool's surface has splash gaps (WATER over AIR over WATER), so a contiguous
+ * depth read chronically under-counts and the cap never engages - counting the
+ * column's water CONTENT is wave-proof.
+ */
+function columnWater(x: number, y: number, cap: number): number {
+  let n = 0;
+  for (let yy = y; yy < WORLD_H && n < cap; yy++) {
+    const m = material[yy * WORLD_W + x];
+    if (m === WATER) n++;
+    else if (m !== AIR) break;
+  }
+  return n;
+}
+
 function applyWeather(): void {
   const w = getWeather();
-  if (w === 'clear') return; // clear sky spawns nothing
   const y = WEATHER_SKY_ROW;
   const base = y * WORLD_W;
 
-  // RAIN: unchanged uniform sky sweep (rain forms sheets, not drifts).
+  // CLEAR: the sun EVAPORATES sky-exposed surface water (v0.10 playtest R8:
+  // rain water previously accumulated forever - the missing drainage valve, so
+  // every wet spell ratcheted the world toward a flood). Per column per tick,
+  // roll first (cheap hash) and only then walk the column: if the first non-AIR
+  // cell the sky sees is WATER, it evaporates to AIR. Top-down draining, only
+  // sky-exposed water (a roofed pool or aquifer never dries), deterministic.
+  // Snow needs no twin: ambient melt (updateSnow) already clears a snowpack in
+  // any above-freezing weather.
+  if (w === 'clear') {
+    for (let x = 0; x < WORLD_W; x++) {
+      if (simRand(x, y, SALT_EVAPORATE) >= EVAPORATE_CHANCE) continue;
+      const sy = skySurface(x);
+      if (sy >= WORLD_H) continue;
+      const i = sy * WORLD_W + x;
+      if (material[i] !== WATER) continue;
+      material[i] = AIR;
+      integrity[i] = 0;
+      moved[i] = 1; // claim so the freed AIR isn't re-processed this tick
+      markCellActive(x, sy); // WATER->AIR is a change -> wake for neighbours
+    }
+    return;
+  }
+
+  // RAIN: uniform sky sweep (rain forms sheets, not drifts) - now CAPPED per
+  // column (v0.10 playtest R8): if the surface the sky sees is already a pool
+  // RAIN_MAX_POOL_DEPTH deep, this column skips the drop. Rain wets the world
+  // and fills puddles; it can no longer stack an ocean on open ground. (Pits
+  // still collect runoff from neighbouring columns - ponds are intentional.)
   if (w === 'rain') {
     for (let x = 0; x < WORLD_W; x++) {
       const i = base + x;
       if (material[i] !== AIR) continue;
       if (simRand(x, y, SALT_WEATHER_SPAWN) < RAIN_SPAWN_CHANCE) {
+        const sy = skySurface(x);
+        if (
+          sy < WORLD_H &&
+          material[sy * WORLD_W + x] === WATER &&
+          columnWater(x, sy, RAIN_MAX_POOL_DEPTH) >= RAIN_MAX_POOL_DEPTH
+        ) {
+          continue; // column already holds a full pool - no more rain here
+        }
         material[i] = WATER;
         integrity[i] = 0;
         markCellActive(x, y);
@@ -338,6 +421,18 @@ function applyWeather(): void {
     const phase = (((x - shift) % period) + period) % period;
     if (phase >= SNOW_BAND_WIDTH) continue; // in a gap between flurries -> no snow
     if (simRand(x, y, SALT_WEATHER_SPAWN) < chance) {
+      // Depth cap (v0.10 playtest R8 "everyone is buried in snow"): if the
+      // surface the sky sees is already a snowpack SNOW_MAX_DEPTH deep, this
+      // column skips the flake. Snow blankets to ~knee height and stops -
+      // long spells no longer entomb the colony (or the horde).
+      const sy = skySurface(x);
+      if (
+        sy < WORLD_H &&
+        material[sy * WORLD_W + x] === SNOW &&
+        depthOf(x, sy, SNOW, SNOW_MAX_DEPTH) >= SNOW_MAX_DEPTH
+      ) {
+        continue;
+      }
       material[i] = SNOW;
       integrity[i] = 0; // SNOW carries no integrity (clear any stale slot)
       markCellActive(x, y); // wake the chunk so the chunked scan sees the spawn
@@ -1076,10 +1171,16 @@ function updateSnow(x: number, y: number): void {
   if (getTemperature() > SNOW_MELT_TEMP) {
     const s = idx(x, y);
     if (simRand(x, y, SALT_SNOW_AMBIENT_MELT) < SNOW_AMBIENT_MELT_CHANCE) {
-      material[s] = WATER;
-      integrity[s] = 0; // WATER carries no integrity
-      moved[s] = 1; // claim the cell so the new water isn't re-processed now
-      markCellActive(x, y); // SNOW->WATER is a change -> keep the chunk live
+      // Melt YIELD (v0.10 playtest R8 "when it melts everyone drowns"): fluffy
+      // snow is mostly air, so only SNOW_MELT_WATER_FRACTION of melted cells
+      // become WATER - the rest vanish. A thaw dampens the ground instead of
+      // sheeting a flood over it. Independent deterministic roll (own salt).
+      const toWater =
+        simRand(x, y, SALT_MELT_KIND) < SNOW_MELT_WATER_FRACTION;
+      material[s] = toWater ? WATER : AIR;
+      integrity[s] = 0; // neither WATER nor AIR carries integrity
+      moved[s] = 1; // claim the cell so the melt result isn't re-processed now
+      markCellActive(x, y); // SNOW->WATER/AIR is a change -> keep the chunk live
       return;
     }
     markCellActive(x, y); // warm but not melting this tick: stay awake to re-roll
@@ -1257,6 +1358,9 @@ function updateFire(x: number, y: number): void {
  */
 function updateCampfire(x: number, y: number): void {
   const s = idx(x, y);
+  // NOTE (v0.10 playtest R8): the water-douse for a campfire lives in
+  // reactions.reactCell (start-of-tick grid, scan-order-proof), NOT here -
+  // a movement-scan check would race the water's own flow within the tick.
   const fuel = integrity[s];
   // First visit after placement: seed the fuel countdown, then burn from next.
   if (fuel === 0) {

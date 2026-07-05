@@ -89,10 +89,14 @@ assert(WEATHER_TO_SNOW_CHANCE === 0.3, 'WEATHER_TO_SNOW_CHANCE === 0.3');
 assert(WEATHER_TO_RAIN_CHANCE + WEATHER_TO_SNOW_CHANCE <= 1.0, 'transition chances sum ≤ 1');
 
 // Spawn chances
-assert(RAIN_SPAWN_CHANCE === 0.03, 'RAIN_SPAWN_CHANCE === 0.03');
+// v0.10 playtest R8: ~8x lighter (0.03 flooded the world in seconds); the
+// per-column pool cap + clear-weather evaporation carry the rest of the fix.
+assert(RAIN_SPAWN_CHANCE === 0.004, 'RAIN_SPAWN_CHANCE === 0.004 (v0.10 flood rebalance)');
 // SNOW_SPAWN_CHANCE: per IN-BAND cell rate (v0.8 playtest M drifting flurries).
 // Lowered to 0.006 in round 2 (snow still buried the colony) for a light dusting.
-assert(SNOW_SPAWN_CHANCE === 0.006, 'SNOW_SPAWN_CHANCE === 0.006 (v0.8 light in-band rate)');
+// v0.10 playtest R8: halved again (with the SNOW_MAX_DEPTH cap as the real
+// burial fix).
+assert(SNOW_SPAWN_CHANCE === 0.003, 'SNOW_SPAWN_CHANCE === 0.003 (v0.10 burial rebalance)');
 
 // Sky row
 assert(WEATHER_SKY_ROW === 0, 'WEATHER_SKY_ROW === 0');

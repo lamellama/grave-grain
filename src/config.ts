@@ -1120,7 +1120,29 @@ export const WEATHER_TO_SNOW_CHANCE = 0.3;
 export const WEATHER_SNOW_EARLIEST_TICK = 12000;
 
 // Per sky-cell per-tick spawn probabilities for precipitation particles.
-export const RAIN_SPAWN_CHANCE = 0.03;
+// Rain rebalanced ~8x lighter (v0.10 playtest R8: at 0.03 the world "completely
+// floods within a few seconds and everyone drowns" - 0.03x1280 columns was ~38
+// water cells EVERY tick with no removal). At 0.004 a rain spell wets the world
+// (~5 drops/tick) and the per-column pool cap + clear-weather evaporation below
+// keep standing water bounded. The heavy-rain LOOK stays: the draw-time streak
+// overlay (ui.drawWeather) is independent of actual spawned cells.
+export const RAIN_SPAWN_CHANCE = 0.004;
+
+// Per-column standing-water cap for rain (v0.10 playtest R8): a column whose
+// sky-exposed surface is already a pool this deep receives no more rain. Open
+// ground therefore pools ankle-deep at worst (bodies are 12 tall and survivors
+// FLOAT); pits still collect runoff into real ponds, which is intentional.
+export const RAIN_MAX_POOL_DEPTH = 3;
+
+// Clear-weather evaporation (v0.10 playtest R8): per COLUMN per tick, the
+// sky-exposed surface WATER cell evaporates with this chance - the drainage
+// valve rain never had. Sized to the weather CYCLE, not for speed: a rain
+// spell deposits at most ~RAIN_MAX_POOL_DEPTH x wet columns of standing water,
+// and at 0.001 (~1.3 cells/tick world-wide) a following clear spell (2400-5400
+// ticks) drains it back out - while worldgen drinking PONDS (hundreds of cells,
+// refilled by every rain as basins collect runoff) persist for the long haul.
+// Roofed/underground water never evaporates (the sky can't see it).
+export const EVAPORATE_CHANCE = 0.001;
 
 // Snow spawn (VS-1, rebalanced by v0.8 playtest M). The old model seeded the
 // WHOLE sky row every tick -> a uniform curtain that buried the map before you
@@ -1129,7 +1151,20 @@ export const RAIN_SPAWN_CHANCE = 0.03;
 // Lowered ~10x (v0.8 round 2 playtest: snow STILL buried players+zombies before
 // it could melt) so accumulation stays a light dusting (drips and drabs across
 // the map, < ~1 flake/tick world-wide), not a burying snowpack.
-export const SNOW_SPAWN_CHANCE = 0.006;
+// Halved again in v0.10 (playtest R8: "everyone is completely buried in snow,
+// including zombies") - and the REAL burial fix is SNOW_MAX_DEPTH below.
+export const SNOW_SPAWN_CHANCE = 0.003;
+
+// Per-column snowpack cap (v0.10 playtest R8): a column whose sky-exposed
+// surface already carries a snowpack this deep receives no more flakes. Snow
+// blankets to ~knee height (bodies are 12 tall) and STOPS - long spells whiten
+// the world without entombing the colony or the horde.
+export const SNOW_MAX_DEPTH = 4;
+
+// Melt yield (v0.10 playtest R8: "when it melts everyone drowns"): fraction of
+// ambient-melted SNOW cells that become WATER; the rest vanish to AIR (fluffy
+// snow is mostly air). A thaw dampens the ground instead of flooding it.
+export const SNOW_MELT_WATER_FRACTION = 0.3;
 // A flurry is a band SNOW_BAND_WIDTH cells wide; bands repeat every
 // (WIDTH + GAP) cells, so only ~WIDTH/(WIDTH+GAP) of the sky spawns at once
 // (drips and drabs, not everywhere). Bands DRIFT sideways at SNOW_DRIFT
