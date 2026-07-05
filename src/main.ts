@@ -41,6 +41,7 @@ import { rebuildZombieFooting } from './characters/zombieFooting';
 import type { Zombie } from './characters/zombie';
 import { updateInfection } from './characters/infection';
 import { resolveBreaching } from './game/breaching';
+import { updateArrows, resetArrows } from './game/projectiles';
 import { createWaveState, updateWaves } from './game/waves';
 import { makeTool, ROLE_TINT } from './game/roles';
 import { rebuildNavgrid } from './engine/navgrid';
@@ -181,6 +182,10 @@ resetQueue();
 // a restart/hot-reload. updateGroups/updateCoopBuild below repopulate both.
 resetGroups();
 resetShelters();
+
+// Guard archery (GDD 7.2): clear any in-flight arrows on world (re)init so no
+// stale shaft leaks across a restart/hot-reload (mirrors resetQueue above).
+resetArrows();
 
 // Playtest R9: no camp flag at the start of a run - survivors build NOTHING
 // until the player plants it (Flag tool). Prompt the player once.
@@ -390,6 +395,12 @@ function simulationTick(): void {
 
   updateGroups(survivors, tickCount);
   if (tickCount % GROUP_RECHECK_TICKS === 0) updateCoopBuild(survivors);
+
+  // Guard archery (GDD 7.2): advance every in-flight arrow one tick and resolve
+  // its arc/impact. Runs AFTER the survivor loop so this tick's freshly-loosed
+  // shots exist, and after updateInfection so an arrow wounds the current bodies
+  // (a headshot on a reanimating corpse still counts - THE GATE handles it).
+  updateArrows(zombies);
 
   // Zombies gnaw through structures they're pressing (GDD 7.4). After
   // updateZombie so moveDir/facing reflect this tick's intent.
