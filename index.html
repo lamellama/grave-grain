@@ -39,6 +39,24 @@
       justify-content: center;
     }
 
+    /* Debug tools panel — hidden until the Debug toggle is tapped (playtest R9).
+       Holds developer-only verbs (Shoot, Ignite, Plan Fence/Wall, Campfire,
+       Door) so the main toolbar stays focused on the player-facing tools.
+       Floats just above the main toolbar. */
+    #debug-menu {
+      display: none;
+      position: fixed;
+      bottom: 4rem;
+      left: 0;
+      right: 0;
+      gap: 0.5rem;
+      padding: 0.5rem;
+      background: rgba(0, 0, 0, 0.82);
+      z-index: 99;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
     .tool-btn {
       padding: 0.75rem 1rem;
       font-size: 1rem;
@@ -191,7 +209,7 @@
   <!-- Toolbar: Pan, Sand, Stone, Water, Dirt, Wood, Plant (sapling), Ignite, Erase -->
   <!-- GDD §12.3: persistent, thumb-reachable toolbar. GDD §12.4: big, no hover dependence -->
   <div id="toolbar">
-    <button class="tool-btn" data-tool="pan" title="Pan mode: drag to scroll">Pan</button>
+    <button class="tool-btn" data-tool="pan" title="Pan mode: drag to scroll. Tap a survivor to assign a role.">Pan</button>
     <button class="tool-btn" data-tool="flag" title="Plant the camp flag — survivors only build camp at (and after) the flag; move it and they relocate">&#9873; Flag</button>
     <button class="tool-btn" data-tool="paint" data-material="1" title="Paint sand (free terraforming)">Sand</button>
     <button class="tool-btn" data-tool="paint" data-material="3" title="Paint water (free terraforming)">Water</button>
@@ -200,15 +218,19 @@
     <!-- Wood/Stone are NOT free paints: place them as costed, breachable structures (playtest #6/#7). -->
     <button class="tool-btn" data-tool="build" data-structure="fence" title="Place wood (costs 1 wood/cell; a flammable fence, zombies breach it fast)">Wood</button>
     <button class="tool-btn" data-tool="build" data-structure="wall" title="Place stone (costs 1 stone/cell; a wall, zombies breach it slowly)">Stone</button>
-    <button class="tool-btn" data-tool="build" data-structure="campfire" title="Place a campfire (costs 3 wood; a long-burning hearth that warms survivors without spreading)">Campfire</button>
-    <button class="tool-btn" data-tool="build" data-structure="door" title="Place a door (costs 2 wood; survivors walk through, zombies must gnaw it down)">Door</button>
+    <button class="tool-btn" data-tool="paint" data-material="0" title="Erase (paint air)">Erase</button>
+    <button class="tool-btn" id="debug-toggle" title="Show / hide developer tools (Shoot, Ignite, Plan, Campfire, Door)">Debug</button>
+    <button class="tool-btn" id="speed-btn" title="Cycle simulation speed (1× 2× 3×)">1×</button>
+  </div>
+
+  <!-- Debug tools panel (playtest R9): developer-only verbs, hidden behind the Debug toggle. -->
+  <div id="debug-menu">
+    <button class="tool-btn" data-tool="shoot" title="Shoot a body region">Shoot</button>
+    <button class="tool-btn" data-tool="ignite" title="Ignite flammable cells (wood/foliage only)">Ignite</button>
     <button class="tool-btn" data-tool="plan" data-structure="fence" title="Queue a fence blueprint for builders to construct">Plan Fence</button>
     <button class="tool-btn" data-tool="plan" data-structure="wall" title="Queue a wall blueprint for builders to construct">Plan Wall</button>
-    <button class="tool-btn" data-tool="ignite" title="Ignite flammable cells (wood/foliage only)">Ignite</button>
-    <button class="tool-btn" data-tool="shoot" title="Shoot a body region">Shoot</button>
-    <button class="tool-btn" data-tool="assign" title="Assign a role to a survivor (tap them in Assign mode)">Assign</button>
-    <button class="tool-btn" data-tool="paint" data-material="0" title="Erase (paint air)">Erase</button>
-    <button class="tool-btn" id="speed-btn" title="Cycle simulation speed (1× 2× 3×)">1×</button>
+    <button class="tool-btn" data-tool="build" data-structure="campfire" title="Place a campfire (costs 3 wood; a long-burning hearth that warms survivors without spreading)">Campfire</button>
+    <button class="tool-btn" data-tool="build" data-structure="door" title="Place a door (costs 2 wood; survivors walk through, zombies must gnaw it down)">Door</button>
   </div>
 
   <!-- Role-assignment overlay (p6-t5, GDD §6.2). Shown when a survivor is tapped in Assign mode. -->

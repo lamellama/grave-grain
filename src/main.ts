@@ -574,4 +574,4 @@ console.log(`World: ${WORLD_W}x${WORLD_H} cells, ${WORLD_W * CELL_SIZE}x${WORLD_
 console.log(
   `Simulation: ${SIM_HZ} Hz | Survivors: ${SURVIVOR_COUNT} | Spawn: x=${world.spawnX} | Zombie edge: ${world.zombieEdge}`,
 );
-console.log('Controls: P = pause; . or ] = step; ArrowLeft/Right = nudge survivors[0]; toolbar = paint/pan/ignite/shoot/assign/build; speed button cycles 1x/2x/3x');
+console.log('Controls: P = pause; . or ] = step; ArrowLeft/Right = nudge survivors[0]; tap a survivor in Pan mode to assign a role; Debug button reveals shoot/ignite/plan/campfire/door; speed button cycles 1x/2x/3x');

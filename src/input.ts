@@ -13,12 +13,14 @@
  *   tap       - released before LONG_PRESS_MS and within TAP_MAX_MOVE_PX
  *
  * Tool behaviours:
- *   Pan        - single-pointer drag scrolls camera.x (incremental, 1:1)
+ *   Pan        - single-pointer drag scrolls camera.x (incremental, 1:1); a
+ *                stationary TAP on a survivor SELECTS it and opens the role
+ *                menu (playtest R9 - there is no separate Assign tool)
  *   Paint      - drag-paint: acts on every pointermove while pressed
  *   Ignite     - drag-ignite: acts on every pointermove while pressed
  *   Build      - drag-build: acts on every pointermove while pressed
  *   Shoot      - fires on TAP (not on raw pointerdown, so dragging doesn't shoot)
- *   Assign     - fires on TAP (opens role menu for nearest survivor)
+ *   Flag       - fires on TAP (plants/moves the camp flag)
  */
 
 import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo, setZoom, effectiveCellPx } from './camera';
@@ -31,7 +33,7 @@ import { ignite } from './engine/simulation';
 import { placeStructure, canPlace, type StructureKind } from './game/building';
 import { addBlueprint, blueprintAt, cancelBlueprintAt } from './game/buildqueue';
 import { plantCampFlagAt } from './game/camp';
-import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, SELECT_TAP_RADIUS, TAP_CYCLE_RESET_MS } from './config';
+import { BRUSH_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, SELECT_TAP_RADIUS, TAP_CYCLE_RESET_MS } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
 import { applyDamage } from './characters/damage';
@@ -47,12 +49,12 @@ import { canAssign } from './game/roles';
 export { pickBone } from './characters/pick';
 
 /**
- * Tool mode state: 'Pan' (drag scrolls camera), 'Paint' (drag paints),
- * 'Ignite' (drag ignites flammable cells - GDD 8 ignite verb), or
- * 'Assign' (tap a survivor to open role menu - GDD 6.2, p6-t5).
+ * Tool mode state: 'Pan' (drag scrolls camera; TAP a survivor to select +
+ * open the role menu - playtest R9, no separate Assign tool), 'Paint' (drag
+ * paints), 'Ignite' (drag ignites flammable cells - GDD 8 ignite verb), etc.
  * GDD 12.3: the currently selected tool defines what a drag does.
  */
-type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Assign' | 'Build' | 'Plan' | 'Flag';
+type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Build' | 'Plan' | 'Flag';
 
 const toolState = {
   mode: 'Pan' as ToolMode,
@@ -753,14 +755,14 @@ function onPointerMove(event: PointerEvent): void {
 }
 
 /**
- * Perform the tap-classified action for Shoot / Assign modes.
+ * Perform the tap-classified action for Shoot / Pan-select / Flag modes.
  * Called from onPointerUp when the gesture classifies as a tap.
  * Uses pickCycling for forgiving, tap-cycle survivor selection (GDD 12.4,
  * task 10-6). State (_lastPickedSurvivor, _lastTapW*, _lastTapTime) is
  * shared between modes so cycling is consistent across tool switches.
  */
 function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
-  // --- Resolve world cell and tap-cycle state (shared by Assign + Shoot) ---
+  // --- Resolve world cell and tap-cycle state (shared by select + Shoot) ---
   const canvasCoords = getCanvasRelativeCoords(event, canvas);
   const worldCoords = screenToWorld(canvasCoords.x, canvasCoords.y);
   const wx = worldCoords.x;
@@ -800,10 +802,12 @@ function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
       }
     }
     if (getAmmo() === 0) pushToast('Last bullet - out of ammo!');
-  } else if (toolState.mode === 'Assign') {
-    // Assign on TAP: open role menu for nearest/cycled alive survivor
-    // (p6-t5, GDD 6.2; forgiving tap-cycle from task 10-6, GDD 12.4).
-    // Uses SELECT_TAP_RADIUS (generous) instead of the tighter ASSIGN_PICK_RADIUS.
+  } else if (toolState.mode === 'Pan') {
+    // Pan on TAP = SELECT (playtest R9): there is no dedicated Assign tool any
+    // more - tapping a survivor in the default Pan mode selects it and opens
+    // the role menu directly (a drag still pans; only a stationary tap selects).
+    // Forgiving tap-cycle from task 10-6 (GDD 12.4) picks the nearest/cycled
+    // alive survivor within SELECT_TAP_RADIUS; an empty tap closes the menu.
     const picked = pickCycling(survivorList, wx, wy, SELECT_TAP_RADIUS, _lastPickedSurvivor, sameSpot);
 
     // Update tap-cycle tracking state.
@@ -912,7 +916,6 @@ export function setToolMode(mode: 'Pan'): void;
 export function setToolMode(mode: 'Paint', materialId: number): void;
 export function setToolMode(mode: 'Ignite'): void;
 export function setToolMode(mode: 'Shoot'): void;
-export function setToolMode(mode: 'Assign'): void;
 export function setToolMode(mode: 'Flag'): void;
 export function setToolMode(mode: 'Build', structure: StructureKind): void;
 export function setToolMode(mode: 'Plan', structure: StructureKind): void;
@@ -957,8 +960,6 @@ function updateToolbarUI(): void {
       isActive = toolState.mode === 'Ignite';
     } else if (btnMode === 'shoot') {
       isActive = toolState.mode === 'Shoot';
-    } else if (btnMode === 'assign') {
-      isActive = toolState.mode === 'Assign';
     } else if (btnMode === 'flag') {
       isActive = toolState.mode === 'Flag';
     } else if (btnMode === 'build') {
@@ -1054,10 +1055,6 @@ export function initInput(canvas: HTMLCanvasElement): void {
         setToolMode('Ignite');
       } else if (mode === 'shoot') {
         setToolMode('Shoot');
-      } else if (mode === 'assign') {
-        setToolMode('Assign');
-        // Close any open role menu when switching to Assign tool.
-        closeRoleMenu();
       } else if (mode === 'flag') {
         setToolMode('Flag');
       } else if (mode === 'build') {
@@ -1073,6 +1070,20 @@ export function initInput(canvas: HTMLCanvasElement): void {
       }
     });
   });
+
+  // Debug menu toggle (playtest R9): the developer-only tools (Shoot, Ignite,
+  // Plan Fence/Wall, Campfire, Door) live in a collapsed panel so the main
+  // toolbar stays focused on the player-facing verbs. The toggle just shows /
+  // hides the panel; the buttons inside it keep their data-tool wiring above.
+  const debugToggle = document.getElementById('debug-toggle');
+  const debugMenu = document.getElementById('debug-menu');
+  if (debugToggle && debugMenu) {
+    debugToggle.addEventListener('click', () => {
+      const showing = debugMenu.style.display !== 'none' && debugMenu.style.display !== '';
+      debugMenu.style.display = showing ? 'none' : 'flex';
+      debugToggle.classList.toggle('active', !showing);
+    });
+  }
 
   // Wire role-menu buttons (p6-t5, GDD 6.2): each data-role button calls
   // assignRole on the selected survivor, refreshes greyed state, then closes.
