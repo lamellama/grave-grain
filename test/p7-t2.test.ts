@@ -38,17 +38,20 @@ for (let i = 0; i < 600; i++) {
   if (bodyInStone(z1.body)) tunnel1 = true;
 }
 const endX = Math.round(z1.body.x);
-// New behaviour: idle zombies DRIFT toward the colony (opposite their spawn
-// edge) so the horde advances across the map. For a left-edge spawn the colony
-// is to the right, so the zombie should advance (endX > startX) by a meaningful
-// amount while staying idle (survivor still far beyond SENSE_RADIUS) and never
-// tunnelling.
-const advanceDir = ZOMBIE_SPAWN_EDGE === 'left' ? 1 : -1;
-const advanced = (endX - startX) * advanceDir;
-const R1_PASS = !everAttacked && z1.state === 'idle' && advanced >= 25 && !tunnel1;
-console.log('R1 idle: startX', startX, 'endX', endX, 'advancedTowardColony', advanced,
+// R9 behaviour (playtest "rather than wandering in one direction, they should
+// meander around depending on what they can see and other zombies around
+// them"): the fixed colony-ward march is GONE. With the survivor beyond both
+// SENSE_RADIUS (60) and ZOMBIE_SIGHT_RADIUS (140), and no herd passed, an idle
+// zombie must MEANDER LOCALLY - stay idle, stay within a modest deviation of
+// its start (goals are wander +/- ZOMBIE_IDLE_RADIUS with no persistent bias),
+// and never tunnel. Colony pressure now comes from burrow spawns + sight.
+// Bound: 100 cells. The old march walked ~0.2 cells/tick one-way (~120 over
+// 600 ticks, pinned at the bound); an unbiased wander needs near-monotone luck
+// across every retarget to get near 100, so this cleanly discriminates.
+const R1_PASS = !everAttacked && z1.state === 'idle' && maxDev <= 100 && !tunnel1;
+console.log('R1 idle: startX', startX, 'endX', endX, 'maxDev', maxDev,
   'everAttacked', everAttacked, 'tunnel', tunnel1);
-console.log('R1 PASS idle drifts toward colony + no attack + no-tunnel:', R1_PASS);
+console.log('R1 PASS idle meanders locally + no attack + no-tunnel:', R1_PASS);
 
 // =====================================================================
 // R2 — survivor INSIDE senseRadius: zombie flips to attack and closes

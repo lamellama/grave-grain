@@ -496,6 +496,40 @@ export const ZOMBIE_HERD_BIAS = 0.5;
 // the drift stays local and readable.
 export const ZOMBIE_HERD_PULL_MAX = 24;
 
+// 7.1 - Sight-driven meander (playtest R9 "rather than wandering in one
+// direction, they should meander around depending on what they can see and
+// other zombies around them"). The old fixed colony-ward ADVANCE_DIR march is
+// GONE: an idle zombie's retarget goal is now aimless wander + herd pull
+// (above) + a pull toward the nearest survivor it can SEE. Sight reaches
+// further than the hard pursuit lock (SENSE_RADIUS 60): a distant figure makes
+// the zombie drift that way; only inside SENSE_RADIUS does it lock and charge.
+// Same cap/bias shape as the herd pull, sampled only at retarget time.
+export const ZOMBIE_SIGHT_RADIUS = 140;
+export const ZOMBIE_SIGHT_BIAS = 0.7;
+export const ZOMBIE_SIGHT_PULL_MAX = 30;
+
+// 7.1 - Intermittent spawning (playtest R9 "instead of waves could they spawn
+// more intermittently"). A wave's roster no longer lands as a 30-tick-stagger
+// block: it is DRIPPED across ~ZOMBIE_SPAWN_SPREAD_FRAC of the wave interval
+// with randomised gaps (0.5x..1.5x the per-wave base gap, floored at
+// ZOMBIE_SPAWN_GAP_MIN), so arrivals read as a continuous intermittent trickle
+// while the wave counter / escalation / win condition stay intact.
+export const ZOMBIE_SPAWN_GAP_MIN = 90;
+export const ZOMBIE_SPAWN_SPREAD_FRAC = 0.6;
+
+// 7.1 - Burrow emergence (playtest R9 "it'd be cool if they came out of the
+// ground too"). Each spawn rolls ZOMBIE_BURROW_CHANCE to surface FROM THE
+// GROUND instead of walking in from the map edge: a column is picked
+// ZOMBIE_BURROW_MIN_DIST..ZOMBIE_BURROW_SPREAD cells from the colony (random
+// side), and the zombie rises out of the soil over ZOMBIE_EMERGE_TICKS with
+// its below-surface pixels clipped at draw time (render-only - the terrain is
+// never dug; the body simply isn't grid matter). While emerging it neither
+// moves nor fights; once its feet reach the surface it behaves normally.
+export const ZOMBIE_BURROW_CHANCE = 0.35;
+export const ZOMBIE_BURROW_SPREAD = 260;
+export const ZOMBIE_BURROW_MIN_DIST = 70;
+export const ZOMBIE_EMERGE_TICKS = 90;
+
 // 7.2 - Melee adjacency reach (cells). Both zombie and survivor bodies can
 // strike targets within this many cells of their anchor point.
 export const ATTACK_REACH = 2;

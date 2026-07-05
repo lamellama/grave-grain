@@ -4,8 +4,14 @@
  * Verifies:
  *   1. Wave 1 spawns exactly WAVE_SIZE_START zombies, all at the correct edge x.
  *   2. Wave 2 (after WAVE_INTERVAL) spawns WAVE_SIZE_START + WAVE_SIZE_GROWTH.
- *   3. Spawns are staggered — at most 1 per tick, ZOMBIE_SPAWN_STAGGER apart.
+ *   3. Spawns are staggered — at most 1 per tick, dripped at least half the
+ *      per-wave base gap apart (R9 intermittent spawning: gaps are randomised
+ *      0.5x..1.5x of spawnGapBase, which spreads the roster over
+ *      ~ZOMBIE_SPAWN_SPREAD_FRAC of the wave interval).
  *   4. Concurrent cap: while aliveCount === MAX_ZOMBIES nothing is spawned.
+ *
+ * No burrowCenterX is passed, so every spawn takes the deterministic edge path
+ * (burrow spawns are exercised in r9-zombies.test.ts).
  */
 
 import { createWaveState, updateWaves } from '../src/game/waves';
@@ -13,11 +19,27 @@ import {
   WAVE_SIZE_START,
   WAVE_SIZE_GROWTH,
   WAVE_INTERVAL,
-  ZOMBIE_SPAWN_STAGGER,
+  WAVE_INTERVAL_DECAY,
+  WAVE_INTERVAL_MIN,
+  ZOMBIE_SPAWN_GAP_MIN,
+  ZOMBIE_SPAWN_SPREAD_FRAC,
   MAX_ZOMBIES,
   ZOMBIE_SPAWN_EDGE,
   WORLD_W,
 } from '../src/config';
+
+/** Mirror of waves.ts spawnGapBase: the drip base gap for wave N (1-based). */
+function waveGapBase(waveNumber: number): number {
+  const interval = Math.max(
+    WAVE_INTERVAL_MIN,
+    WAVE_INTERVAL - WAVE_INTERVAL_DECAY * (waveNumber - 1),
+  );
+  const size = WAVE_SIZE_START + WAVE_SIZE_GROWTH * (waveNumber - 1);
+  return Math.max(
+    ZOMBIE_SPAWN_GAP_MIN,
+    Math.floor((interval * ZOMBIE_SPAWN_SPREAD_FRAC) / size),
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -78,9 +100,9 @@ function expectedWaveTotal(wave: number): number {
   let collected = 0;
   const wave1Size = WAVE_SIZE_START; // 3
 
-  // Run enough ticks to cover the initial interval + wave 1 spawning.
-  // WAVE_INTERVAL + wave1Size * ZOMBIE_SPAWN_STAGGER + safety.
-  const limit = WAVE_INTERVAL + wave1Size * ZOMBIE_SPAWN_STAGGER + 200;
+  // Run enough ticks to cover the initial interval + wave 1's drip spread
+  // (worst case every gap rolls 1.5x the base gap) + safety.
+  const limit = WAVE_INTERVAL + wave1Size * Math.ceil(1.5 * waveGapBase(1)) + 200;
   let wave1Done = false;
   for (let t = 0; t < limit; t++) {
     const batch = updateWaves(state, collected); // alive grows as we collect
@@ -98,11 +120,12 @@ function expectedWaveTotal(wave: number): number {
   const correctCount = collected === wave1Size;
   const correctX = spawnXs.every(x => x === EXPECTED_X);
 
-  // Stagger: consecutive spawn ticks must differ by >= ZOMBIE_SPAWN_STAGGER
-  // (the first can be on any tick; subsequent ones must be >= STAGGER apart).
+  // Drip gaps: consecutive spawn ticks must differ by at least HALF the
+  // per-wave base gap (the randomised gap is 0.5x..1.5x spawnGapBase - R9).
+  const minGap1 = Math.floor(0.5 * waveGapBase(1));
   let staggerOk = true;
   for (let i = 1; i < spawnTicks.length; i++) {
-    if (spawnTicks[i] - spawnTicks[i - 1] < ZOMBIE_SPAWN_STAGGER) {
+    if (spawnTicks[i] - spawnTicks[i - 1] < minGap1) {
       staggerOk = false;
     }
   }
@@ -124,7 +147,7 @@ function expectedWaveTotal(wave: number): number {
   const wave2Ticks: number[] = [];
   // Continue from the same state (wave 1 already dispatched).
   let wave2Collected = 0;
-  const wave2Limit = WAVE_INTERVAL + wave2Size * ZOMBIE_SPAWN_STAGGER + 200;
+  const wave2Limit = WAVE_INTERVAL + wave2Size * Math.ceil(1.5 * waveGapBase(2)) + 200;
   let totalCollected = collected; // running total (used as alive count)
   for (let t = 0; t < wave2Limit; t++) {
     const batch = updateWaves(state, totalCollected);
@@ -151,7 +174,7 @@ function expectedWaveTotal(wave: number): number {
     updateWaves(capState, MAX_ZOMBIES);
   }
   // Wave should start on next tick; now keep alive at MAX_ZOMBIES.
-  const CAP_TEST_TICKS = WAVE_SIZE_START * ZOMBIE_SPAWN_STAGGER * 4;
+  const CAP_TEST_TICKS = WAVE_SIZE_START * waveGapBase(1) * 4;
   for (let t = 0; t < CAP_TEST_TICKS; t++) {
     const batch = updateWaves(capState, MAX_ZOMBIES);
     capSpawned += batch.length;

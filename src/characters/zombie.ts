@@ -63,9 +63,15 @@ import {
   ZOMBIE_HERD_RADIUS,
   ZOMBIE_HERD_BIAS,
   ZOMBIE_HERD_PULL_MAX,
-  ZOMBIE_SPAWN_EDGE,
+  ZOMBIE_SIGHT_RADIUS,
+  ZOMBIE_SIGHT_BIAS,
+  ZOMBIE_SIGHT_PULL_MAX,
+  ZOMBIE_EMERGE_TICKS,
+  BODY_H,
   WANDER_ARRIVE_DIST,
   ATTACK_REACH,
+  // NOTE: ZOMBIE_SPAWN_EDGE is no longer imported - the R9 meander rework
+  // removed the fixed colony-ward ADVANCE_DIR march (see driveIdle).
   PATH_REPATH_COOLDOWN,
   WALK_SPEED,
   WORLD_W,
@@ -102,6 +108,12 @@ export interface Zombie {
   idleGoalX: number | null;
   idleTicks: number;
   moveAccum: number;
+  // Burrow emergence (playtest R9 "came out of the ground"): while
+  // emergeTicks > 0 the zombie is CLAWING UP out of the soil - updateZombie
+  // rises the body from its buried start toward emergeTargetY (the standing
+  // feet row) and skips all detection/movement/combat/locomotion. 0 = normal.
+  emergeTicks: number;
+  emergeTargetY: number;
 }
 
 /**
@@ -129,7 +141,31 @@ export function createZombie(x: number, y: number): Zombie {
     idleGoalX: null,
     idleTicks: 0,
     moveAccum: 0,
+    emergeTicks: 0,
+    emergeTargetY: 0,
   };
+}
+
+/**
+ * Create a zombie BURIED just below the surface of column x that claws its way
+ * up out of the ground (playtest R9 "it'd be cool if they came out of the
+ * ground"). `surfaceY` is the topmost body-solid row of the column; the zombie
+ * will STAND with its feet at surfaceY - 1 once fully emerged. It starts one
+ * full body-height lower (entirely below ground), with clipBelowY set so the
+ * renderer hides the still-buried pixels, and rises linearly over
+ * ZOMBIE_EMERGE_TICKS. The terrain itself is never modified - the body is not
+ * grid matter, so no digging/tunnelling is involved (the no-tunnel invariant
+ * concerns locomotion, which is skipped for the whole emergence).
+ */
+export function createBurrowedZombie(x: number, surfaceY: number): Zombie {
+  const targetY = surfaceY - 1; // standing feet row on this column
+  const z = createZombie(x, targetY + BODY_H); // start fully below ground
+  z.emergeTicks = ZOMBIE_EMERGE_TICKS;
+  z.emergeTargetY = targetY;
+  z.body.clipBelowY = surfaceY; // hide below-surface pixels at draw time
+  z.body.grounded = true;
+  z.body.vy = 0;
+  return z;
 }
 
 /**
@@ -163,6 +199,8 @@ export function reanimateAsZombie(body: Body): Zombie {
     idleGoalX: null,
     idleTicks: 0,
     moveAccum: 0,
+    emergeTicks: 0,
+    emergeTargetY: 0,
   };
 }
 
@@ -273,36 +311,69 @@ export function herdPullX(z: Zombie, herd: readonly Zombie[]): number {
 }
 
 /**
- * Idle meander (GDD 7.1 "meander randomly, slow"): pick a random goal column
- * within ZOMBIE_IDLE_RADIUS of the CURRENT x, shuffle toward it, and repick on a
- * randomised ZOMBIE_IDLE_RETARGET_MIN..MAX timer or on arrival. Sets moveDir
- * only; the speed gate downstream makes the actual drift slow. Never touches the
- * grid or a path - meander is pure local steering.
+ * Sight pull (playtest R9 "meander depending on what they can see"): the
+ * horizontal bias a new idle goal receives from the nearest survivor the
+ * zombie can SEE within ZOMBIE_SIGHT_RADIUS (further than the SENSE_RADIUS
+ * pursuit lock - a distant figure draws a shamble, not a charge). Same
+ * capped-and-scaled shape as herdPullX; 0 with nothing in sight. Skips the
+ * doomed (infected/prone/turned) exactly like the pursuit detector so a
+ * bitten survivor doesn't keep dragging the crowd. Pure, draws no RNG,
+ * exported for the r9-zombies test; called only at retarget time.
  */
-// The colony sits on the OPPOSITE edge from the zombie spawn edge, so idle
-// zombies advance in this direction (+1 = toward higher x, i.e. colony when they
-// spawn on the left edge; -1 when they spawn on the right).
-const ADVANCE_DIR: 1 | -1 = ZOMBIE_SPAWN_EDGE === 'left' ? 1 : -1;
+export function sightPullX(z: Zombie, survivors: readonly Survivor[]): number {
+  const bx = z.body.x;
+  const by = z.body.y;
+  const r2 = ZOMBIE_SIGHT_RADIUS * ZOMBIE_SIGHT_RADIUS;
+  let bestDx = 0;
+  let bestD = Infinity;
+  for (const s of survivors) {
+    if (!s.body.alive) continue;
+    if (s.body.infected || s.body.prone || s.turned) continue;
+    const dx = s.body.x - bx;
+    const dy = s.body.y - by;
+    const d = dx * dx + dy * dy;
+    if (d <= r2 && d < bestD) {
+      bestD = d;
+      bestDx = dx;
+    }
+  }
+  if (bestD === Infinity) return 0;
+  const capped = Math.max(
+    -ZOMBIE_SIGHT_PULL_MAX,
+    Math.min(ZOMBIE_SIGHT_PULL_MAX, bestDx),
+  );
+  return capped * ZOMBIE_SIGHT_BIAS;
+}
 
-function driveIdle(z: Zombie, herd: readonly Zombie[]): void {
+/**
+ * Idle meander (GDD 7.1 "meander randomly, slow" + playtest R9): pick a goal
+ * column near the CURRENT x, shuffle toward it, and repick on a randomised
+ * ZOMBIE_IDLE_RETARGET_MIN..MAX timer or on arrival. Sets moveDir only; the
+ * speed gate downstream makes the actual drift slow. Never touches the grid or
+ * a path - meander is pure local steering.
+ *
+ * R9 REWORK: the old unconditional colony-ward ADVANCE_DIR march is gone
+ * ("rather than wandering in one direction, they should meander around
+ * depending on what they can see and other zombies around them"). A goal is
+ * now aimless wander +/- ZOMBIE_IDLE_RADIUS, plus the herd pull (follow the
+ * crowd) plus the sight pull (drift toward a visible figure). Colony pressure
+ * comes from burrow spawns surfacing NEAR the colony + sight-chained drift,
+ * not from a scripted march.
+ */
+function driveIdle(
+  z: Zombie,
+  herd: readonly Zombie[],
+  survivors: readonly Survivor[],
+): void {
   const body = z.body;
   const bx = Math.round(body.x);
 
   // Pick a new goal when none is set or the retarget timer has elapsed.
-  // Idle zombies DON'T just shuffle in place - they DRIFT toward the colony
-  // (the opposite edge from where they spawned) so a horde actually advances
-  // across the wide map and reaches the base even before it senses a survivor
-  // (GDD 7.1 tower-defense advance). The goal is biased forward (mostly toward
-  // the colony) with a little wobble so it still reads as a meander, not a march.
-  // HERD BEHAVIOUR (GDD 7.1, vertical slice): the goal is additionally pulled
-  // toward the local herd centroid (herdPullX) - a straggler behind a clump
-  // gets tugged after it, a runner ahead is reined back, and loose spawns
-  // congeal into a crowd while the forward march stays intact.
   if (z.idleGoalX === null || z.idleTicks <= 0) {
-    const forward = randInt(3, ZOMBIE_IDLE_RADIUS) * ADVANCE_DIR; // mostly toward colony
-    const wobble = randInt(-3, 3); // small meander on top of the forward drift
+    const wander = randInt(-ZOMBIE_IDLE_RADIUS, ZOMBIE_IDLE_RADIUS); // aimless
     const pull = Math.round(herdPullX(z, herd)); // toward nearby allies (0 if alone)
-    z.idleGoalX = Math.min(WORLD_W - 1, Math.max(0, bx + forward + wobble + pull));
+    const sight = Math.round(sightPullX(z, survivors)); // toward a seen figure
+    z.idleGoalX = Math.min(WORLD_W - 1, Math.max(0, bx + wander + pull + sight));
     z.idleTicks = randInt(ZOMBIE_IDLE_RETARGET_MIN, ZOMBIE_IDLE_RETARGET_MAX);
   }
   z.idleTicks--;
@@ -511,6 +582,28 @@ export function updateZombie(
     return;
   }
 
+  // 1b. Burrow emergence (playtest R9): a buried zombie spends its first
+  //     ZOMBIE_EMERGE_TICKS clawing up out of the soil - the body rises
+  //     linearly from its buried start to the standing feet row and does
+  //     NOTHING else (no detection, no bite, no locomotion - updateBody would
+  //     immediately re-sink/pin a body overlapping ground it isn't standing
+  //     on). The renderer clips pixels below clipBelowY, so only the emerged
+  //     part shows. On the final tick the clip is dropped and the zombie
+  //     stands on the surface, fully live.
+  if (z.emergeTicks > 0) {
+    z.emergeTicks--;
+    const progress = (ZOMBIE_EMERGE_TICKS - z.emergeTicks) / ZOMBIE_EMERGE_TICKS;
+    z.body.y = z.emergeTargetY + Math.round(BODY_H * (1 - progress));
+    z.body.grounded = true;
+    z.body.vy = 0;
+    z.body.moveDir = 0;
+    if (z.emergeTicks === 0) {
+      z.body.y = z.emergeTargetY;
+      z.body.clipBelowY = undefined;
+    }
+    return;
+  }
+
   // 2. Cooldown clock (combat is t3+; we only keep it counting here) + tick.
   if (z.attackCooldown > 0) z.attackCooldown--;
   z.tick++;
@@ -539,7 +632,7 @@ export function updateZombie(
     driveAttack(z, z.target);
     speed = ZOMBIE_ATTACK_SPEED;
   } else {
-    driveIdle(z, herd);
+    driveIdle(z, herd, survivors);
     speed = ZOMBIE_IDLE_SPEED;
   }
 

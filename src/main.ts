@@ -366,9 +366,11 @@ function simulationTick(): void {
   // updateZombie so moveDir/facing reflect this tick's intent.
   resolveBreaching(zombies);
 
-  // Escalating waves (GDD 7.1): append fresh spawns to the live array.
+  // Escalating waves (GDD 7.1): append fresh spawns to the live array. R9:
+  // spawns drip intermittently, and some BURROW UP near the colony (the spawn
+  // column is the burrow centre) instead of walking in from the edge.
   const aliveBeforeSpawn = zombies.filter((z) => z.body.alive).length;
-  const fresh = updateWaves(waveState, aliveBeforeSpawn);
+  const fresh = updateWaves(waveState, aliveBeforeSpawn, world.spawnX);
   for (const f of fresh) zombies.push(f);
 
   // Prune fully-dead zombies every so often so the array can't grow unbounded.

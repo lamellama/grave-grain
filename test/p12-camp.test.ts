@@ -201,6 +201,7 @@ console.log('\n=== 4. Frozen survivor counts toward LOSE ===');
     ticksToNextWave: 999,
     pendingThisWave: 0,
     ticksToNextSpawn: 0,
+    spawnGapBase: 0,
   };
   const gs = createGameState();
   // Two survivors alive at tick 0.

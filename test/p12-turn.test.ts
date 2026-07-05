@@ -37,10 +37,10 @@ function goreCells(): number {
   return n;
 }
 function playingWaveState(): WaveState {
-  return { waveNumber: 1, ticksToNextWave: 999, pendingThisWave: 0, ticksToNextSpawn: 0 };
+  return { waveNumber: 1, ticksToNextWave: 999, pendingThisWave: 0, ticksToNextSpawn: 0, spawnGapBase: 0 };
 }
 function clearedWaveState(): WaveState {
-  return { waveNumber: WIN_WAVES, ticksToNextWave: 0, pendingThisWave: 0, ticksToNextSpawn: 0 };
+  return { waveNumber: WIN_WAVES, ticksToNextWave: 0, pendingThisWave: 0, ticksToNextSpawn: 0, spawnGapBase: 0 };
 }
 
 const FLOOR = 150;

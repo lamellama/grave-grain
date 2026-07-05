@@ -402,6 +402,10 @@ class Renderer {
           const wx = bx + bone.offset.dx + pixel.dx;
           const wy = by + bone.offset.dy + pixel.dy;
 
+          // Burrow-emergence clip (playtest R9): pixels still below the
+          // surface row are not drawn, so the body rises OUT of the ground.
+          if (body.clipBelowY !== undefined && wy >= body.clipBelowY) continue;
+
           // Screen rect - identical floor-of-edge math to the ImageData cell
           // loop above (this cell's edge -> next cell's edge) so the body pixel
           // exactly tiles its world cell at any zoom.

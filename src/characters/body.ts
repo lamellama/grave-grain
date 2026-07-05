@@ -131,6 +131,11 @@ export interface Body {
   // from the dead: a DOOR cell is permeable to the living but SOLID to the
   // undead (v0.10 playtest R8 "zombie proof doors").
   undead: boolean;
+  // RENDER-ONLY clip row (playtest R9 burrow emergence): while set, the
+  // renderer skips this body's pixels at world rows >= clipBelowY, so a zombie
+  // rising out of the soil shows only its above-ground part. Never read by
+  // locomotion/damage/sim - purely a draw gate; undefined = draw everything.
+  clipBelowY?: number;
 }
 
 /**

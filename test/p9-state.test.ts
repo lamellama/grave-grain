@@ -36,6 +36,7 @@ function winWaveState(): WaveState {
     ticksToNextWave: 0,
     pendingThisWave: 0,
     ticksToNextSpawn: 0,
+    spawnGapBase: 0,
   };
 }
 
@@ -46,6 +47,7 @@ function playingWaveState(): WaveState {
     ticksToNextWave: 999,
     pendingThisWave: 0,
     ticksToNextSpawn: 0,
+    spawnGapBase: 0,
   };
 }
 

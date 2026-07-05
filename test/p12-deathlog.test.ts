@@ -29,7 +29,7 @@ function makeSurvivor(alive: boolean, deathCause: string | null = null, turned =
 }
 
 function playingWaveState(): WaveState {
-  return { waveNumber: 1, ticksToNextWave: 999, pendingThisWave: 0, ticksToNextSpawn: 0 };
+  return { waveNumber: 1, ticksToNextWave: 999, pendingThisWave: 0, ticksToNextSpawn: 0, spawnGapBase: 0 };
 }
 
 // ---------------------------------------------------------------------------
