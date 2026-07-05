@@ -21,7 +21,7 @@
  *   Assign     - fires on TAP (opens role menu for nearest survivor)
  */
 
-import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo, setZoom } from './camera';
+import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo, setZoom, effectiveCellPx } from './camera';
 import { cycleSimSpeed, getSimSpeed, minimapXToWorld, MINIMAP_HEIGHT_PX, MINIMAP_AT_TOP, pushToast } from './game/ui';
 import { spendAmmo, getAmmo } from './game/resources';
 import { getRenderer } from './render/renderer';
@@ -30,7 +30,7 @@ import { AIR, SAND, STONE, WATER, DIRT, FOLIAGE, SAPLING, isFlammable } from './
 import { ignite } from './engine/simulation';
 import { placeStructure, canPlace, type StructureKind } from './game/building';
 import { addBlueprint, blueprintAt, cancelBlueprintAt } from './game/buildqueue';
-import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP, SELECT_TAP_RADIUS, TAP_CYCLE_RESET_MS } from './config';
+import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, SELECT_TAP_RADIUS, TAP_CYCLE_RESET_MS } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
 import { applyDamage } from './characters/damage';
@@ -112,11 +112,44 @@ let pinchStartDist = 0;
 let pinchStartZoom = 1;
 
 /**
+ * World cell that sat under the two fingers' MIDPOINT when the pinch began.
+ * Two-finger gestures both ZOOM and PAN (playtest R9 "two fingers only appears
+ * to zoom"): each move re-pins this world point under the CURRENT midpoint, so
+ * spreading fingers zooms about them while dragging both fingers pans 1:1.
+ */
+let pinchStartWorldX = 0;
+let pinchStartWorldY = 0;
+
+/**
+ * Pure two-finger camera solve: the camera position that puts world point
+ * (worldX, worldY) under screen point (midX, midY) at `effCellPx` screen px per
+ * world cell. Exported for headless unit-testing (r9-pan test). Clamping is the
+ * caller's job (clampCamera), exactly like pinchZoom above.
+ */
+export function pinchPanCamera(
+  worldX: number,
+  worldY: number,
+  midX: number,
+  midY: number,
+  effCellPx: number,
+): { x: number; y: number } {
+  return { x: worldX - midX / effCellPx, y: worldY - midY / effCellPx };
+}
+
+/**
  * Pointer IDs that were part of a pinch and must be ignored for tool actions
  * until they produce a fresh pointerdown. Prevents the lingering finger from
  * inadvertently painting/panning after the second finger lifts.
  */
 const suppressedPointers = new Set<number>();
+
+/**
+ * Pointer IDs that landed on the minimap strip and are SCRUBBING it (playtest
+ * R9: the nav bar "only allows clicking, not click and drag"). While a pointer
+ * is in this set every move re-jumps the camera to the dragged strip position;
+ * it never falls through to tool actions or the gesture classifier.
+ */
+const minimapScrubPointers = new Set<number>();
 
 // ---------------------------------------------------------------------------
 // Pure gesture classifier (exported for headless unit tests, task 10-4)
@@ -511,6 +544,10 @@ function onPointerDown(event: PointerEvent): void {
       const canvasX = event.clientX - rect.left;
       const worldX = minimapXToWorld(canvasX, rect.width);
       jumpCameraTo(worldX, renderer.viewportWidthPx, renderer.viewportHeightPx);
+      // Keep scrubbing while this pointer drags along the strip (playtest R9
+      // "click and drag would make it easier") - onPointerMove re-jumps until
+      // pointerup. The pointer is NOT added to the tool-gesture registry.
+      minimapScrubPointers.add(event.pointerId);
       return; // consumed - do NOT fall through to paint/pan/etc.
     }
   }
@@ -551,6 +588,14 @@ function onPointerDown(event: PointerEvent): void {
       const ddy = pts[1].lastY - pts[0].lastY;
       pinchStartDist = Math.hypot(ddx, ddy);
       pinchStartZoom = camera.zoom;
+      // World point under the fingers' midpoint - re-pinned under the moving
+      // midpoint each move so the gesture pans as well as zooms (R9 mobile pan).
+      const rect = canvas.getBoundingClientRect();
+      const midX = (pts[0].lastX + pts[1].lastX) / 2 - rect.left;
+      const midY = (pts[0].lastY + pts[1].lastY) / 2 - rect.top;
+      const w = screenToWorld(midX, midY);
+      pinchStartWorldX = w.x;
+      pinchStartWorldY = w.y;
     }
     return; // GDD 12.3: two-finger gesture is pinch, not paint/pan/tap.
   }
@@ -595,6 +640,20 @@ function onPointerDown(event: PointerEvent): void {
  * and pan the camera in Pan mode (all using incremental per-pointer deltas).
  */
 function onPointerMove(event: PointerEvent): void {
+  // Minimap scrub (playtest R9): a pointer that went down on the strip keeps
+  // driving the camera as it drags. Handled before the registry lookup - scrub
+  // pointers are never registered for tool gestures.
+  if (minimapScrubPointers.has(event.pointerId)) {
+    const scrubCanvas = document.getElementById('game') as HTMLCanvasElement | null;
+    if (scrubCanvas) {
+      const rect = scrubCanvas.getBoundingClientRect();
+      const renderer = getRenderer();
+      const worldX = minimapXToWorld(event.clientX - rect.left, rect.width);
+      jumpCameraTo(worldX, renderer.viewportWidthPx, renderer.viewportHeightPx);
+    }
+    return;
+  }
+
   const info = pointers.get(event.pointerId);
   if (!info) return;
 
@@ -607,9 +666,13 @@ function onPointerMove(event: PointerEvent): void {
   info.lastX = event.clientX;
   info.lastY = event.clientY;
 
-  // --- Pinch zoom (task 10-5, GDD 12.3) ---
-  // When two pointers are active, scale camera.zoom by the distance ratio
-  // relative to the initial pinch baseline, anchored at the midpoint.
+  // --- Pinch zoom + two-finger pan (task 10-5 / playtest R9 mobile pan) ---
+  // When two pointers are active: scale camera.zoom by the distance ratio
+  // relative to the pinch baseline, AND re-pin the world point that was under
+  // the initial midpoint beneath the CURRENT midpoint. Spreading the fingers
+  // zooms about them; dragging both fingers together pans 1:1 (the R9 fix -
+  // two fingers used to only zoom, leaving no reliable way to pan on mobile
+  // while a paint/build tool was selected).
   if (pinching && pointers.size === 2) {
     const pts = Array.from(pointers.values());
     const curDx = pts[1].lastX - pts[0].lastX;
@@ -624,8 +687,18 @@ function onPointerMove(event: PointerEvent): void {
     const midX = midClientX - rect.left;
     const midY = midClientY - rect.top;
 
+    camera.zoom = Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, newZoom));
+    const cam = pinchPanCamera(
+      pinchStartWorldX,
+      pinchStartWorldY,
+      midX,
+      midY,
+      effectiveCellPx(),
+    );
+    camera.x = cam.x;
+    camera.y = cam.y;
     const renderer = getRenderer();
-    setZoom(newZoom, midX, midY, renderer.viewportWidthPx, renderer.viewportHeightPx);
+    clampCamera(renderer.viewportWidthPx, renderer.viewportHeightPx);
     return; // pinch consumes the event - no pan/paint.
   }
 
@@ -750,6 +823,10 @@ function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
  * Handle pointerup: classify gesture, execute tap actions, remove pointer.
  */
 function onPointerUp(event: PointerEvent): void {
+  // End a minimap scrub (playtest R9): the pointer was never in the tool
+  // registry, so just release it - no tap/drag classification.
+  if (minimapScrubPointers.delete(event.pointerId)) return;
+
   const info = pointers.get(event.pointerId);
   if (!info) return;
 
@@ -799,6 +876,7 @@ function onPointerUp(event: PointerEvent): void {
  * Handle pointercancel: clean up registry and timer (e.g. system interrupts).
  */
 function onPointerCancel(event: PointerEvent): void {
+  minimapScrubPointers.delete(event.pointerId);
   const info = pointers.get(event.pointerId);
   if (info?.timerId !== null && info) {
     clearTimeout(info.timerId!);
