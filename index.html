@@ -161,10 +161,12 @@
       }
     }
 
-    /* Stockpile readout (top-centre HUD) */
+    /* Stockpile readout (top-centre HUD).
+       Sits BELOW the 16px canvas-drawn minimap strip (ui.MINIMAP_HEIGHT_PX;
+       playtest R9: "top UI overlaps the navigation map bar"). */
     #stockpile-readout {
       position: fixed;
-      top: 0.4rem;
+      top: 20px;
       left: 50%;
       transform: translateX(-50%);
       background: rgba(0, 0, 0, 0.72);

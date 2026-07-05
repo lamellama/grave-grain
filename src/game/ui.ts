@@ -134,7 +134,20 @@ export function drawToasts(ctx: CanvasRenderingContext2D): void {
   ctx.font = 'bold 14px monospace';
 
   const lineH = 22;
-  const baseY = ch - 60; // above the toolbar
+  // Anchor the stack just above the REAL toolbar, not a guessed 60px (playtest
+  // R9: "ui buttons overlap the overlay messages" - the toolbar wraps to two
+  // rows on short/narrow screens and swallowed the old fixed offset). The
+  // toolbar is a DOM overlay in CSS px and the canvas backing store is CSS-px
+  // sized (main.resizeCanvas), so its measured height subtracts directly.
+  // Guard-safe: headless stubs without the element fall back to 60.
+  let toolbarH = 0;
+  if (typeof document !== 'undefined' && document.getElementById) {
+    const tb = document.getElementById('toolbar');
+    if (tb && typeof tb.getBoundingClientRect === 'function') {
+      toolbarH = tb.getBoundingClientRect().height || 0;
+    }
+  }
+  const baseY = ch - Math.max(60, toolbarH + 24);
 
   for (let i = 0; i < _toasts.length; i++) {
     const t = _toasts[i];
