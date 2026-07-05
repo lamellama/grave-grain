@@ -32,7 +32,7 @@ import {
   BUILDER_REACH_UP,
   SHELTER_WALL_HEIGHT,
 } from '../src/config';
-import { STONE, AIR, WALL, WOOD, FOLIAGE, CAMPFIRE } from '../src/engine/materials';
+import { STONE, AIR, WALL, WOOD, DOOR, FOLIAGE, CAMPFIRE } from '../src/engine/materials';
 import { material, integrity, set, get } from '../src/engine/grid';
 import { rebuildNavgrid } from '../src/engine/navgrid';
 import {
@@ -99,7 +99,7 @@ function tick(survs: Survivor[]): void {
 /** Count project cells not yet their target material. */
 function unbuilt(p: ShelterProject): number {
   let n = 0;
-  for (const c of p.cells) if (get(c.x, c.y) !== (c.kind === 'wall' ? WALL : WOOD)) n++;
+  for (const c of p.cells) if (get(c.x, c.y) !== (c.kind === 'wall' ? WALL : c.kind === 'door' ? DOOR : WOOD)) n++;
   return n;
 }
 

@@ -20,6 +20,7 @@ import {
   WOOD_INTEGRITY,
   FOLIAGE_INTEGRITY,
   WALL_INTEGRITY,
+  DOOR_INTEGRITY,
 } from '../config';
 
 /**
@@ -64,6 +65,8 @@ export const SAPLING = 15;
 export const SNOW = 16;
 // Material ID - VS-2 campfire (managed contained fire, GDD 8/6.1; do NOT renumber)
 export const CAMPFIRE = 17;
+// Material ID - v0.10 playtest R8 zombie-proof DOOR (GDD 8; do NOT renumber)
+export const DOOR = 18;
 
 /**
  * MATERIALS - indexed lookup table of material properties.
@@ -314,6 +317,25 @@ export const MATERIALS: Material[] = [
     permeableToBodies: false,
     hasIntegrity: false,
     baseIntegrity: 0,
+  },
+  // DOOR (id=18) - v0.10 playtest R8 "zombie proof doors" (GDD 8). A barred
+  // wooden door: LIVING bodies pass straight through (permeableToBodies, like
+  // foliage - the shelter doorway stays a doorway for the colony), while the
+  // UNDEAD are blocked (locomotion special-cases DOOR for body.undead) and must
+  // GNAW it down - it has real integrity (DOOR_INTEGRITY, between fence and
+  // wall) so the breaching pass chips it like any structure. Static and
+  // non-displaceable, so weather/water cannot flow through a closed door.
+  // Flammable: it is wood - fire remains a valid siege tool against it.
+  {
+    name: 'door',
+    color: '#a9743c', // planked timber, lighter than wood #8a5a2b
+    density: DENSITY_STONE,
+    isFluid: false,
+    isStatic: true,
+    flammable: true,
+    permeableToBodies: true, // LIVING pass; undead blocked in locomotion
+    hasIntegrity: true,
+    baseIntegrity: DOOR_INTEGRITY,
   },
 ];
 

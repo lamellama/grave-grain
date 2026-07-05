@@ -24,7 +24,7 @@
 import type { Body, Bone } from './body';
 import { layDownCorpse, applyDamage } from './damage';
 import { get } from '../engine/grid';
-import { isSolidForBody, isFluid, WATER, FIRE } from '../engine/materials';
+import { isSolidForBody, isFluid, WATER, FIRE, DOOR } from '../engine/materials';
 import {
   BODY_GRAVITY,
   BODY_FALL_MAX,
@@ -209,7 +209,11 @@ export function bodyCellsSolidAt(
     for (const p of bone.pixels) {
       const wx = rx + bone.offset.dx + p.dx;
       const wy = ry + bone.offset.dy + p.dy;
-      if (isSolidForBody(get(wx, wy))) return true;
+      const m = get(wx, wy);
+      // A DOOR is permeable to the LIVING but solid to the UNDEAD (v0.10 R8
+      // "zombie proof doors") - the one material whose solidity depends on WHO
+      // is asking, so it is resolved here rather than in isSolidForBody.
+      if (isSolidForBody(m) || (body.undead && m === DOOR)) return true;
     }
   }
   return false;

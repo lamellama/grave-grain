@@ -17,8 +17,9 @@ import {
   WORLD_W,
   SHELTER_PER_SURVIVOR_AREA,
   SHELTER_MIN_SIZE,
+  SHELTER_DOORWAY_HEIGHT,
 } from '../src/config';
-import { STONE, AIR, WALL, WOOD } from '../src/engine/materials';
+import { STONE, AIR, WALL, WOOD, DOOR } from '../src/engine/materials';
 import { material, set, placeMaterial } from '../src/engine/grid';
 import { createSurvivor, isShelteredAt, type Survivor } from '../src/characters/survivor';
 import {
@@ -95,9 +96,15 @@ resetShelters();
     rightWall.length > 0 && rightWall.length < leftWall.length,
     `3: right wall has a DOORWAY gap (right ${rightWall.length} < left ${leftWall.length})`,
   );
-  // The doorway is the open bottom of the right column (no wall at feet level).
-  const rightAtFeet = p.cells.some((c) => c.x === rightX && c.y === feetRow);
-  check(!rightAtFeet, '3: doorway is open at the floor (body can walk through)');
+  // The doorway is the bottom of the right column - since v0.10 (playtest R8)
+  // it is filled with DOOR cells: permeable to the LIVING (they walk through
+  // exactly as before) but a barred, gnawable structure to the UNDEAD.
+  const rightDoor = p.cells.filter((c) => c.x === rightX && c.kind === 'door');
+  check(
+    rightDoor.length === SHELTER_DOORWAY_HEIGHT,
+    '3: doorway holds ' + rightDoor.length + ' DOOR cells (== SHELTER_DOORWAY_HEIGHT)',
+  );
+  check(rightDoor.some((c) => c.y === feetRow), '3: the door reaches the floor');
 }
 
 // ===========================================================================
@@ -109,7 +116,7 @@ resetShelters();
   const survs = colony(400, 4);
   const p = planShelter(0, [0, 1, 2, 3], survs) as ShelterProject;
   // Build the blueprint: 'wall' -> WALL, 'fence' -> WOOD.
-  for (const c of p.cells) placeMaterial(c.x, c.y, c.kind === 'wall' ? WALL : WOOD);
+  for (const c of p.cells) placeMaterial(c.x, c.y, c.kind === 'wall' ? WALL : c.kind === 'door' ? DOOR : WOOD);
 
   check(
     isShelteredAt(p.interior.x, p.interior.y) === true,

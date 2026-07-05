@@ -666,6 +666,14 @@ export const FENCE_INTEGRITY = WOOD_INTEGRITY;
 // so they drop straight into resources.canAfford/spend.
 export const FENCE_COST: Partial<Record<ResourceKind, number>> = { wood: 1 };
 export const WALL_COST: Partial<Record<ResourceKind, number>> = { stone: 1 };
+
+// DOOR (v0.10 playtest R8 "they will need zombie proof doors"): a barred
+// wooden door cell. LIVING bodies walk through it (permeableToBodies); the
+// UNDEAD are blocked and must gnaw it down like any structure (breaching).
+// Integrity sits between fence (60) and wall (200): a mob gets through a door
+// eventually - it buys time, it is not a bunker. Costs seasoned wood.
+export const DOOR_INTEGRITY = 80;
+export const DOOR_COST: Partial<Record<ResourceKind, number>> = { wood: 2 };
 // VS-2 Task T-C: a campfire costs WOOD (logs as fuel). One placed CAMPFIRE cell
 // burns ~CAMPFIRE_FUEL/CAMPFIRE_BURN_CHANCE ticks of warmth; priced as a few
 // logs so a camp commits real gathered wood to a hearth (15-Q4 scarcity).

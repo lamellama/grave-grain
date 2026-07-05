@@ -24,7 +24,7 @@
 import type { Body } from '../characters/body';
 import type { Zombie } from '../characters/zombie';
 import { get, set, getIntegrity, setIntegrity, idx } from '../engine/grid';
-import { MATERIALS, AIR, isSolidForBody } from '../engine/materials';
+import { MATERIALS, AIR, DOOR, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
 import { BREACH_CHANCE, BREACH_PRESSURE_MULT, CHIP_FLASH_TICKS } from '../config';
 
@@ -105,8 +105,11 @@ export function findBlockingStructureCell(
     if (edge === undefined) continue; // no live pixel on this row
     const x = edge + dir; // the cell directly ahead of this row's edge
     const m = get(x, y);
+    // A DOOR is not solid-for-body in general (the living walk through), but
+    // every presser HERE is a zombie, to whom it IS a wall (v0.10 R8) - so it
+    // counts as a blocking, chippable structure like fence/wall.
     if (
-      isSolidForBody(m) &&
+      (isSolidForBody(m) || m === DOOR) &&
       MATERIALS[m]?.hasIntegrity &&
       getIntegrity(x, y) > 0
     ) {

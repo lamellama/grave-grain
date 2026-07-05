@@ -35,7 +35,7 @@ import {
 export interface ShelterCell {
   x: number;
   y: number;
-  kind: StructureKind; // 'wall' (columns) or 'fence' (WOOD roof)
+  kind: StructureKind; // 'wall' (columns), 'fence' (WOOD roof), 'door' (doorway)
 }
 
 /** A group's shelter project = blueprint + key points. */
@@ -161,11 +161,17 @@ export function planShelter(
     cells.push({ x: leftWallX, y, kind: 'wall' });
   }
 
-  // Right wall: WALL only ABOVE the doorway; the bottom SHELTER_DOORWAY_HEIGHT
-  // cells are left open so a body can walk in/out (the doorway).
+  // Right wall: WALL above the doorway; the bottom SHELTER_DOORWAY_HEIGHT cells
+  // are a DOOR (v0.10 playtest R8 "zombie proof doors"): the living walk
+  // through it as if it were open (permeableToBodies), while the undead are
+  // blocked and must gnaw its DOOR_INTEGRITY down - so the finished hut lets
+  // survivors in and out but makes the horde queue up and chew.
   const doorTop = feetRow - SHELTER_DOORWAY_HEIGHT; // last walled row above the door
   for (let y = roofRow + 1; y <= doorTop; y++) {
     cells.push({ x: rightWallX, y, kind: 'wall' });
+  }
+  for (let y = doorTop + 1; y <= feetRow; y++) {
+    cells.push({ x: rightWallX, y, kind: 'door' });
   }
 
   const interior = { x: centroidX, y: feetRow };

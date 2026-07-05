@@ -108,6 +108,8 @@ export function createZombie(x: number, y: number): Zombie {
   // Undead don't breathe (playtest v0.9 Q): a zombie sinks (buoyant stays
   // false) and walks the lake BOTTOM without the drown clock ever running.
   body.breathes = false;
+  // ...and DOORS are solid to them (v0.10 R8): they gnaw, they don't enter.
+  body.undead = true;
   return {
     body,
     state: 'idle',
@@ -137,10 +139,11 @@ export function createZombie(x: number, y: number): Zombie {
  */
 export function reanimateAsZombie(body: Body): Zombie {
   // The wrapped body is undead now (playtest v0.9 Q): it stops floating (a
-  // turned survivor sinks and bottom-walks like any zombie) and stops breathing
-  // (the drown clock never runs again).
+  // turned survivor sinks and bottom-walks like any zombie), stops breathing
+  // (the drown clock never runs again), and doors bar it (v0.10 R8).
   body.buoyant = false;
   body.breathes = false;
+  body.undead = true;
   return {
     body,
     state: 'idle',

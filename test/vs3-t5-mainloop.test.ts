@@ -29,7 +29,7 @@ import {
   SIM_HZ,
   BODY_H,
 } from '../src/config';
-import { STONE, AIR, WALL, WOOD, CAMPFIRE } from '../src/engine/materials';
+import { STONE, AIR, WALL, WOOD, DOOR, CAMPFIRE } from '../src/engine/materials';
 import { material, integrity, set, get } from '../src/engine/grid';
 import { rebuildNavgrid } from '../src/engine/navgrid';
 import * as simulation from '../src/engine/simulation';
@@ -319,7 +319,7 @@ label('B2 seekWarmth walks home: own hut beats a nearer foreign canopy');
   const project = ensureShelterProject(gid, [0, 1, 2], survs);
   check(project !== null, 'B2: group shelter project planned');
   if (project) {
-    for (const c of project.cells) set(c.x, c.y, c.kind === 'wall' ? WALL : WOOD);
+    for (const c of project.cells) set(c.x, c.y, c.kind === 'wall' ? WALL : c.kind === 'door' ? DOOR : WOOD);
     rebuildNavgrid();
 
     const leftIn = project.campfire.x; // leftmost interior column

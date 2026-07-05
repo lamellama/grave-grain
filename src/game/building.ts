@@ -23,8 +23,8 @@ import type { ResourceKind } from './resources';
 import * as resources from './resources';
 import { inBounds, get, placeMaterial } from '../engine/grid';
 import { markTerrainEdit } from '../engine/navgrid';
-import { WOOD, WALL, CAMPFIRE } from '../engine/materials';
-import { FENCE_COST, WALL_COST, CAMPFIRE_COST } from '../config';
+import { WOOD, WALL, CAMPFIRE, DOOR } from '../engine/materials';
+import { FENCE_COST, WALL_COST, CAMPFIRE_COST, DOOR_COST } from '../config';
 
 // ---------------------------------------------------------------------------
 // Structure table (GDD 8)
@@ -33,7 +33,9 @@ import { FENCE_COST, WALL_COST, CAMPFIRE_COST } from '../config';
 // single CAMPFIRE cell, spent atomically from the stockpile. placeMaterial
 // leaves its integrity at 0, so simulation.updateCampfire auto-seeds the fuel
 // countdown on first visit (the campfire is NOT a breach-integrity structure).
-export type StructureKind = 'fence' | 'wall' | 'campfire';
+// 'door' (v0.10 playtest R8): a barred wooden DOOR cell - the living walk
+// through, the undead must gnaw it down (DOOR_INTEGRITY seeds via placeMaterial).
+export type StructureKind = 'fence' | 'wall' | 'campfire' | 'door';
 
 export const STRUCTURES: Record<
   StructureKind,
@@ -42,6 +44,7 @@ export const STRUCTURES: Record<
   fence: { material: WOOD, cost: FENCE_COST },
   wall: { material: WALL, cost: WALL_COST },
   campfire: { material: CAMPFIRE, cost: CAMPFIRE_COST },
+  door: { material: DOOR, cost: DOOR_COST },
 };
 
 /** The per-cell cost of a structure kind (drops into resources.canAfford/spend). */

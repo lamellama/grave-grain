@@ -43,13 +43,14 @@ import {
 } from './shelter';
 import { groupIds, groupMembers } from './groups';
 import { STRUCTURES } from './building';
+import type { StructureKind } from './building';
 import { addBlueprint, blueprintAt, cancelBlueprintAt } from './buildqueue';
 import { get } from '../engine/grid';
 import { CAMPFIRE } from '../engine/materials';
 import { MAX_BUILD_CLAIMS } from '../config';
 
 /** True iff (x,y) already holds the structure material this cell builds toward. */
-function cellBuilt(x: number, y: number, kind: 'wall' | 'fence' | 'campfire'): boolean {
+function cellBuilt(x: number, y: number, kind: StructureKind): boolean {
   return get(x, y) === STRUCTURES[kind].material;
 }
 

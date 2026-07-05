@@ -126,6 +126,11 @@ export interface Body {
   // never drowns, so a bottom-walking zombie crosses a lake bed intact.
   buoyant: boolean;
   breathes: boolean;
+  // True for a body driven by a zombie controller (createZombie /
+  // reanimateAsZombie). Gates the material interactions that tell the living
+  // from the dead: a DOOR cell is permeable to the living but SOLID to the
+  // undead (v0.10 playtest R8 "zombie proof doors").
+  undead: boolean;
 }
 
 /**
@@ -278,5 +283,6 @@ export function createBody(x: number, y: number): Body {
     // (createSurvivor); zombies opt OUT of breathing (createZombie/reanimate).
     buoyant: false,
     breathes: true,
+    undead: false, // living by default; zombie creators flip it
   };
 }
