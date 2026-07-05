@@ -1,8 +1,10 @@
 /**
  * characters/zombie.ts - Zombie controller: idle meander + survivor pursuit
  * (GDD 7.1). The long pole of Phase 7; gates the combat/breaching tasks that
- * follow (t3-t7). MOVEMENT ONLY here - NO damage, NO breaching, NO herd-bias /
- * dual-edge / day-night (those are later tasks / vertical-slice per GDD 14).
+ * follow (t3-t7). Post-MVP additions layered on since: bite/turn (7.2),
+ * ladder-climb (v0.5 #A) and HERD DYNAMICS (7.1 "follow the crowd" - the
+ * authorized vertical-slice item; see herdPullX/driveIdle). Still NO
+ * dual-edge / day-night (later items per GDD 14).
  *
  * A Zombie WRAPS a hybrid Body (5.1) exactly like a Survivor wraps one: a thin
  * autonomy layer drives the body across the live terrain by setting
@@ -58,6 +60,9 @@ import {
   ZOMBIE_IDLE_RETARGET_MIN,
   ZOMBIE_IDLE_RETARGET_MAX,
   ZOMBIE_IDLE_RADIUS,
+  ZOMBIE_HERD_RADIUS,
+  ZOMBIE_HERD_BIAS,
+  ZOMBIE_HERD_PULL_MAX,
   ZOMBIE_SPAWN_EDGE,
   WANDER_ARRIVE_DIST,
   ATTACK_REACH,
@@ -235,6 +240,39 @@ function steerToCell(
 }
 
 /**
+ * Herd pull (GDD 7.1 herd behaviour): the horizontal bias a zombie's next idle
+ * goal receives from nearby allies. Averages the anchor x of every OTHER alive
+ * zombie within ZOMBIE_HERD_RADIUS (2D squared-distance probe, no sqrt), caps
+ * the centroid offset at +/-ZOMBIE_HERD_PULL_MAX and scales it by
+ * ZOMBIE_HERD_BIAS. Returns 0 with no neighbours in range - a lone zombie
+ * meanders exactly as before. Pure and exported for the herd test; called only
+ * at retarget time (driveIdle), never per tick, so the O(zombies) scan is
+ * amortized over ZOMBIE_IDLE_RETARGET_MIN..MAX ticks (GDD 13).
+ */
+export function herdPullX(z: Zombie, herd: readonly Zombie[]): number {
+  const bx = z.body.x;
+  const by = z.body.y;
+  const r2 = ZOMBIE_HERD_RADIUS * ZOMBIE_HERD_RADIUS;
+  let sumX = 0;
+  let n = 0;
+  for (const other of herd) {
+    if (other === z || !other.body.alive) continue;
+    const dx = other.body.x - bx;
+    const dy = other.body.y - by;
+    if (dx * dx + dy * dy > r2) continue;
+    sumX += other.body.x;
+    n++;
+  }
+  if (n === 0) return 0;
+  const toCentroid = sumX / n - bx;
+  const capped = Math.max(
+    -ZOMBIE_HERD_PULL_MAX,
+    Math.min(ZOMBIE_HERD_PULL_MAX, toCentroid),
+  );
+  return capped * ZOMBIE_HERD_BIAS;
+}
+
+/**
  * Idle meander (GDD 7.1 "meander randomly, slow"): pick a random goal column
  * within ZOMBIE_IDLE_RADIUS of the CURRENT x, shuffle toward it, and repick on a
  * randomised ZOMBIE_IDLE_RETARGET_MIN..MAX timer or on arrival. Sets moveDir
@@ -246,7 +284,7 @@ function steerToCell(
 // spawn on the left edge; -1 when they spawn on the right).
 const ADVANCE_DIR: 1 | -1 = ZOMBIE_SPAWN_EDGE === 'left' ? 1 : -1;
 
-function driveIdle(z: Zombie): void {
+function driveIdle(z: Zombie, herd: readonly Zombie[]): void {
   const body = z.body;
   const bx = Math.round(body.x);
 
@@ -256,10 +294,15 @@ function driveIdle(z: Zombie): void {
   // across the wide map and reaches the base even before it senses a survivor
   // (GDD 7.1 tower-defense advance). The goal is biased forward (mostly toward
   // the colony) with a little wobble so it still reads as a meander, not a march.
+  // HERD BEHAVIOUR (GDD 7.1, vertical slice): the goal is additionally pulled
+  // toward the local herd centroid (herdPullX) - a straggler behind a clump
+  // gets tugged after it, a runner ahead is reined back, and loose spawns
+  // congeal into a crowd while the forward march stays intact.
   if (z.idleGoalX === null || z.idleTicks <= 0) {
     const forward = randInt(3, ZOMBIE_IDLE_RADIUS) * ADVANCE_DIR; // mostly toward colony
     const wobble = randInt(-3, 3); // small meander on top of the forward drift
-    z.idleGoalX = Math.min(WORLD_W - 1, Math.max(0, bx + forward + wobble));
+    const pull = Math.round(herdPullX(z, herd)); // toward nearby allies (0 if alone)
+    z.idleGoalX = Math.min(WORLD_W - 1, Math.max(0, bx + forward + wobble + pull));
     z.idleTicks = randInt(ZOMBIE_IDLE_RETARGET_MIN, ZOMBIE_IDLE_RETARGET_MAX);
   }
   z.idleTicks--;
@@ -454,8 +497,15 @@ function zombieClimb(z: Zombie): boolean {
  * Advance one zombie by one sim tick (GDD 7.1). OWNS the body drive: tick the
  * cooldown -> detect/lock a target -> drive the matching behaviour (which sets
  * moveDir) -> apply the sub-cell speed gate -> step the body. Call once per tick.
+ * `herd` is the full zombie list (self included - herdPullX skips it) used for
+ * the idle herd bias; it defaults to empty so herd-less callers (older tests)
+ * keep the exact pre-herd behaviour.
  */
-export function updateZombie(z: Zombie, survivors: Survivor[]): void {
+export function updateZombie(
+  z: Zombie,
+  survivors: Survivor[],
+  herd: readonly Zombie[] = [],
+): void {
   // 1. Dead-body guard: a dissolved zombie's cells belong to the sim now.
   if (!z.body.alive) {
     return;
@@ -489,7 +539,7 @@ export function updateZombie(z: Zombie, survivors: Survivor[]): void {
     driveAttack(z, z.target);
     speed = ZOMBIE_ATTACK_SPEED;
   } else {
-    driveIdle(z);
+    driveIdle(z, herd);
     speed = ZOMBIE_IDLE_SPEED;
   }
 

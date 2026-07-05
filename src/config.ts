@@ -476,6 +476,26 @@ export const ZOMBIE_IDLE_RETARGET_MAX = 180;
 // meander should read as aimless shuffling, not travel.
 export const ZOMBIE_IDLE_RADIUS = 12;
 
+// 7.1 - Herd dynamics (GDD 7.1 "a zombie near others biases its drift toward
+// the herd", vertical-slice item authorized post-MVP). When an IDLE zombie
+// picks a fresh meander goal it looks for OTHER alive zombies within
+// ZOMBIE_HERD_RADIUS cells (2D anchor distance) and pulls the goal toward
+// their centroid -> natural clumping and "follow the crowd". Sensing runs
+// only at retarget time (every ZOMBIE_IDLE_RETARGET_MIN..MAX ticks), so the
+// O(zombies) scan is amortized and never per-tick (GDD 13 perf).
+export const ZOMBIE_HERD_RADIUS = 48;
+
+// 7.1 - Herd pull strength [0..1]: the fraction of the (capped) horizontal
+// distance to the local herd centroid mixed into each new idle goal. 0 =
+// herding off; 1 = goals land ON the centroid (a rigid march, loses the
+// meander). Keep it a bias, not a command.
+export const ZOMBIE_HERD_BIAS = 0.5;
+
+// 7.1 - Cap (cells) on the centroid distance fed into the pull, so one
+// far-away clump inside the sense radius can't fling a goal across the map;
+// the drift stays local and readable.
+export const ZOMBIE_HERD_PULL_MAX = 24;
+
 // 7.2 - Melee adjacency reach (cells). Both zombie and survivor bodies can
 // strike targets within this many cells of their anchor point.
 export const ATTACK_REACH = 2;
