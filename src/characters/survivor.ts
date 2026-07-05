@@ -113,6 +113,8 @@ import {
   BODY_W,
   BODY_H,
   BUILDER_REACH_UP,
+  BUILD_STUCK_TICKS,
+  TOOL_BREAKAGE,
 } from '../config';
 
 /**
@@ -184,6 +186,15 @@ export interface Survivor {
   // queue for the nearest claimable job). Persists across need-overrides so a
   // builder pulled away to drink resumes the same job on return.
   buildTarget: Blueprint | null;
+  // Anti-deadlock (VS-3 T3): ticks a builder has spent walking to its claimed
+  // cell WITHOUT physically getting closer (feet position unchanged). A walking
+  // builder resets it every time it advances a cell; a builder wedged against the
+  // very walls it is raising (its stand sealed off) accrues it until it gives up
+  // the claim so a better-placed builder can take the cell. `buildStuckX/Y` is the
+  // feet position the counter was last reset at.
+  buildStuckTicks: number;
+  buildStuckX: number;
+  buildStuckY: number;
   workTarget: { x: number; y: number } | null;
   // Standable cell the role loop walks to to harvest `workTarget` (within reach
   // of it). Acquired together with a REACHABLE target so the miner/forager never
@@ -255,6 +266,9 @@ export function createSurvivor(x: number, y: number): Survivor {
     carryKind: null,
     roleState: 'toTarget',
     buildTarget: null,
+    buildStuckTicks: 0,
+    buildStuckX: 0,
+    buildStuckY: 0,
     workTarget: null,
     workStand: null,
     workTicksLeft: 0,
@@ -1307,8 +1321,10 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
         s.roleState = 'toTarget';
         return;
       }
-      // GDD 6.3: the breaking use STILL did its work above - then discard.
-      if (useTool(s.tool!)) {
+      // GDD 6.3: the breaking use STILL did its work above - then discard. Tool
+      // breakage is a master-switched mechanic (config.TOOL_BREAKAGE); when off the
+      // wear tick is skipped entirely so the tool never breaks (playtest request).
+      if (TOOL_BREAKAGE && useTool(s.tool!)) {
         console.log(`Tool broke: ${role} axe/tool - returning to idle`);
         s.tool = null;
         s.role = 'none';
@@ -1378,6 +1394,32 @@ function reachableBlueprint(
       const path = findPath(bx, by, stand.x, stand.y);
       if (path) return { bp, standCell: stand, path };
     }
+  }
+  return null;
+}
+
+/**
+ * A currently-reachable stand + route for ONE already-claimed blueprint cell, or
+ * null if the builder can reach NO stand of it from where it is right now (VS-3
+ * T3 anti-deadlock). The inner loop of reachableBlueprint pinned to a single bp -
+ * used when a walking builder's ORIGINAL stand gets sealed off by the very walls
+ * the colony is raising: rather than cling to the dead route forever (which
+ * strands the reserved cell, so the shell never encloses and the hut stalls), the
+ * builder re-picks a live stand for the same cell, and if none exists releases
+ * the claim to re-scan.
+ */
+function reachStandFor(
+  s: Survivor,
+  bp: Blueprint,
+): { stand: { x: number; y: number }; path: Path } | null {
+  const bx = Math.round(s.body.x);
+  const by = Math.round(s.body.y);
+  let attempts = 0;
+  for (const stand of findBuildStands(bp.x, bp.y, bx)) {
+    if (attempts >= REACH_MAX_PATH_ATTEMPTS) return null;
+    attempts++;
+    const path = findPath(bx, by, stand.x, stand.y);
+    if (path) return { stand, path };
   }
   return null;
 }
@@ -1481,6 +1523,9 @@ function driveBuilder(s: Survivor): void {
         s.workStand = claim.standCell;
         s.path = claim.path;
         s.waypointIndex = 0;
+        s.buildStuckTicks = 0;
+        s.buildStuckX = Math.round(body.x);
+        s.buildStuckY = Math.round(body.y);
       }
       const bp = s.buildTarget;
       // Cancelled / built out from under us while walking -> drop & re-scan.
@@ -1494,7 +1539,51 @@ function driveBuilder(s: Survivor): void {
         s.workTicksLeft = ROLES['builder'].workTicks;
         s.path = null;
         body.moveDir = 0;
+        s.buildStuckTicks = 0;
         return;
+      }
+      // ANTI-DEADLOCK (VS-3 T3): a builder must never cling to an unreachable
+      // reserved cell forever - the reserved cell then never gets built, the shell
+      // never encloses (so the campfire is never queued), and a few such stuck
+      // claims clog the queue and stall the whole hut (playtest: walls stop
+      // rising, roofs/campfires never finish). Two escapes:
+      //   1. If our route to the stand is dead (stale / consumed without arriving),
+      //      re-pick a still-reachable stand for the SAME cell - the walls we are
+      //      raising routinely seal off the bank we first picked.
+      //   2. Track whether we are physically getting closer; a builder wedged
+      //      against a wall (feet not advancing) gives the claim up after
+      //      BUILD_STUCK_TICKS so a better-placed builder (or a later re-scan)
+      //      can take the cell.
+      const fx = Math.round(body.x);
+      const fy = Math.round(body.y);
+      if (fx !== s.buildStuckX || fy !== s.buildStuckY) {
+        s.buildStuckTicks = 0; // made real ground - not wedged
+        s.buildStuckX = fx;
+        s.buildStuckY = fy;
+      } else {
+        s.buildStuckTicks++;
+      }
+      if (s.buildStuckTicks > BUILD_STUCK_TICKS) {
+        release(bp);
+        clearBuildClaim(s);
+        s.buildStuckTicks = 0;
+        return;
+      }
+      const pathDone =
+        s.path === null ||
+        s.path.waypoints.length === 0 ||
+        s.waypointIndex >= s.path.waypoints.length;
+      if (
+        (s.workStand === null || s.path === null || isPathStale(s.path) || pathDone) &&
+        s.tick - s.lastRepath >= PATH_REPATH_COOLDOWN
+      ) {
+        s.lastRepath = s.tick;
+        const re = reachStandFor(s, bp);
+        if (re !== null) {
+          s.workStand = re.stand;
+          s.path = re.path;
+          s.waypointIndex = 0;
+        }
       }
       const stand = s.workStand;
       if (stand) {
@@ -1538,9 +1627,12 @@ function driveBuilder(s: Survivor): void {
       }
       removeBlueprint(bp);
       clearBuildClaim(s);
-      // GDD 6.3: the build consumed one hammer use; the breaking use still did
-      // its work above - then discard the tool and drop to idle.
-      if (useTool(s.tool!)) {
+      // GDD 6.3: the build consumed one hammer use; the breaking use still did its
+      // work above - then discard the tool and drop to idle. Gated by the tool-
+      // breakage master switch (config.TOOL_BREAKAGE); when off the hammer never
+      // wears, so a builder keeps building instead of silently going idle after
+      // HAMMER_DURABILITY placements (playtest: walls stopped rising).
+      if (TOOL_BREAKAGE && useTool(s.tool!)) {
         console.log('Tool broke: builder hammer - returning to idle');
         s.tool = null;
         s.role = 'none';

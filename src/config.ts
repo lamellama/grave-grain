@@ -432,6 +432,15 @@ export const GATHER_TICKS = 45;
 // iron/stone tiers and the upgrade path are vertical-slice (GDD 14).
 export const WOOD_TOOL_DURABILITY = 5;
 
+// Tool breakage master switch (playtest: disabled by request). When false, tools
+// never wear out mid-play: the role/builder loops skip the useTool() wear tick
+// entirely, so a survivor keeps its axe/pickaxe/hammer for good and never silently
+// drops to idle - the biggest reason camp walls "stopped rising after a few
+// blocks" was builders losing their hammer after HAMMER_DURABILITY placements. The
+// durability mechanic itself (makeTool/useTool) is left intact so it can be
+// re-enabled by flipping this back to true.
+export const TOOL_BREAKAGE = false;
+
 // Yield per completed work action (GDD 6.2 outputs -> stockpile 8).
 export const WOOD_PER_CHOP = 1;   // lumberjack: FOLIAGE -> wood
 export const STONE_PER_MINE = 1;  // miner: exposed STONE -> stone
@@ -1195,6 +1204,14 @@ export const BUILDER_REACH_UP = SHELTER_WALL_HEIGHT;
 // the claim pool back up as cells are finished. >= the expected builders/group so
 // no builder ever idles for want of a claimable cell.
 export const MAX_BUILD_CLAIMS = 6;
+
+// Anti-deadlock (VS-3 T3): how many ticks a builder may spend walking to its
+// claimed cell WITHOUT its feet advancing before it gives the claim up. A builder
+// wedged against the very walls it is raising (its stand sealed off) would
+// otherwise hold the reserved cell forever - stranding it so the shell never
+// encloses and the hut stalls. ~2.5 s at SIM_HZ=60: long enough to round a hut,
+// short enough that a genuine dead-end frees the cell for a better-placed builder.
+export const BUILD_STUCK_TICKS = 150;
 
 // Camp flag (playtest R9, game/camp.ts): horizontal spacing (cells) between
 // adjacent groups' hut sites when more than one group builds at the flag -
