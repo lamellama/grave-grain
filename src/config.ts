@@ -970,6 +970,17 @@ export const SHELTER_WALL_HEIGHT = 16;
 // Must be >= BODY_H so a survivor can walk through without clipping the wall.
 export const SHELTER_DOORWAY_HEIGHT = 13;
 
+// Builder CONSTRUCTION reach (VS-3 geometry pass): how many cells ABOVE its
+// feet a builder can place a blueprint cell from where it stands (the fiction
+// is a ladder/scaffold, not a literal arm - AI-only, touches no sim rule).
+// Harvest/consume reach stays BODY_H; only the builder loop uses this.
+// INVARIANT: >= SHELTER_WALL_HEIGHT - 1 (the roof row sits SHELTER_WALL_HEIGHT-1
+// above the interior feet row), so EVERY cell of a planned hut - upper wall
+// courses AND roof-centre cells over interior air - is placeable from ground
+// level. Without this the hut can never enclose: body reach (12) < roof height
+// (15), and roof-centre cells have nothing to stand on (the T3 RISK).
+export const BUILDER_REACH_UP = SHELTER_WALL_HEIGHT;
+
 // Cooperative build wiring (VS-3 T3, GDD 8/6.1/13). Cap on how many of ONE
 // shelter project's cells are streamed into the build queue (and thus claimable
 // by its group's builders) AT ONCE. Bounding work-in-progress is the GDD 13 cost-

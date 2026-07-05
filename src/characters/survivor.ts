@@ -106,6 +106,7 @@ import {
   WORLD_W,
   BODY_W,
   BODY_H,
+  BUILDER_REACH_UP,
 } from '../config';
 
 /**
@@ -561,11 +562,13 @@ function resourceWithinReach(
  * resourceWithinReach: +/-CONSUME_REACH horizontally, head-to-feet+1 vertically)?
  * The role loop uses this for arrival at a KNOWN target cell (the foliage/rock
  * to harvest, or the stockpile point) rather than scanning for a material.
+ * `up` widens the UPWARD reach only for the builder's construction placement
+ * (BUILDER_REACH_UP - VS-3 geometry pass); every other caller keeps BODY_H.
  */
-function cellWithinReach(body: Body, tx: number, ty: number): boolean {
+function cellWithinReach(body: Body, tx: number, ty: number, up: number = BODY_H): boolean {
   const dx = tx - Math.round(body.x);
   const dy = ty - Math.round(body.y);
-  return dx >= -CONSUME_REACH && dx <= CONSUME_REACH && dy >= -BODY_H && dy <= 1;
+  return dx >= -CONSUME_REACH && dx <= CONSUME_REACH && dy >= -up && dy <= 1;
 }
 
 /**
@@ -586,12 +589,19 @@ interface ReachTarget {
  * Would a body whose feet rest at (fx, fy) have (rx, ry) inside its reach box?
  * Same footprint as resourceWithinReach/cellWithinReach (+/-CONSUME_REACH wide,
  * head-to-feet+1 tall) - the consume/harvest contact test, evaluated for a
- * CANDIDATE stand cell rather than the live body.
+ * CANDIDATE stand cell rather than the live body. `up` widens the upward reach
+ * for builder construction only (BUILDER_REACH_UP).
  */
-function reachBoxContains(fx: number, fy: number, rx: number, ry: number): boolean {
+function reachBoxContains(
+  fx: number,
+  fy: number,
+  rx: number,
+  ry: number,
+  up: number = BODY_H,
+): boolean {
   const dx = rx - fx;
   const dy = ry - fy;
-  return dx >= -CONSUME_REACH && dx <= CONSUME_REACH && dy >= -BODY_H && dy <= 1;
+  return dx >= -CONSUME_REACH && dx <= CONSUME_REACH && dy >= -up && dy <= 1;
 }
 
 /**
@@ -1272,14 +1282,54 @@ function reachableBlueprint(
     .sort((a, b) => a.d - b.d);
   let attempts = 0;
   for (const { bp } of cands) {
-    const stand = findStandCell(bp.x, bp.y, bx);
-    if (!stand) continue; // no standable bank -> can't reach this cell
-    if (attempts >= REACH_MAX_PATH_ATTEMPTS) return null; // give up this scan
-    attempts++;
-    const path = findPath(bx, by, stand.x, stand.y);
-    if (path) return { bp, standCell: stand, path };
+    // Construction reach (BUILDER_REACH_UP > BODY_H): a builder places high wall
+    // courses and roof-centre cells from the ground below (VS-3 geometry pass).
+    // Stands are tried best-first WITH a route check each - the best stand can
+    // be an unroutable wall-top; falling back to a ground stand instead of
+    // skipping the cell is what lets the hut's upper courses ever get built.
+    for (const stand of findBuildStands(bp.x, bp.y, bx)) {
+      if (attempts >= REACH_MAX_PATH_ATTEMPTS) return null; // give up this scan
+      attempts++;
+      const path = findPath(bx, by, stand.x, stand.y);
+      if (path) return { bp, standCell: stand, path };
+    }
   }
   return null;
+}
+
+/**
+ * Builder stand-cell candidates for the blueprint cell (rx, ry), BEST-first
+ * (VS-3 geometry pass). Two construction-specific differences from the single-
+ * result harvest findStandCell:
+ *   - the builder must NEVER stand IN the cell it is about to fill (placing
+ *     solid into its own feet cell would entomb it) - that candidate scores 0
+ *     and would otherwise always win once a wall stack rises under a blueprint;
+ *   - ALL candidates are returned sorted by score, because the best stand can
+ *     be a wall-top cell A* cannot route to (step-up max) - the caller falls
+ *     back to the next-best (usually ground) stand instead of stalling the
+ *     whole build (the T3 tall-hut stall).
+ * Uses the taller BUILDER_REACH_UP box; harvest selection is untouched.
+ */
+function findBuildStands(
+  rx: number,
+  ry: number,
+  bx: number,
+): { x: number; y: number }[] {
+  const out: { x: number; y: number; score: number }[] = [];
+  const bodyDir = Math.sign(bx - rx);
+  for (let fx = rx - CONSUME_REACH; fx <= rx + CONSUME_REACH; fx++) {
+    for (let fy = ry - 1; fy <= ry + BUILDER_REACH_UP; fy++) {
+      if (fx === rx && fy === ry) continue; // never stand in the build cell
+      if (!reachBoxContains(fx, fy, rx, ry, BUILDER_REACH_UP)) continue;
+      if (!isStandableFeet(fx, fy)) continue;
+      const ddx = fx - rx;
+      const ddy = fy - ry;
+      const sideBias = Math.sign(ddx) === bodyDir ? 0 : 1;
+      out.push({ x: fx, y: fy, score: ddx * ddx + ddy * ddy + sideBias });
+    }
+  }
+  out.sort((a, b) => a.score - b.score);
+  return out.map(({ x, y }) => ({ x, y }));
 }
 
 /**
@@ -1354,7 +1404,7 @@ function driveBuilder(s: Survivor): void {
         return;
       }
       const t = s.workTarget!;
-      if (cellWithinReach(body, t.x, t.y)) {
+      if (cellWithinReach(body, t.x, t.y, BUILDER_REACH_UP)) {
         s.roleState = 'working';
         s.workTicksLeft = ROLES['builder'].workTicks;
         s.path = null;
@@ -1376,7 +1426,7 @@ function driveBuilder(s: Survivor): void {
       const bp = s.buildTarget;
       const t = s.workTarget;
       // An override (drinking) pulled us off the job -> walk back to the SAME bp.
-      if (bp === null || t === null || !cellWithinReach(body, t.x, t.y)) {
+      if (bp === null || t === null || !cellWithinReach(body, t.x, t.y, BUILDER_REACH_UP)) {
         s.roleState = 'toTarget';
         driveBuilder(s);
         return;
