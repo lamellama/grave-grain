@@ -84,14 +84,16 @@ assert(WEATHER_SNOW_MAX_TICKS === 3000,  'WEATHER_SNOW_MAX_TICKS === 3000');
 assert(WEATHER_SNOW_MIN_TICKS < WEATHER_SNOW_MAX_TICKS,   'snow min < max');
 
 // Transition chances — sum to ≤ 1.0 (else-clear branch makes up the rest)
-assert(WEATHER_TO_RAIN_CHANCE === 0.5, 'WEATHER_TO_RAIN_CHANCE === 0.5');
+// v0.10 playtest R9 "rain too frequent": halved 0.5 -> 0.25.
+assert(WEATHER_TO_RAIN_CHANCE === 0.25, 'WEATHER_TO_RAIN_CHANCE === 0.25 (R9 frequency rebalance)');
 assert(WEATHER_TO_SNOW_CHANCE === 0.3, 'WEATHER_TO_SNOW_CHANCE === 0.3');
 assert(WEATHER_TO_RAIN_CHANCE + WEATHER_TO_SNOW_CHANCE <= 1.0, 'transition chances sum ≤ 1');
 
 // Spawn chances
 // v0.10 playtest R8: ~8x lighter (0.03 flooded the world in seconds); the
 // per-column pool cap + clear-weather evaporation carry the rest of the fix.
-assert(RAIN_SPAWN_CHANCE === 0.004, 'RAIN_SPAWN_CHANCE === 0.004 (v0.10 flood rebalance)');
+// v0.10 playtest R9 "rain still too heavy": halved again 0.004 -> 0.002.
+assert(RAIN_SPAWN_CHANCE === 0.002, 'RAIN_SPAWN_CHANCE === 0.002 (R9 intensity rebalance)');
 // SNOW_SPAWN_CHANCE: per IN-BAND cell rate (v0.8 playtest M drifting flurries).
 // Lowered to 0.006 in round 2 (snow still buried the colony) for a light dusting.
 // v0.10 playtest R8: halved again (with the SNOW_MAX_DEPTH cap as the real

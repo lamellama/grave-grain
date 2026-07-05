@@ -1116,8 +1116,9 @@ export const WEATHER_SNOW_MAX_TICKS = 3000;
 
 // Transition probabilities FROM clear (roll once on clear expiry).
 // To rain: WEATHER_TO_RAIN_CHANCE; to snow: WEATHER_TO_SNOW_CHANCE;
-// else remains clear (1 - rain - snow = 0.2).
-export const WEATHER_TO_RAIN_CHANCE = 0.5;
+// else remains clear. Rain halved 0.5 -> 0.25 (v0.10 playtest R9 "too
+// frequent"): clear spells now mostly stay clear (0.45 remain-clear).
+export const WEATHER_TO_RAIN_CHANCE = 0.25;
 export const WEATHER_TO_SNOW_CHANCE = 0.3;
 
 // No EXTREME weather (snow) before this tick (v0.8 round 2 playtest): an early
@@ -1130,11 +1131,11 @@ export const WEATHER_SNOW_EARLIEST_TICK = 12000;
 // Per sky-cell per-tick spawn probabilities for precipitation particles.
 // Rain rebalanced ~8x lighter (v0.10 playtest R8: at 0.03 the world "completely
 // floods within a few seconds and everyone drowns" - 0.03x1280 columns was ~38
-// water cells EVERY tick with no removal). At 0.004 a rain spell wets the world
-// (~5 drops/tick) and the per-column pool cap + clear-weather evaporation below
-// keep standing water bounded. The heavy-rain LOOK stays: the draw-time streak
-// overlay (ui.drawWeather) is independent of actual spawned cells.
-export const RAIN_SPAWN_CHANCE = 0.004;
+// water cells EVERY tick with no removal). Halved again to 0.002 (v0.10
+// playtest R9: "rain is still too heavy... maybe half as much"): ~2.5 drops/
+// tick world-wide; the per-column pool cap + clear-weather evaporation below
+// keep standing water bounded.
+export const RAIN_SPAWN_CHANCE = 0.002;
 
 // Per-column standing-water cap for rain (v0.10 playtest R8): a column whose
 // sky-exposed surface is already a pool this deep receives no more rain. Open
@@ -1224,3 +1225,9 @@ export const SNOW_FLECK_COLOR        = 'rgba(235,240,255,0.8)';
 
 // Number of rain/snow flecks drawn per frame in the overlay pass (T5).
 export const WEATHER_OVERLAY_DENSITY = 120;
+
+// Rain-specific overlay density (v0.10 playtest R9 "rain is still too heavy"):
+// the RAIN streak count is halved vs the shared density so a shower READS as
+// light as it now is; snow keeps the full WEATHER_OVERLAY_DENSITY flake count.
+// Draw-time only (ui.drawWeather) - never touches the sim.
+export const RAIN_OVERLAY_DENSITY = 60;

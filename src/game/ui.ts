@@ -38,6 +38,7 @@ import {
   RAIN_STREAK_COLOR,
   SNOW_FLECK_COLOR,
   WEATHER_OVERLAY_DENSITY,
+  RAIN_OVERLAY_DENSITY,
   WEATHER_SKY_DARKEN_RAIN,
   WEATHER_SKY_DARKEN_SNOW,
 } from '../config';
@@ -204,7 +205,10 @@ export function drawWeather(ctx: CanvasRenderingContext2D): void {
   ctx.save();
 
   // --- 1. Precipitation overlay (skip when clear) ---
-  const PRECIP_PARTICLES = WEATHER_OVERLAY_DENSITY;
+  // Rain draws fewer streaks than snow draws flakes (R9 "rain too heavy"):
+  // the shower should read as light as the halved spawn rate makes it.
+  const PRECIP_PARTICLES =
+    weather === 'rain' ? RAIN_OVERLAY_DENSITY : WEATHER_OVERLAY_DENSITY;
   if (weather === 'rain' || weather === 'snow') {
     // Sky-darken wash so storms read as gloomier (config-driven tint).
     ctx.fillStyle = weather === 'rain' ? WEATHER_SKY_DARKEN_RAIN : WEATHER_SKY_DARKEN_SNOW;
