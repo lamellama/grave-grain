@@ -12,19 +12,21 @@
  * Three responsibilities (PLAN VS-3 / GDD 8):
  *   1. ENSURE + STREAM - each active group gets one project (ensureShelterProject)
  *      and at most MAX_BUILD_CLAIMS of its still-unbuilt cells live in the queue
- *      at once (GDD 13 cost discipline). Cells stream BOTTOM-UP (lowest y first):
- *      a builder can only reach a cell it can stand beside, so raising the lowest
- *      wall course first keeps the capped claim-pool full of cells that are
- *      actually reachable NOW; the pool tops back up as builders finish. (Roof and
- *      upper courses need a built wall to stand on - tall-hut build reachability
- *      is a known phase-level limit, see PROGRESS; T3 only owns the wiring.)
+ *      at once (GDD 13 cost discipline). Cells stream BOTTOM-UP (lowest y first)
+ *      so the wall courses rise floor-first; builders place high courses and the
+ *      roof span from the ground below (BUILDER_REACH_UP construction reach -
+ *      the VS-3 geometry pass that resolved the tall-hut reachability RISK).
  *   2. CAMPFIRE ON ENCLOSE - once the shell is complete (every project cell is its
  *      target material), queue ONE campfire blueprint on the interior floor so a
  *      builder lights the hearth inside (VS-2). Not before: a campfire in a roof-
  *      less frame would warm nothing.
- *   3. ABANDON - clearGroupBuild() cancels a group's UNRESERVED queued cells (T4
- *      merge-consolidate / extinct group). Reserved cells are left for their
- *      builder to finish or release on death (survivor.ts), so nothing deadlocks.
+ *   3. ABANDON + RECONCILE (T4) - updateCoopBuild abandons every project whose
+ *      owning group id is no longer active: a MERGE absorbed the id, its members
+ *      died, or the id migrated (canonical id = min member index). The redundant
+ *      project's UNRESERVED queued cells are cancelled (clearGroupBuild); RESERVED
+ *      cells are left for their builder to finish or release on death
+ *      (survivor.ts), so nothing deadlocks. A SPLIT needs no special case: the
+ *      newly-forked group id simply gets its own project on the next ensure.
  *
  * Pure over (groups, projects, grid, queue) - no DOM, no RNG. Module-level state
  * is only the projects map in shelter.ts plus the queue; this file adds none of
@@ -33,7 +35,12 @@
 
 import type { Survivor } from '../characters/survivor';
 import type { ShelterProject } from './shelter';
-import { ensureShelterProject, getShelterProject } from './shelter';
+import {
+  ensureShelterProject,
+  getShelterProject,
+  clearShelterProject,
+  shelterGroupIds,
+} from './shelter';
 import { groupIds, groupMembers } from './groups';
 import { STRUCTURES } from './building';
 import { addBlueprint, blueprintAt, cancelBlueprintAt } from './buildqueue';
@@ -104,12 +111,26 @@ export function streamProject(project: ShelterProject): ShelterProject {
 
 /**
  * Drive cooperative building for the whole colony (call from main on the group
- * recheck cadence - T5). For each active group: ensure its one shelter project,
- * then stream it toward completion. Groups with no live, plannable site are
- * skipped this pass (ensureShelterProject returns null - retried later).
+ * recheck cadence - T5). First RECONCILE (T4): abandon every project whose group
+ * id is no longer active - a merge absorbed it, its members died, or the
+ * canonical id migrated - cancelling its unreserved queued cells and dropping
+ * the project record. (The merged/surviving group keeps ITS OWN project as-is:
+ * re-planning a half-built hut for the bigger headcount would thrash the queue;
+ * growth re-sizing is a later polish.) Then, for each active group: ensure its
+ * one shelter project and stream it toward completion. A group forked by a
+ * SPLIT gets its own fresh project here - no split special-case needed. Groups
+ * with no live, plannable site are skipped this pass (ensureShelterProject
+ * returns null - retried later).
  */
 export function updateCoopBuild(survivors: Survivor[]): void {
-  for (const g of groupIds()) {
+  const active = new Set(groupIds());
+  for (const gid of shelterGroupIds()) {
+    if (!active.has(gid)) {
+      clearGroupBuild(gid); // cancel its unreserved queued cells first...
+      clearShelterProject(gid); // ...then drop the project record itself
+    }
+  }
+  for (const g of active) {
     const members = groupMembers(g);
     const project = ensureShelterProject(g, members, survivors);
     if (project) streamProject(project);
