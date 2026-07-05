@@ -131,6 +131,15 @@ export function updateGameState(state: GameState, ctx: UpdateCtx): void {
     const wasAlive = _prevAlive.has(s);
     const isAlive = s.body.alive;
 
+    // An infected survivor that has DIED but is scheduled to REANIMATE is not
+    // logged here (playtest fix: "die first, then come back"): the turn-watcher
+    // logs the single 'bitten - turned' event when it rises, so we drop it from
+    // the alive set and skip the death event to avoid a duplicate toast.
+    if (wasAlive && !isAlive && s.body.reanimating) {
+      _prevAlive.delete(s);
+      continue;
+    }
+
     if (wasAlive && !isAlive) {
       // Transition: was alive last tick, now dead. Cause priority: the
       // controller's own verdict (starvation/thirst/frozen), then the BODY's

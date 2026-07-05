@@ -403,6 +403,19 @@ export const SURVIVOR_SPAWN_SPREAD = 12;
 // (GDD 13 navgrid - avoids repathing every tick on mutable terrain).
 export const PATH_REPATH_COOLDOWN = 30;
 
+// Hard cap on the number of coarse-cell EXPANSIONS a single A* search may make
+// before it gives up and reports the goal unreachable (GDD 13 perf). Without
+// this, a pathfind to an UNREACHABLE goal (e.g. a survivor sealed behind a
+// wall/barrier the horde is chasing) explores the ENTIRE connected navgrid
+// (~NAV_W*NAV_H cells, each scanning both neighbour columns) - tens of millions
+// of ops. When several freshly-spawned zombies do that on the same tick the
+// frame time spikes to a multi-second freeze ("framerate drops to 0 when
+// zombies spawn"). Bounding the search caps the worst case: a reachable route
+// (even clear across the ~320-column map) settles in far fewer expansions than
+// this, so legitimate paths are unaffected; a hopeless search bails early and
+// the caller (zombie/survivor) falls back to straight-line steering.
+export const PATHFIND_MAX_EXPANSIONS = 6000;
+
 // ---------------------------------------------------------------------------
 // Phase 6 - Roles, resources & tools (GDD 6.2, 6.3, 9)
 // ---------------------------------------------------------------------------
@@ -508,6 +521,27 @@ export const ZOMBIE_SIGHT_RADIUS = 140;
 export const ZOMBIE_SIGHT_BIAS = 0.7;
 export const ZOMBIE_SIGHT_PULL_MAX = 30;
 
+// 7.1 - Colony-ward drift (playtest fix: "they tend to stay at the left edge of
+// the screen and never leave"). The R9 meander rework removed the fixed
+// colony-ward march, which left EDGE-spawned zombies with no survivor in sight
+// (the colony sits SPAWN_ZONE_MARGIN ~360 cells away, well beyond
+// ZOMBIE_SIGHT_RADIUS) aimlessly shuffling at the spawn edge forever. This adds
+// a GENTLE bias in every idle retarget goal toward the colony column (passed to
+// updateZombie), so the horde still meanders unpredictably but NET-migrates
+// across the map and eventually threatens the base. It naturally pulls from
+// either side of the colony (burrow spawns included) and stops pulling once a
+// zombie is on the colony. Same capped-and-scaled shape as the herd/sight pulls;
+// sampled only at retarget time (never per tick). With no colony anchor passed
+// (headless tests) the pull is 0, preserving the pure-local meander they assert.
+//   ZOMBIE_ADVANCE_BIAS   : fraction of the (capped) colony-ward distance mixed
+//                           into each new idle goal. Kept a bias, not a command,
+//                           so the drift reads as a shamble, not a charge.
+//   ZOMBIE_ADVANCE_PULL_MAX: cap (cells) on the colony-ward distance fed in, so
+//                           a distant colony can't fling a goal across the map;
+//                           the per-retarget step stays local and readable.
+export const ZOMBIE_ADVANCE_BIAS = 0.6;
+export const ZOMBIE_ADVANCE_PULL_MAX = 30;
+
 // 7.1 - Intermittent spawning (playtest R9 "instead of waves could they spawn
 // more intermittently"). A wave's roster no longer lands as a 30-tick-stagger
 // block: it is DRIPPED across ~ZOMBIE_SPAWN_SPREAD_FRAC of the wave interval
@@ -544,19 +578,42 @@ export const ATTACK_COOLDOWN = 45;
 // this Math.random() lives in the BODY/AI layer, never inside the chunked CA.
 export const TURN_FROM_BITE = 1.0;
 
-// 7.2 - Ticks after a bite during which the infected survivor KEEPS ACTING
-// before it drops to a prone/downed state. (Seeded for Task 4 progression; the
-// bite itself only sets `infected` + `infectionTicks=0`.)
-export const INFECTION_ACTING_TICKS = 120;
+// 7.2 - Bite -> DEATH -> reanimation timeline (playtest fix: "when they are
+// infected they change too quickly, they should DIE FIRST and come back to life
+// as a zombie"). The whole arc is stretched (was 120 -> 300, ~5 s) so the turn
+// reads as a real, legible death rather than a flicker, and it now passes
+// through a genuine DEATH stage: the infected survivor collapses to a corpse and
+// LIES DEAD for a beat before clawing back up as a zombie. Ordering invariant:
+//   INFECTION_ACTING_TICKS < INFECTION_DEATH_TICKS < TURN_DELAY_TICKS.
+//
+//   INFECTION_ACTING_TICKS: ticks the bitten survivor keeps ACTING (walking,
+//     working, fleeing) before it drops to a prone/downed convulsing state.
+export const INFECTION_ACTING_TICKS = 240;
+
+// 7.2 - Ticks after the bite at which the infected body DIES: it stops being a
+// living survivor and lies down as a (twitching) corpse - alive=false,
+// corpse=true - flagged to reanimate. This is the "die first" beat the player
+// sees before the turn. Must sit between the acting drop and the reanimation.
+export const INFECTION_DEATH_TICKS = 420;
 
 // 7.2 - Total ticks from bite to REANIMATION as a zombie (same body, controller
-// swapped). Must exceed INFECTION_ACTING_TICKS (act, then lie prone, then turn).
-// (Seeded for Task 4 progression; unused by the bite itself.)
-export const TURN_DELAY_TICKS = 300;
+// swapped). The corpse lies dead from INFECTION_DEATH_TICKS until here, then
+// rises. Must exceed INFECTION_DEATH_TICKS (act, collapse, die, THEN turn).
+export const TURN_DELAY_TICKS = 660;
 
 // 7.2 - Radius (cells) from a guard's assigned hold point within which it
 // will leave position to engage a zombie. Beyond this radius it returns home.
 export const GUARD_ENGAGE_RADIUS = 40;
+
+// 6.1 / 7.2 - Flee-zombie avoidance (playtest fix: "the survivors stupidly
+// don't avoid the zombies"). A non-guard survivor with an ALIVE zombie within
+// this many cells drops whatever it is doing and steers directly away from the
+// nearest one (like fleeFire). Set a touch WIDER than the zombie's own bite
+// reach + a margin so a survivor starts backing off BEFORE the zombie closes to
+// striking range, buying time and drawing the horde toward the colony's guards.
+// Armed guards never flee (they engage); a survivor already infected/prone/
+// turned no longer flees (it is doomed / driven elsewhere).
+export const ZOMBIE_FLEE_RADIUS = 44;
 
 // NOTE - ATTACK_DAMAGE: the damage model is fully emergent (GDD 7.2).
 // A successful strike releases body-region cells (flesh/bone/blood) into the
