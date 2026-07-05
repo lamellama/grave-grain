@@ -54,6 +54,13 @@ import {
   CAMPFIRE_BURN_CHANCE,
   SNOW_MELT_TEMP,
   SNOW_AMBIENT_MELT_CHANCE,
+  REPRO_INTERVAL,
+  REPRO_CHANCE,
+  REPRO_MIN_HEIGHT,
+  SEED_MIN_DIST,
+  SEED_MAX_DIST,
+  PLANT_MIN_SPACING,
+  SAPLING_SNOW_KILL_CHANCE,
 } from '../config';
 import { material, integrity, idx, set, setIntegrity } from './grid';
 import { reactions } from './reactions';
@@ -172,6 +179,15 @@ const SALT_CAMPFIRE_BURN = 400;
 // clear of every salt above (1-7, 100-108, 200, 300, 400), so its stream never
 // collides at the same (x, y, tick).
 const SALT_SNOW_AMBIENT_MELT = 500;
+// Tree-reproduction rolls (GDD 9 "drop seeds -> new saplings"): the per-plant
+// "does it seed this round?" chance and the landing-offset draw are two
+// independent decisions at the same (x, y, tick), so they get distinct salts.
+// 600/601 are clear of every salt above (1-7, 100-108, 200, 300, 400, 500).
+const SALT_REPRO_ROLL = 600;
+const SALT_REPRO_DIST = 601;
+// Snow-kill roll for saplings (GDD 9 "snow slows or kills plants"): per tick
+// per snow-touching sapling. 700 is clear of every other salt.
+const SALT_SNOW_KILL = 700;
 // Last tick's ambient temperature, to detect the cold->warm EDGE that wakes a
 // settled snowpack for ambient melt. Cold sentinel so the first warm tick fires.
 let lastTemp = -1e9;
@@ -212,6 +228,13 @@ export function step(): void {
   //    the fall by one tick on the chunked path only -> divergence.)
   updateWeather(tick);
   applyWeather();
+
+  // Tree reproduction (GDD 9): a slow-cadence, deterministic, NON-chunk-gated
+  // seed-drop sweep - the applyWeather pattern. It runs BEFORE beginTick for the
+  // same reason: a placed SAPLING's chunk is woken via markCellActive, and
+  // beginTick swaps that into THIS tick's work set, so the chunked scan visits
+  // the new sapling the same tick the full scan does (no one-tick divergence).
+  applyReproduction();
 
   // Ambient-melt warm-up edge (v0.8 playtest M): a SETTLED snowpack has no local
   // active neighbour to wake it, so when the GLOBAL temperature crosses above
@@ -319,6 +342,115 @@ function applyWeather(): void {
       integrity[i] = 0; // SNOW carries no integrity (clear any stale slot)
       markCellActive(x, y); // wake the chunk so the chunked scan sees the spawn
     }
+  }
+}
+
+/**
+ * Tree reproduction pass (GDD 9 ecology: "trees & bushes reproduce - drop
+ * seeds -> new saplings on suitable soil"). Runs every REPRO_INTERVAL ticks,
+ * UNCONDITIONALLY over every column (never chunk-gated), exactly like the
+ * applyWeather sky-spawn - so the chunked and full-scan paths reproduce
+ * byte-identically without keeping every forest chunk awake in between.
+ *
+ * Per column x (left -> right, fixed order on both paths):
+ *   1) Walk down from the sky to the first non-AIR cell. If it is not FOLIAGE
+ *      this column has no seeding plant top (a SNOW cap, a roof, bare ground
+ *      and still-growing SAPLING tops all skip - only a grown, sky-open canopy
+ *      seeds).
+ *   2) Measure the contiguous FOLIAGE column below it; under REPRO_MIN_HEIGHT
+ *      the plant is a juvenile bush and does not seed.
+ *   3) Roll simRand(x, topY, SALT_REPRO_ROLL) < REPRO_CHANCE.
+ *   4) Draw a landing offset from SALT_REPRO_DIST: distance SEED_MIN_DIST..
+ *      SEED_MAX_DIST, either side (one roll packs distance + sign).
+ *   5) The landing column's surface must be open DIRT (first non-AIR cell is
+ *      DIRT, so the seed cell above it is AIR) with no FOLIAGE or SAPLING
+ *      within PLANT_MIN_SPACING columns of the landing cell (crowding cap:
+ *      forests spread but never carpet - GDD 9 renewable-but-manageable).
+ *      SEED_MIN_DIST > PLANT_MIN_SPACING keeps the parent outside this box.
+ *   6) Place a SAPLING (integrity 0 -> updateSapling auto-seeds its countdown)
+ *      and wake its chunk. The moved-guard is freshly cleared this early in
+ *      step(), so no claim is needed; both scan paths visit it this tick.
+ *
+ * Winter gate: no seeds drop under 'snow' weather (GDD 9 snow slows/kills -
+ * reproduction is a growing-season behaviour; the snow-cap skip in (1) would
+ * mute most of it anyway).
+ *
+ * DETERMINISM: randomness is simRand only - a pure function of (x, y, tick,
+ * seed, salt). Writes go to cells whose read-set (their own column + the
+ * spacing box) was untouched by this pass EXCEPT for saplings this pass itself
+ * just placed - and those are identical on both paths because the sweep order
+ * is fixed. So the pass is chunk-byte-equivalent by construction.
+ */
+function applyReproduction(): void {
+  if (tick % REPRO_INTERVAL !== 0 || tick === 0) return; // slow cadence
+  if (getWeather() === 'snow') return; // winter: no seeding (GDD 9)
+
+  for (let x = 0; x < WORLD_W; x++) {
+    // 1) Sky-open surface cell of this column.
+    let topY = -1;
+    for (let y = 0; y < WORLD_H; y++) {
+      if (material[idx(x, y)] !== AIR) {
+        topY = y;
+        break;
+      }
+    }
+    if (topY === -1 || material[idx(x, topY)] !== FOLIAGE) continue;
+
+    // 2) Mature plants only: contiguous FOLIAGE column height from the top.
+    let height = 0;
+    for (let y = topY; y < WORLD_H && material[idx(x, y)] === FOLIAGE; y++) {
+      height++;
+    }
+    if (height < REPRO_MIN_HEIGHT) continue;
+
+    // 3) Does this plant seed this round?
+    if (simRand(x, topY, SALT_REPRO_ROLL) >= REPRO_CHANCE) continue;
+
+    // 4) One roll packs landing distance AND side: k in [0, 2*span) - the low
+    //    half lands left, the high half right, each at MIN..MAX distance.
+    const span = SEED_MAX_DIST - SEED_MIN_DIST + 1;
+    const k = Math.floor(simRand(x, topY, SALT_REPRO_DIST) * (2 * span));
+    const dist = SEED_MIN_DIST + (k % span);
+    const lx = k < span ? x - dist : x + dist;
+    if (lx < 0 || lx >= WORLD_W) continue;
+
+    // 5) Landing column surface must be open DIRT...
+    let groundY = -1;
+    for (let y = 0; y < WORLD_H; y++) {
+      if (material[idx(lx, y)] !== AIR) {
+        groundY = y;
+        break;
+      }
+    }
+    if (groundY <= 0 || material[idx(lx, groundY)] !== DIRT) continue;
+    const seedY = groundY - 1; // the AIR cell the sapling sprouts in
+
+    // ...with no plant already within PLANT_MIN_SPACING columns (a short box
+    // around the landing cell: the spacing columns, from a little above the
+    // seed down to the ground row, catches neighbours on uneven terrain).
+    let crowded = false;
+    for (let dx = -PLANT_MIN_SPACING; dx <= PLANT_MIN_SPACING && !crowded; dx++) {
+      const cx = lx + dx;
+      if (cx < 0 || cx >= WORLD_W) continue;
+      const y0 = Math.max(0, seedY - PLANT_MIN_SPACING);
+      const y1 = Math.min(WORLD_H - 1, groundY + 1);
+      for (let cy = y0; cy <= y1; cy++) {
+        const m = material[idx(cx, cy)];
+        if (m === FOLIAGE || m === SAPLING) {
+          crowded = true;
+          break;
+        }
+      }
+    }
+    if (crowded) continue;
+
+    // 6) Germinate: a fresh sapling on the soil (GDD 9 "new saplings on
+    //    suitable soil"). integrity 0 = unseeded countdown (updateSapling's
+    //    first visit seeds it); markCellActive wakes the chunk for this tick.
+    const s = idx(lx, seedY);
+    material[s] = SAPLING;
+    integrity[s] = 0;
+    markCellActive(lx, seedY);
   }
 }
 
@@ -680,6 +812,16 @@ function waterAdjacent(x: number, y: number): boolean {
   );
 }
 
+/** Any orthogonal SNOW neighbour? (GDD 9 snow-kill contact probe.) */
+function snowAdjacent(x: number, y: number): boolean {
+  return (
+    (x > 0 && material[idx(x - 1, y)] === SNOW) ||
+    (x < WORLD_W - 1 && material[idx(x + 1, y)] === SNOW) ||
+    (y > 0 && material[idx(x, y - 1)] === SNOW) ||
+    (y < WORLD_H - 1 && material[idx(x, y + 1)] === SNOW)
+  );
+}
+
 /**
  * SAPLING rule (post-MVP backlog, playtest v0.6 #G; GDD 9 ecology). A planted
  * seed that does NOT fall - it stays pinned and MATURES into FOLIAGE over time,
@@ -714,19 +856,49 @@ function updateSapling(x: number, y: number): void {
   const s = idx(x, y);
   let g = integrity[s];
 
+  // 0) SNOW KILLS saplings (GDD 9 "snow slows or kills plants"): a sapling in
+  //    contact with a SNOW cell (any orthogonal neighbour - beside, buried
+  //    under, or drifted against) rolls a small per-tick wither chance. Grown
+  //    FOLIAGE is hardy; only the sapling generation dies to winter. simRand
+  //    keeps it deterministic + chunk-byte-equivalent, and the sapling is
+  //    already self-marking active every tick, so the chunked scan sees every
+  //    roll the full scan does.
+  if (
+    snowAdjacent(x, y) &&
+    simRand(x, y, SALT_SNOW_KILL) < SAPLING_SNOW_KILL_CHANCE
+  ) {
+    material[s] = AIR;
+    integrity[s] = 0;
+    moved[s] = 1; // claim the freed AIR so it isn't re-processed this tick
+    markCellActive(x, y);
+    return;
+  }
+
   // 1) Seed an unseeded countdown (GROW_TICKS + deterministic simRand jitter).
   if (g === 0) {
     g = GROW_TICKS + Math.floor(simRand(x, y, SALT_GROW) * GROW_JITTER);
   }
 
-  // 2) Decrement - water accelerates growth (GDD 9); RAIN accelerates it on top
+  // 2) SNOW PAUSES growth (GDD 9): under 'snow' weather the countdown holds
+  //    (it resumes when the weather breaks). We still rewrite the slot and
+  //    mark the cell active so the chunk NEVER settles mid-pause - otherwise
+  //    the chunked scan would sleep through the thaw while the full scan
+  //    resumed, and the two would diverge. getWeather() is global state,
+  //    identical on both paths.
+  if (getWeather() === 'snow') {
+    integrity[s] = g;
+    markCellActive(x, y);
+    return;
+  }
+
+  // 3) Decrement - water accelerates growth (GDD 9); RAIN accelerates it on top
   //    (GDD 10, T4). Both are pure multipliers on the per-tick countdown step.
   //    getWeather() is GLOBAL state, identical on chunked/unchunked scans, so the
   //    speedup stays chunk-byte-equivalent and deterministic (no Math.random).
   let dec = waterAdjacent(x, y) ? GROW_WATER_SPEEDUP : 1;
   if (getWeather() === 'rain') dec *= GROW_RAIN_SPEEDUP;
 
-  // 3) Expiry -> mature or wither.
+  // 4) Expiry -> mature or wither.
   if (g <= dec) {
     growSapling(x, y);
     return;

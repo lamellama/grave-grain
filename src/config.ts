@@ -165,6 +165,35 @@ export const GROW_WATER_SPEEDUP = 2;
 // sapling, so the plant stops growing - never an infinite tower.
 export const FOLIAGE_GROW_MAX_HEIGHT = 6;
 
+// ---------------------------------------------------------------------------
+// Tree reproduction (GDD 9 ecology: "drop seeds -> new saplings on suitable
+// soil") + snow slows/kills plants (Beyond, user-prioritized item 2)
+// ---------------------------------------------------------------------------
+// Mature plants REPRODUCE: on a slow global cadence (every REPRO_INTERVAL
+// ticks) each mature plant TOP (the topmost FOLIAGE cell of a column at least
+// REPRO_MIN_HEIGHT tall, open to the sky) rolls REPRO_CHANCE to drop a seed.
+// The seed lands SEED_MIN_DIST..SEED_MAX_DIST columns away (random sign) and
+// becomes a SAPLING if it finds open DIRT there - suitable soil, AIR above,
+// and no other plant within PLANT_MIN_SPACING columns (the crowding cap that
+// keeps a forest renewable-but-manageable instead of carpeting the map).
+// The pass is deterministic (simRand only) and non-chunk-gated, exactly like
+// the applyWeather sky-spawn - see simulation.applyReproduction.
+export const REPRO_INTERVAL = 600; // ~10s at SIM_HZ=60 between seed rounds
+export const REPRO_CHANCE = 0.15; // per mature plant top, per round
+export const REPRO_MIN_HEIGHT = 3; // column height that counts as "mature"
+export const SEED_MIN_DIST = 5; // seeds never land under the parent canopy
+export const SEED_MAX_DIST = 12; // bounded spread per generation
+export const PLANT_MIN_SPACING = 4; // no neighbour plant within this many cols
+
+// Snow slows or KILLS plants (GDD 9 "drought/snow slows or kills plants").
+// Under 'snow' weather sapling growth PAUSES (countdown holds; it resumes when
+// the weather breaks) and no seeds drop. A sapling in CONTACT with a SNOW cell
+// (any of its 4 orthogonal neighbours, or buried under one) additionally rolls
+// this per-tick chance to WITHER to AIR - so a snowed-under sapling generation
+// mostly dies while grown FOLIAGE stays hardy (the forest survives winter, the
+// spring regrowth is what winter costs you).
+export const SAPLING_SNOW_KILL_CHANCE = 0.005;
+
 // Phase 4 - Body materials (GDD 5.2 FLESH/BONE/BLOOD rows). Densities keep the
 // gore pile readable: bone is heaviest (sinks/structures), flesh middling, blood
 // is a thin near-weightless fluid that seeks its level and douses NOTHING.
