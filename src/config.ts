@@ -395,7 +395,10 @@ export const FOOD_PER_GATHER = 1; // forager: FOLIAGE -> food
 // Auto-craft costs (GDD 6.2-6.3: a role is assignable only if its required
 // wood-tier tool exists or can be crafted from the stockpile). Wood only - no
 // workstation in MVP. Weapons are tools too (6.3).
-export const AXE_WOOD_COST = 2;
+// AXE is FREE (playtest v0.9 P): the lumberjack is the colony's wood BOOTSTRAP
+// role - a wood-costed axe soft-locks the game at 0 wood (nothing can earn the
+// wood the axe itself needs). Every other tool keeps its wood gate.
+export const AXE_WOOD_COST = 0;
 export const PICKAXE_WOOD_COST = 2;
 export const WEAPON_WOOD_COST = 2;
 export const BASKET_WOOD_COST = 1;

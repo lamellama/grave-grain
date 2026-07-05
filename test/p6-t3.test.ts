@@ -5,9 +5,11 @@
  * Done-when checks:
  *  1. makeTool('axe').durability === WOOD_TOOL_DURABILITY; useTool returns
  *     false until the LAST use (durability=5: false,false,false,false,true).
- *  2. Empty stockpile → canAssign('lumberjack',[])===false; after adding
- *     AXE_WOOD_COST wood → true; craftToolFor returns an axe and deducts the
- *     wood; canAssign('lumberjack',['axe'])===true even with empty stockpile.
+ *  2. Lumberjack is the wood BOOTSTRAP role (playtest v0.9 P): its axe is free
+ *     (AXE_WOOD_COST=0) so it is assignable even at 0 wood. The wood gate is
+ *     still enforced for costed tools: empty stockpile → canAssign('miner',[])
+ *     ===false; after adding PICKAXE_WOOD_COST wood → true; craftToolFor
+ *     deducts the wood; canAssign('miner',['pickaxe'])===true even when broke.
  *  3. findTarget over a seeded grid: lumberjack/forager → FOLIAGE; miner →
  *     EXPOSED stone (skips a fully-buried block, picks the one-exposed-face
  *     cell); guard → stockpilePoint.
@@ -32,7 +34,7 @@ import { set, get } from '../src/engine/grid';
 import { AIR, STONE, ORE, FOLIAGE } from '../src/engine/materials';
 import {
   WOOD_TOOL_DURABILITY,
-  AXE_WOOD_COST,
+  PICKAXE_WOOD_COST,
   CHOP_TICKS,
   MINE_TICKS,
   GATHER_TICKS,
@@ -60,15 +62,22 @@ check(axe.durability <= 0, `axe durability <= 0 after breaking (got ${axe.durabi
 // ---------------------------------------------------------------------------
 console.log('\n--- 2. Tool-gated assignment & auto-craft ---');
 resetStockpile();
-check(canAssign('lumberjack', []) === false, 'empty stockpile + no tools → lumberjack NOT assignable');
-addResource('wood', AXE_WOOD_COST);
-check(canAssign('lumberjack', []) === true, `after +${AXE_WOOD_COST} wood → lumberjack assignable (craftable)`);
+// Playtest v0.9 P: the axe is free, so the lumberjack can ALWAYS be assigned -
+// a colony at 0 wood bootstraps its wood economy through this role.
+check(canAssign('lumberjack', []) === true, 'empty stockpile → lumberjack STILL assignable (free axe - wood bootstrap)');
 const crafted = craftToolFor('lumberjack');
 check(crafted !== null && crafted.kind === 'axe', 'craftToolFor(lumberjack) returns an axe');
 check(crafted !== null && crafted.durability === WOOD_TOOL_DURABILITY, 'crafted axe is fresh (full durability)');
+check(getStockpile().wood === 0, `free axe craft left wood at 0 (got ${getStockpile().wood})`);
+// The wood gate still holds for COSTED tools (miner's pickaxe shown here).
+check(canAssign('miner', []) === false, 'empty stockpile + no tools → miner NOT assignable (pickaxe costs wood)');
+addResource('wood', PICKAXE_WOOD_COST);
+check(canAssign('miner', []) === true, `after +${PICKAXE_WOOD_COST} wood → miner assignable (craftable)`);
+const pick = craftToolFor('miner');
+check(pick !== null && pick.kind === 'pickaxe', 'craftToolFor(miner) returns a pickaxe');
 check(getStockpile().wood === 0, `craft deducted wood back to 0 (got ${getStockpile().wood})`);
-check(canAssign('lumberjack', []) === false, 'empty stockpile again → not assignable (no spare wood)');
-check(canAssign('lumberjack', ['axe']) === true, 'already owns axe → assignable even with empty stockpile');
+check(canAssign('miner', []) === false, 'empty stockpile again → miner not assignable (no spare wood)');
+check(canAssign('miner', ['pickaxe']) === true, 'already owns pickaxe → assignable even with empty stockpile');
 check(canAssign('guard', []) === false, 'guard needs a weapon → not assignable when broke');
 check(canAssign('none', []) === true, "role 'none' always assignable (no tool)");
 // none → no tool crafted

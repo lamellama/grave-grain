@@ -158,7 +158,9 @@ export const ROLES: Record<RoleName, RoleDef> = {
     workTicks: 0,
     craftCost: {},
   },
-  // Fells trees: walks THROUGH foliage and chops it to wood (GDD 9).
+  // Fells trees: walks THROUGH foliage and chops it to wood (GDD 9). The axe
+  // is FREE (AXE_WOOD_COST=0) so a colony at 0 wood can always bootstrap its
+  // wood economy through this role (playtest v0.9 P).
   lumberjack: {
     requiredTool: 'axe',
     output: 'wood',
