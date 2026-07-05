@@ -103,6 +103,7 @@ import {
   SHELTER_ROOF_SCAN,
   PATH_REPATH_COOLDOWN,
   GUARD_ENGAGE_RADIUS,
+  ZOMBIE_FLEE_RADIUS,
   ATTACK_COOLDOWN,
   WORLD_W,
   BODY_W,
@@ -121,6 +122,7 @@ export type Behaviour =
   | 'seekFood'
   | 'seekWarmth'
   | 'fleeFire'
+  | 'fleeZombie'
   | 'consuming';
 
 /**
@@ -1023,14 +1025,15 @@ function driveSeekWarmth(s: Survivor): void {
 }
 
 /**
- * Flee fire (GDD 6.1): steer directly AWAY from the nearest flame - no path
- * needed, just pick the horizontal direction that increases distance. If the
- * fire is gone (caller only enters this with fire present) we stand still.
+ * Flee a threat (GDD 6.1): steer directly AWAY from a point (the nearest flame,
+ * or the nearest zombie - playtest fix "survivors don't avoid the zombies") -
+ * no path needed, just pick the horizontal direction that increases distance.
+ * The caller only enters a flee behaviour with a threat present.
  */
-function driveFleeFire(s: Survivor, fire: { x: number; y: number }): void {
+function driveFleeFrom(s: Survivor, threat: { x: number; y: number }): void {
   const body = s.body;
-  const dx = Math.round(body.x) - fire.x;
-  body.moveDir = dx >= 0 ? 1 : -1; // fire to the left/under us -> go right, else left
+  const dx = Math.round(body.x) - threat.x;
+  body.moveDir = dx >= 0 ? 1 : -1; // threat to the left/under us -> go right, else left
 }
 
 /**
@@ -1547,19 +1550,44 @@ function driveBuilder(s: Survivor): void {
 /**
  * Pick this tick's behaviour by priority (GDD 6.1 auto-override). Full priority
  * including the Phase-6 role loop is:
- *   fleeFire > seekWater(thirst) > seekFood(hunger) > seekWarmth(cold) > role-loop > wander.
- * This picker resolves the need/fire layer; when it lands on 'wander',
+ *   fleeFire > fleeZombie > seekWater(thirst) > seekFood(hunger) >
+ *   seekWarmth(cold) > role-loop > wander.
+ * This picker resolves the need/danger layer; when it lands on 'wander',
  * updateSurvivor substitutes the role loop if a role + tool are present.
- * Fire interrupts ANYTHING (incl. consuming); otherwise an in-progress consume
- * runs to completion. Switching to a NEW behaviour drops any stale route so the
- * next seek replans fresh. Returns the nearest fire (for the flee driver) when
- * fleeing, else null.
+ * DANGER interrupts ANYTHING (incl. consuming): fire first, then a nearby
+ * zombie (playtest fix "survivors don't avoid the zombies") - an unarmed
+ * survivor steers away from the nearest ALIVE zombie within ZOMBIE_FLEE_RADIUS
+ * rather than standing there getting bitten. ARMED GUARDS never flee (they
+ * engage via the role loop). Otherwise an in-progress consume runs to
+ * completion. Switching to a NEW behaviour drops any stale route so the next
+ * seek replans fresh. Returns the point to flee FROM (fire or zombie) when a
+ * flee behaviour is chosen, else null.
  */
-function selectBehaviour(s: Survivor): { x: number; y: number } | null {
+function selectBehaviour(
+  s: Survivor,
+  zombies: Zombie[],
+): { x: number; y: number } | null {
   const fire = nearestFire(s.body);
+  // An armed guard holds the line (driveGuardCombat) instead of fleeing; every
+  // other survivor avoids the horde. Skip the (bounded) zombie scan for guards.
+  const isArmedGuard =
+    s.role === 'guard' && s.tool !== null && s.tool.kind === 'weapon';
+  const threat = isArmedGuard
+    ? null
+    : nearestZombie(
+        Math.round(s.body.x),
+        Math.round(s.body.y),
+        zombies,
+        ZOMBIE_FLEE_RADIUS,
+      );
+  let fleePoint: { x: number; y: number } | null = null;
   let next: Behaviour;
   if (fire) {
     next = 'fleeFire';
+    fleePoint = fire;
+  } else if (threat) {
+    next = 'fleeZombie';
+    fleePoint = { x: Math.round(threat.body.x), y: Math.round(threat.body.y) };
   } else if (s.behaviour === 'consuming') {
     next = 'consuming'; // stay until done
   } else if (s.needs.thirst < THIRST_THRESHOLD) {
@@ -1586,7 +1614,7 @@ function selectBehaviour(s: Survivor): { x: number; y: number } | null {
     s.waypointIndex = 0;
     s.seekTarget = null; // a new behaviour re-acquires its own reachable target
   }
-  return fire;
+  return fleePoint;
 }
 
 /**
@@ -1707,14 +1735,16 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
     return;
   }
 
-  // 4. Auto-override (GDD 6.1): crossing a need threshold (or fire nearby) drops
-  //    wander and self-preserves. Select the behaviour, then drive it - each
-  //    driver only ever sets body.moveDir (local steering); locomotion walks.
-  const fire = selectBehaviour(s);
+  // 4. Auto-override (GDD 6.1): crossing a need threshold, fire, OR a nearby
+  //    zombie drops wander and self-preserves. Select the behaviour, then drive
+  //    it - each driver only ever sets body.moveDir (local steering); locomotion
+  //    walks. `fleePoint` is the point to flee FROM for a flee behaviour.
+  const fleePoint = selectBehaviour(s, zombies);
   switch (s.behaviour) {
     case 'fleeFire':
-      // selectBehaviour only returns 'fleeFire' when `fire` is non-null.
-      driveFleeFire(s, fire!);
+    case 'fleeZombie':
+      // selectBehaviour only returns a flee behaviour when fleePoint is non-null.
+      driveFleeFrom(s, fleePoint!);
       break;
     case 'seekWater':
       driveSeek(s, WATER, 'water');

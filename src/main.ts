@@ -334,7 +334,9 @@ function simulationTick(): void {
   for (let i = 0; i < zombies.length; i++) {
     const z = zombies[i];
     if (zombieShouldRun(z, i, win, survivorBodies, tickCount)) {
-      updateZombie(z, survivors, zombies);
+      // Pass the colony column so idle zombies drift toward the base instead of
+      // shuffling in place at the spawn edge (playtest fix - see colonyPullX).
+      updateZombie(z, survivors, zombies, world.spawnX);
     }
   }
 
