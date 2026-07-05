@@ -318,10 +318,12 @@ function simulationTick(): void {
   rebuildZombieFooting(zombies);
 
   // Drive zombies FIRST so survivor combat + breaching read fresh zombie state.
+  // The full zombie list is passed as the herd (GDD 7.1 herd behaviour): idle
+  // zombies bias their meander goals toward nearby allies and clump up.
   for (let i = 0; i < zombies.length; i++) {
     const z = zombies[i];
     if (zombieShouldRun(z, i, win, survivorBodies, tickCount)) {
-      updateZombie(z, survivors);
+      updateZombie(z, survivors, zombies);
     }
   }
 
