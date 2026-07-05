@@ -45,6 +45,7 @@ import { makeTool } from '../src/game/roles';
 import { addResource, resetStockpile } from '../src/game/resources';
 import { resetQueue, getBlueprints } from '../src/game/buildqueue';
 import { updateGroups, resetGroups, groupIds } from '../src/game/groups';
+import { resetCampFlag, plantCampFlagAt } from '../src/game/camp';
 import { getShelterProject, resetShelters, type ShelterProject } from '../src/game/shelter';
 import { updateCoopBuild, shellComplete } from '../src/game/coopbuild';
 
@@ -66,6 +67,7 @@ function resetWorld(): void {
   resetShelters();
   resetGroups();
   resetStockpile();
+  resetCampFlag(); // R9: updateCoopBuild builds nothing without the camp flag
 }
 
 /** Make survivor a hammer-bearing builder (bypasses crafting). */
@@ -117,6 +119,7 @@ check(BUILDER_REACH_UP > BODY_H, `1: BUILDER_REACH_UP (${BUILDER_REACH_UP}) > BO
 // ===========================================================================
 {
   resetWorld();
+  plantCampFlagAt(302, FEET); // R9: the player sites the camp with the flag
   addResource('wood', 500);
   addResource('stone', 500);
 

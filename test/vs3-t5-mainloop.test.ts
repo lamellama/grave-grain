@@ -55,6 +55,7 @@ import {
   shellComplete,
   queuedCellCount,
 } from '../src/game/coopbuild';
+import { resetCampFlag, plantCampFlagAt } from '../src/game/camp';
 
 let failures = 0;
 function check(cond: boolean, msg: string): void {
@@ -130,6 +131,12 @@ try {
 check(!threw, 'main.ts bootstraps with the T5 wiring (no throw)' + (threw ? ' - ' + (threw.message || threw) : ''));
 check(rafCb !== null, 'main started the render loop');
 
+// R9 camp flag: main starts with NO flag and builds nothing until the player
+// plants it. Simulate the player's Flag tap just right of the spawn cluster
+// (WORLDGEN_SEED is fixed; spawnX=920, starter-camp canopy spans ~+/-6 - 950
+// is open ground, so the tap snaps to the real surface, not the camp roof).
+plantCampFlagAt(950, 0);
+
 // Drive enough frames for two full recheck periods (1 sim tick per frame).
 const FRAMES = GROUP_RECHECK_TICKS * 2 + 5;
 for (let f = 0; f < FRAMES && rafCb; f++) {
@@ -186,6 +193,10 @@ function resetWorld(): void {
   resetShelters();
   resetGroups();
   resetStockpile();
+  // R9: drop the previous block's camp flag. B1 plants its own; B2 runs
+  // flagless (its project is planned directly via ensureShelterProject, and a
+  // leftover flag would make updateCoopBuild abandon that version-0 project).
+  resetCampFlag();
 }
 
 function asBuilder(s: Survivor): Survivor {
@@ -232,6 +243,7 @@ function mainTick(
 label('B1 phase e2e: plan -> build -> enclose -> campfire -> recover');
 {
   resetWorld();
+  plantCampFlagAt(301, FEET); // R9: the player sites the camp with the flag
   simTick = 0;
   __setWeatherForTest('clear'); // mild while the hut goes up (isolates building)
   addResource('wood', 500);

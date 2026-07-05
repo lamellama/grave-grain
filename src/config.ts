@@ -1088,6 +1088,13 @@ export const BUILDER_REACH_UP = SHELTER_WALL_HEIGHT;
 // no builder ever idles for want of a claimable cell.
 export const MAX_BUILD_CLAIMS = 6;
 
+// Camp flag (playtest R9, game/camp.ts): horizontal spacing (cells) between
+// adjacent groups' hut sites when more than one group builds at the flag -
+// huts go up side-by-side (rank * spacing to the right of the flag) instead
+// of overlapping. Sized to a typical small hut (interior ~8-10 + walls) plus
+// a walking gap.
+export const CAMP_SITE_SPACING = 24;
+
 // Shelter detection (GDD 8 / 6.1): isSheltered() bounded scan limit.
 // SHELTER_ROOF_SCAN: cells scanned UPWARD above the body's head to find a
 //   WOOD/WALL roof. 6 cells = a modest low ceiling (short structures still count).

@@ -30,6 +30,7 @@ import { AIR, SAND, STONE, WATER, DIRT, FOLIAGE, SAPLING, isFlammable } from './
 import { ignite } from './engine/simulation';
 import { placeStructure, canPlace, type StructureKind } from './game/building';
 import { addBlueprint, blueprintAt, cancelBlueprintAt } from './game/buildqueue';
+import { plantCampFlagAt } from './game/camp';
 import { BRUSH_RADIUS, ASSIGN_PICK_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, SELECT_TAP_RADIUS, TAP_CYCLE_RESET_MS } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
@@ -51,7 +52,7 @@ export { pickBone } from './characters/pick';
  * 'Assign' (tap a survivor to open role menu - GDD 6.2, p6-t5).
  * GDD 12.3: the currently selected tool defines what a drag does.
  */
-type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Assign' | 'Build' | 'Plan';
+type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Assign' | 'Build' | 'Plan' | 'Flag';
 
 const toolState = {
   mode: 'Pan' as ToolMode,
@@ -816,6 +817,13 @@ function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
     } else {
       closeRoleMenu();
     }
+  } else if (toolState.mode === 'Flag') {
+    // Flag on TAP (playtest R9 base assignment): plant/move the camp flag,
+    // snapped to the local surface. Survivors build camp ONLY at (and after)
+    // the flag - main re-homes the colony on the version bump and coopbuild
+    // re-plans at the new site.
+    plantCampFlagAt(Math.floor(wx), Math.floor(wy));
+    pushToast('Camp flag planted - survivors will build camp here');
   }
 }
 
@@ -905,6 +913,7 @@ export function setToolMode(mode: 'Paint', materialId: number): void;
 export function setToolMode(mode: 'Ignite'): void;
 export function setToolMode(mode: 'Shoot'): void;
 export function setToolMode(mode: 'Assign'): void;
+export function setToolMode(mode: 'Flag'): void;
 export function setToolMode(mode: 'Build', structure: StructureKind): void;
 export function setToolMode(mode: 'Plan', structure: StructureKind): void;
 export function setToolMode(mode: ToolMode, materialIdOrStructure?: number | StructureKind): void {
@@ -950,6 +959,8 @@ function updateToolbarUI(): void {
       isActive = toolState.mode === 'Shoot';
     } else if (btnMode === 'assign') {
       isActive = toolState.mode === 'Assign';
+    } else if (btnMode === 'flag') {
+      isActive = toolState.mode === 'Flag';
     } else if (btnMode === 'build') {
       const btnStructure = btn.getAttribute('data-structure');
       isActive = toolState.mode === 'Build' && btnStructure === toolState.buildStructure;
@@ -1047,6 +1058,8 @@ export function initInput(canvas: HTMLCanvasElement): void {
         setToolMode('Assign');
         // Close any open role menu when switching to Assign tool.
         closeRoleMenu();
+      } else if (mode === 'flag') {
+        setToolMode('Flag');
       } else if (mode === 'build') {
         const structure = button.getAttribute('data-structure');
         if (structure) {

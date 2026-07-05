@@ -48,6 +48,7 @@ import {
   reserve,
 } from '../src/game/buildqueue';
 import { updateGroups, resetGroups, groupIds, groupMembers } from '../src/game/groups';
+import { resetCampFlag, plantCampFlagAt } from '../src/game/camp';
 import {
   ensureShelterProject,
   getShelterProject,
@@ -80,6 +81,7 @@ function resetWorld(): void {
   resetShelters();
   resetGroups();
   resetStockpile();
+  resetCampFlag(); // R9: updateCoopBuild builds nothing without the camp flag
 }
 
 /** N survivors clustered tightly around column cx (so they form ONE group). */
@@ -119,6 +121,7 @@ function unbuilt(p: ShelterProject): number {
 // ===========================================================================
 {
   resetWorld();
+  plantCampFlagAt(400, FEET); // R9: the player sites the camp with the flag
   const survs = colony(400, 4);
   // Settle the group: co-located survivors adopt ONE group on first recompute.
   updateGroups(survs, 0);
@@ -155,6 +158,7 @@ function unbuilt(p: ShelterProject): number {
 // ===========================================================================
 {
   resetWorld();
+  plantCampFlagAt(400, FEET); // R9: the player sites the camp with the flag
   addResource('stone', 200); // walls are STONE (streamed bottom-up first)
   addResource('wood', 200); // roof is WOOD; plenty for the whole hut
   const survs = colony(400, 3).map(asBuilder);

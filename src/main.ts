@@ -49,6 +49,7 @@ import { resetQueue } from './game/buildqueue';
 import { updateGroups, resetGroups } from './game/groups';
 import { updateCoopBuild } from './game/coopbuild';
 import { resetShelters } from './game/shelter';
+import { resetCampFlag, getCampFlag, getFlagVersion } from './game/camp';
 import { generateWorld } from './game/worldgen';
 import { createGameState, updateGameState } from './game/state';
 import {
@@ -65,6 +66,7 @@ import {
   drawWeather,
   advanceHitFlashes,
   drawSelectionHighlight,
+  drawCampFlag,
 } from './game/ui';
 
 // ============================================================================
@@ -180,6 +182,11 @@ resetQueue();
 resetGroups();
 resetShelters();
 
+// Playtest R9: no camp flag at the start of a run - survivors build NOTHING
+// until the player plants it (Flag tool). Prompt the player once.
+resetCampFlag();
+pushToast('Plant the ⚑ Flag to choose where camp is built');
+
 // Starting resources so the first tool/wall can be crafted/built on load
 // (GDD 6.2 tool-gating, 8 build affordability).
 addResource('wood', STARTING_WOOD);
@@ -260,6 +267,10 @@ const stockpileReadoutEl = document.getElementById('stockpile-readout') as HTMLE
 
 let leftArrowHeld = false;
 let rightArrowHeld = false;
+
+// Last camp-flag version we re-homed the colony for (playtest R9). 0 = the
+// never-planted state, so the first placement always triggers the re-home.
+let lastFlagVersion = 0;
 
 // ============================================================================
 // Fixed-timestep game loop
@@ -359,6 +370,22 @@ function simulationTick(): void {
   // tops up the queue, the builder role does the actual building. Runs after
   // updateInfection so a survivor downed/turned this tick is already excluded
   // from grouping and its project maths.
+  // Camp-flag relocation (playtest R9): when the flag is planted or moved,
+  // RE-HOME every living survivor to it so the colony walks over (idle wander
+  // orbits `home`; builders follow the re-planned blueprints; seekWarmth
+  // follows the group's new hut once it stands).
+  if (getFlagVersion() !== lastFlagVersion) {
+    lastFlagVersion = getFlagVersion();
+    const flag = getCampFlag();
+    if (flag) {
+      for (const s of survivors) {
+        if (!s.body.alive || s.turned) continue;
+        s.home.x = flag.x;
+        s.home.y = flag.y;
+      }
+    }
+  }
+
   updateGroups(survivors, tickCount);
   if (tickCount % GROUP_RECHECK_TICKS === 0) updateCoopBuild(survivors);
 
@@ -516,6 +543,8 @@ function renderLoop(): void {
   drawWeather(ctx);
   // v0.8 playtest K: selection box that tracks the role-menu's survivor.
   drawSelectionHighlight(ctx, getSelectedSurvivor());
+  // Playtest R9: the planted camp flag (pole + green pennant), camera-tracked.
+  drawCampFlag(ctx);
   drawNeedsBars(ctx, survivors);
   drawEdgeArrows(ctx, zombies, camera, vpW, vpH);
   // task 11-4: off-screen breach alert (GDD 12.1 / 7.4).

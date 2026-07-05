@@ -20,6 +20,7 @@ import type { Zombie } from '../characters/zombie';
 import type { GameState } from './state';
 import { worldToScreen, effectiveCellPx } from '../camera';
 import { stockpilePoint } from './resources';
+import { getCampFlag } from './camp';
 import { recentChips, getBreachTick } from './breaching';
 import { getWeather, getTemperature, type WeatherState } from '../engine/weather';
 import {
@@ -453,6 +454,44 @@ export function drawSelectionHighlight(
 }
 
 // ---------------------------------------------------------------------------
+// Camp flag marker (playtest R9, game/camp.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Draw the planted camp flag - a pole with a green pennant at the flag's world
+ * cell, tracked by the camera. No-op while no flag is planted. Pure ctx
+ * overlay (never the ImageData path); guard-safe for stub/zero-size canvas.
+ */
+export function drawCampFlag(ctx: CanvasRenderingContext2D): void {
+  const flag = getCampFlag();
+  if (!flag) return;
+  const canvas = ctx.canvas;
+  if (!canvas) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  if (cw === 0 || ch === 0) return;
+
+  const cell = effectiveCellPx();
+  const sc = worldToScreen(flag.x, flag.y);
+  const poleH = cell * 6;
+  if (sc.x < -40 || sc.x > cw + 40 || sc.y < -40 || sc.y > ch + poleH + 40) return;
+
+  ctx.save();
+  // Pole.
+  ctx.fillStyle = '#d8c9a3';
+  ctx.fillRect(Math.round(sc.x), Math.round(sc.y - poleH), Math.max(2, cell / 3), Math.round(poleH));
+  // Pennant (green triangle flying right from the pole top).
+  ctx.fillStyle = '#3dd25f';
+  ctx.beginPath();
+  ctx.moveTo(sc.x + cell / 3, sc.y - poleH);
+  ctx.lineTo(sc.x + cell / 3 + cell * 3, sc.y - poleH + cell);
+  ctx.lineTo(sc.x + cell / 3, sc.y - poleH + cell * 2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
 // Minimap strip (GDD 12.1 off-screen awareness)
 // ---------------------------------------------------------------------------
 
@@ -519,6 +558,14 @@ export function drawMinimap(
     const sx = worldToStripX(stockpilePoint.x, cw);
     ctx.fillStyle = '#ffdd00';
     ctx.fillRect(Math.round(sx) - 1, stripY + 1, 3, MINIMAP_HEIGHT_PX - 2);
+  }
+
+  // Camp flag marker (green, playtest R9): where the survivors build camp.
+  const flag = getCampFlag();
+  if (flag) {
+    const fx = worldToStripX(flag.x, cw);
+    ctx.fillStyle = '#3dd25f';
+    ctx.fillRect(Math.round(fx) - 1, stripY + 1, 3, MINIMAP_HEIGHT_PX - 2);
   }
 
   // Alive zombies (red).

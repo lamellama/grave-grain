@@ -46,6 +46,11 @@ export interface ShelterProject {
   interior: { x: number; y: number }; // a representative standable interior cell
   iw: number; // interior width (cells)
   area: number; // interior footprint area (cells) this hut provides
+  // Camp-flag placement counter this project was planned under (playtest R9;
+  // see game/camp.ts). coopbuild's reconcile abandons projects whose version
+  // no longer matches the live flag - moving the flag re-plans the camp at the
+  // new site. 0 = planned without a flag (direct planShelter callers/tests).
+  flagVersion: number;
 }
 
 // One project per group id.
@@ -92,29 +97,45 @@ function surfaceRowFrom(x: number, fromY: number): number {
 
 /**
  * PLAN (do not store) a shelter for `members` of `survivors`. Pure over the live
- * grid: centroid -> surface site -> sized hut geometry. Returns null if the site
- * is unusable (no surface / out of bounds). Deterministic for fixed inputs.
+ * grid: site -> surface -> sized hut geometry. Returns null if the site is
+ * unusable (no surface / out of bounds). Deterministic for fixed inputs.
+ *
+ * `site` (playtest R9 camp flag): when given, the hut is centred on the FLAG
+ * column and the surface scan starts from the flag row - the player chooses
+ * where camp goes. When omitted (legacy callers/tests), the group's feet
+ * centroid sites the hut exactly as before. `flagVersion` is stamped onto the
+ * project so coopbuild can abandon it if the flag later moves (0 = no flag).
  */
 export function planShelter(
   groupId: number,
   members: number[],
   survivors: Survivor[],
+  site?: { x: number; y: number },
+  flagVersion = 0,
 ): ShelterProject | null {
   const live = members.filter(
     (i) => survivors[i] && survivors[i].body.alive && !survivors[i].turned,
   );
   if (live.length === 0) return null;
 
-  // Centroid of the group's feet - column AND row (the row anchors the
-  // downward surface scan so the hut sits on the ground under their boots).
-  let sumX = 0;
-  let sumY = 0;
-  for (const i of live) {
-    sumX += survivors[i].body.x;
-    sumY += survivors[i].body.y;
+  // Site anchor: the camp flag when planted, else the centroid of the group's
+  // feet - column AND row (the row anchors the downward surface scan so the
+  // hut sits on the ground under their boots / under the flag).
+  let centroidX: number;
+  let centroidFeetY: number;
+  if (site) {
+    centroidX = Math.round(site.x);
+    centroidFeetY = Math.round(site.y);
+  } else {
+    let sumX = 0;
+    let sumY = 0;
+    for (const i of live) {
+      sumX += survivors[i].body.x;
+      sumY += survivors[i].body.y;
+    }
+    centroidX = Math.round(sumX / live.length);
+    centroidFeetY = Math.round(sumY / live.length);
   }
-  const centroidX = Math.round(sumX / live.length);
-  const centroidFeetY = Math.round(sumY / live.length);
 
   // Size by member count: interior footprint area -> interior width.
   const interiorHeight = SHELTER_WALL_HEIGHT - 1; // floor-to-just-below-roof
@@ -185,21 +206,27 @@ export function planShelter(
     interior,
     iw,
     area: iw * interiorHeight,
+    flagVersion,
   };
 }
 
 /**
  * Ensure the group has a project: return the existing one, or plan + store a new
  * one. Returns null if no valid site could be planned (caller retries later).
+ * `site`/`flagVersion` are forwarded to planShelter for the camp-flag siting
+ * (playtest R9); an EXISTING project is returned as-is - reconciling a stale
+ * flagVersion is coopbuild's job, not ensure's.
  */
 export function ensureShelterProject(
   groupId: number,
   members: number[],
   survivors: Survivor[],
+  site?: { x: number; y: number },
+  flagVersion = 0,
 ): ShelterProject | null {
   const existing = projects.get(groupId);
   if (existing) return existing;
-  const project = planShelter(groupId, members, survivors);
+  const project = planShelter(groupId, members, survivors, site, flagVersion);
   if (project) projects.set(groupId, project);
   return project;
 }

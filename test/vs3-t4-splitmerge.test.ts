@@ -5,8 +5,9 @@ declare const process: any;
  *
  * T4 semantics: group PROJECT ownership follows the live group ids.
  *   - SPLIT: a group that forks needs no special-case - the new group id gets
- *     its OWN project (own site, near its own centroid) on the next
- *     updateCoopBuild; the original id keeps its project untouched.
+ *     its OWN project on the next updateCoopBuild; the original id keeps its
+ *     project untouched. (R9 camp flag: projects are sited AT THE FLAG, ranked
+ *     side-by-side per group - no longer at each group's centroid.)
  *   - MERGE / EXTINCTION: a project whose owning group id is no longer active
  *     (absorbed by a merge, or all members dead/turned) is ABANDONED: its
  *     UNRESERVED queued cells are cancelled, its project record dropped.
@@ -33,6 +34,7 @@ import {
   SPLIT_DEBOUNCE_TICKS,
   MERGE_DEBOUNCE_TICKS,
   GROUP_RECHECK_TICKS,
+  CAMP_SITE_SPACING,
 } from '../src/config';
 import { material, integrity, set } from '../src/engine/grid';
 import { STONE, AIR } from '../src/engine/materials';
@@ -46,6 +48,7 @@ import {
   type ShelterProject,
 } from '../src/game/shelter';
 import { updateCoopBuild, queuedCellCount } from '../src/game/coopbuild';
+import { resetCampFlag, plantCampFlagAt, getCampFlag } from '../src/game/camp';
 
 let failures = 0;
 function check(cond: boolean, msg: string): void {
@@ -70,6 +73,7 @@ function resetWorld(): void {
   resetShelters();
   resetGroups();
   resetStockpile();
+  resetCampFlag(); // R9: updateCoopBuild builds nothing without the camp flag
   addResource('wood', 999);
   addResource('stone', 999);
 }
@@ -85,6 +89,7 @@ function groupTicks(survs: any[], n: number): void {
 // ===========================================================================
 {
   resetWorld();
+  plantCampFlagAt(300, FEET); // R9: the player sites the camp with the flag
   // Four survivors clustered at x~300: one group (canonical id = min index 0).
   const survs = [sv(298, FEET), sv(300, FEET), sv(302, FEET), sv(304, FEET)];
   groupTicks(survs, 1);
@@ -105,10 +110,14 @@ function groupTicks(survs: any[], n: number): void {
   const projectB = getShelterProject(gB);
   check(projectB !== null, '1: the forked group gets its OWN project B');
   check(getShelterProject(gA) === projectA, '1: the original group keeps project A (same object)');
+  // R9 camp flag: BOTH huts go up AT THE FLAG, ranked side-by-side - project B
+  // (rank 1 of the two active group ids) sits CAMP_SITE_SPACING right of the
+  // flag, NOT near its members at ~701 (the pre-flag centroid behaviour).
   const bSite = projectB!.interior.x;
+  const flagX = getCampFlag()!.x;
   check(
-    Math.abs(bSite - 701) < 50 && Math.abs(bSite - 301) > 200,
-    `1: project B is sited near ITS members (interior x=${bSite}, members at ~701)`,
+    Math.abs(bSite - (flagX + CAMP_SITE_SPACING)) <= 2,
+    `1: project B is sited at the flag + spacing (interior x=${bSite}, flag=${flagX})`,
   );
   check(queuedCellCount(projectB!) > 0, '1: project B cells are streaming into the queue');
 
@@ -142,6 +151,7 @@ function groupTicks(survs: any[], n: number): void {
 // ===========================================================================
 {
   resetWorld();
+  plantCampFlagAt(400, FEET); // R9: the player sites the camp with the flag
   simTick += GROUP_RECHECK_TICKS; // fresh recompute window
   const survs = [sv(400, FEET), sv(402, FEET)];
   groupTicks(survs, 1);

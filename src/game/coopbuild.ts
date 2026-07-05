@@ -45,9 +45,10 @@ import { groupIds, groupMembers } from './groups';
 import { STRUCTURES } from './building';
 import type { StructureKind } from './building';
 import { addBlueprint, blueprintAt, cancelBlueprintAt } from './buildqueue';
+import { getCampFlag, getFlagVersion } from './camp';
 import { get } from '../engine/grid';
 import { CAMPFIRE } from '../engine/materials';
-import { MAX_BUILD_CLAIMS } from '../config';
+import { MAX_BUILD_CLAIMS, CAMP_SITE_SPACING } from '../config';
 
 /** True iff (x,y) already holds the structure material this cell builds toward. */
 function cellBuilt(x: number, y: number, kind: StructureKind): boolean {
@@ -124,16 +125,34 @@ export function streamProject(project: ShelterProject): ShelterProject {
  * returns null - retried later).
  */
 export function updateCoopBuild(survivors: Survivor[]): void {
+  // CAMP FLAG GATE (playtest R9, game/camp.ts): survivors build NOTHING until
+  // the player has planted the flag - no planning, no streaming. Existing
+  // projects are left untouched (none can exist pre-flag in a real game; test
+  // harnesses that plan directly via ensureShelterProject keep theirs).
+  const flag = getCampFlag();
+  if (!flag) return;
+  const fv = getFlagVersion();
+
   const active = new Set(groupIds());
   for (const gid of shelterGroupIds()) {
-    if (!active.has(gid)) {
+    const project = getShelterProject(gid);
+    // Abandon when the group is gone (merge/death/id-migration - T4) OR when
+    // the flag has MOVED since the project was planned (playtest R9 "if placed
+    // somewhere else, the survivors should travel to it and start building
+    // camp again") - the fresh ensure below re-plans at the new flag site.
+    if (!active.has(gid) || (project && project.flagVersion !== fv)) {
       clearGroupBuild(gid); // cancel its unreserved queued cells first...
       clearShelterProject(gid); // ...then drop the project record itself
     }
   }
-  for (const g of active) {
+  // Site each active group's hut at the flag; multiple groups get side-by-side
+  // sites (rank * CAMP_SITE_SPACING to the right) instead of overlapping huts.
+  const ranked = Array.from(active).sort((a, b) => a - b);
+  for (let rank = 0; rank < ranked.length; rank++) {
+    const g = ranked[rank];
     const members = groupMembers(g);
-    const project = ensureShelterProject(g, members, survivors);
+    const site = { x: flag.x + rank * CAMP_SITE_SPACING, y: flag.y };
+    const project = ensureShelterProject(g, members, survivors, site, fv);
     if (project) streamProject(project);
   }
 }
