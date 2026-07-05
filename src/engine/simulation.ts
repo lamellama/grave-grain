@@ -95,6 +95,8 @@ import {
   SAPLING,
   SNOW,
   CAMPFIRE,
+  STONE,
+  WALL,
   density,
   isStatic,
   isFluid,
@@ -562,8 +564,48 @@ function updateCell(x: number, y: number): void {
     updateSnow(x, y);
   } else if (m === CAMPFIRE) {
     updateCampfire(x, y);
+  } else if (m === STONE) {
+    updateStone(x, y);
   }
-  // AIR is the empty target; STONE is static - neither has a rule.
+  // AIR is the empty target and has no rule. STONE stays isStatic (never
+  // DISPLACEABLE by other fallers, solid to bodies) but since playtest v0.9 N
+  // it has a gravity rule of its own: a LONE stone falls (updateStone).
+}
+
+/**
+ * Is (x, y)'s material MORTAR for a stone (playtest v0.9 N)? STONE bonds to
+ * STONE, and to player-built WALL (a wall IS mortared stone), so worldgen
+ * strata, mined galleries and built structures all hold themselves up.
+ */
+function isMortar(m: number): boolean {
+  return m === STONE || m === WALL;
+}
+
+/**
+ * STONE rule (playtest v0.9 N: "stone should obey gravity"). A stone cell is
+ * MORTARED - and therefore static, the pre-N behaviour - while ANY of its four
+ * orthogonal neighbours is STONE or WALL. Only a LONE stone (no stone/wall
+ * contact at all) obeys gravity, falling STRAIGHT down through air and fluids
+ * (blocky - no diagonal spill, no angle of repose; it is a rock, not a powder)
+ * and resting on whatever solid or powder it lands on. Landing on the top of
+ * other stone re-mortars it, so fallen stones fuse with the pile below.
+ *
+ * DETERMINISM/chunk-safety: pure neighbour reads + the shared trySwap primitive
+ * (which handles the moved-guard and wakes both chunks on a move). No RNG. A
+ * resting stone touches nothing, so settled chunks stay settled; removing its
+ * support or its mortar is a grid edit that wakes the chunk (grid.set /
+ * placeMaterial -> markCellActive), and the stone falls on the next pass.
+ */
+function updateStone(x: number, y: number): void {
+  if (
+    (x > 0 && isMortar(material[idx(x - 1, y)])) ||
+    (x < WORLD_W - 1 && isMortar(material[idx(x + 1, y)])) ||
+    (y > 0 && isMortar(material[idx(x, y - 1)])) ||
+    (y < WORLD_H - 1 && isMortar(material[idx(x, y + 1)]))
+  ) {
+    return; // mortared -> holds (strata, walls, piles)
+  }
+  trySwap(x, y, x, y + 1); // lone stone -> straight-down fall (or rest)
 }
 
 /**
