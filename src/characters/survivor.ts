@@ -56,6 +56,7 @@ import { addResource, stockpilePoint } from '../game/resources';
 import type { Blueprint } from '../game/buildqueue';
 import { getBlueprints, blueprintAt, removeBlueprint, reserve, release } from '../game/buildqueue';
 import { placeStructure, canPlace, STRUCTURES } from '../game/building';
+import { getShelterProject } from '../game/shelter';
 import {
   NEED_MAX,
   WOOD_PER_CHOP,
@@ -211,6 +212,11 @@ export interface Survivor {
   // Ticks until the next melee strike is allowed (p7-t4, guard combat). Counts
   // down each updateSurvivor tick; only the guard combat branch ever arms it.
   attackCooldown: number;
+  // Canonical id of this survivor's sight-group (VS-3 T5, GDD 6.2), stamped by
+  // groups.ts on each recompute (-1 = ungrouped: dead/turned, or grouping not
+  // wired - tests that never call updateGroups). seekWarmth uses it to find the
+  // group's OWN shelter project (a known destination, not a scanned one).
+  groupId: number;
 }
 
 /**
@@ -256,6 +262,7 @@ export function createSurvivor(x: number, y: number): Survivor {
     consumeCell: null,
     seekTarget: null,
     attackCooldown: 0,
+    groupId: -1, // stamped by groups.ts once grouping runs (VS-3 T5)
   };
 }
 
@@ -742,17 +749,57 @@ function nearestReachableShelter(s: Survivor): ReachTarget | null {
 }
 
 /**
- * Nearest REACHABLE WARMTH destination (VS-2 T-C, GDD 6.1 "huddle by a campfire
- * OR step into a roofed shelter"). Generalises seekWarmth's old shelter-only
- * target: returns the NEARER (by path length) of
- *   (a) a reachable sheltered stand-cell (nearestReachableShelter), and
- *   (b) a reachable standable BANK beside a CAMPFIRE (nearestReachable(CAMPFIRE),
- *       whose bank is adjacent to the fire => within FIRE_WARMTH_RADIUS => warm).
- * Both sub-scans are bounded + A*-capped + cooldown-throttled by the caller, so
+ * The survivor's OWN GROUP's shelter as a warmth destination (VS-3 T5, GDD
+ * 6.2/6.1 "the group retreats to ITS hut"). Unlike the generic ring scans below
+ * this is a KNOWN location (the group's shelter project), not a discovered one -
+ * it works from any distance the navgrid can route, so a straggler caught cold
+ * out of sight of home still knows the way back while the split debounce holds
+ * its membership. Only returns a target once the hut actually shelters
+ * (isShelteredAt - i.e. the roof is on), and only for a standable interior cell
+ * with a live route; candidates scan the interior feet row outward from the
+ * representative interior cell so an occupied/campfire cell never blocks the
+ * pick. Null when the survivor is ungrouped, the group has no project, or the
+ * hut is unbuilt/unreachable - the caller falls back to the generic scans.
+ */
+function groupShelterTarget(s: Survivor): ReachTarget | null {
+  const project = getShelterProject(s.groupId);
+  if (!project) return null;
+  const bx = Math.round(s.body.x);
+  const by = Math.round(s.body.y);
+  const fy = project.interior.y; // interior feet row
+  const x0 = project.campfire.x; // leftmost interior column (leftWallX + 1)
+  const x1 = x0 + project.iw - 1; // rightmost interior column
+  // Candidate columns ordered nearest-to-representative first.
+  const order: number[] = [project.interior.x];
+  for (let d = 1; d <= x1 - x0; d++) {
+    if (project.interior.x + d <= x1) order.push(project.interior.x + d);
+    if (project.interior.x - d >= x0) order.push(project.interior.x - d);
+  }
+  for (const x of order) {
+    if (!isStandableFeet(x, fy) || !isShelteredAt(x, fy)) continue;
+    const path = findPath(bx, by, x, fy);
+    if (path) return { cell: { x, y: fy }, standCell: { x, y: fy }, path };
+  }
+  return null;
+}
+
+/**
+ * Nearest REACHABLE WARMTH destination (VS-2 T-C + VS-3 T5, GDD 6.1 "huddle by
+ * a campfire OR step into a roofed shelter"). Preference order:
+ *   1. The group's OWN shelter (groupShelterTarget) when built + reachable -
+ *      even over a nearer foreign roof: the group huddles at ITS hearth (VS-3
+ *      cohesion), and the hut is a known destination beyond scan range.
+ *   2. Else the NEARER (by path length) of a reachable sheltered stand-cell
+ *      (nearestReachableShelter) and a reachable standable BANK beside a
+ *      CAMPFIRE (nearestReachable(CAMPFIRE), adjacent => within
+ *      FIRE_WARMTH_RADIUS => warm).
+ * All sub-scans are bounded + A*-capped + cooldown-throttled by the caller, so
  * this stays O(scan)+O(K.A*). Still NEVER targets raw FIRE. Returns null when no
- * shelter AND no campfire is reachable (caller falls back to wander).
+ * home hut, shelter, or campfire is reachable (caller falls back to wander).
  */
 function nearestReachableWarmth(s: Survivor): ReachTarget | null {
+  const home = groupShelterTarget(s);
+  if (home) return home;
   const shelter = nearestReachableShelter(s);
   const fire = nearestReachable(s, (x, y) => get(x, y) === CAMPFIRE);
   if (shelter === null) return fire;

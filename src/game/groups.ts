@@ -144,8 +144,12 @@ function recompute(survivors: Survivor[], tick: number): void {
 
   const active: number[] = [];
   for (let i = 0; i < n; i++) {
-    if (isActive(survivors[i])) active.push(i);
-    else groupId[i] = -1;
+    if (isActive(survivors[i])) {
+      active.push(i);
+    } else {
+      groupId[i] = -1;
+      survivors[i].groupId = -1;
+    }
   }
 
   // 1. Update each active pair's DEBOUNCED edge from its raw visibility.
@@ -198,5 +202,11 @@ function recompute(survivors: Survivor[], tick: number): void {
       }
     }
   }
-  for (const i of active) groupId[i] = find(i);
+  for (const i of active) {
+    groupId[i] = find(i);
+    // Stamp the id onto the survivor so consumers that only hold the survivor -
+    // seekWarmth's way home to the group's shelter (VS-3 T5) - can look up its
+    // group without knowing the colony index.
+    survivors[i].groupId = groupId[i];
+  }
 }

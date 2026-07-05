@@ -26,6 +26,7 @@ import {
   STARTING_STONE,
   STARTING_AMMO,
   SURFACE_BASE_Y,
+  GROUP_RECHECK_TICKS,
 } from './config';
 import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons, getSelectedSurvivor } from './input';
 import { initRenderer, getRenderer, setBodies, setZombieBodies, setSurvivorRender, setCorpseBodies } from './render/renderer';
@@ -45,6 +46,9 @@ import { makeTool, ROLE_TINT } from './game/roles';
 import { rebuildNavgrid } from './engine/navgrid';
 import { addResource, setStockpilePoint, getStockpile, setAmmo, getAmmo } from './game/resources';
 import { resetQueue } from './game/buildqueue';
+import { updateGroups, resetGroups } from './game/groups';
+import { updateCoopBuild } from './game/coopbuild';
+import { resetShelters } from './game/shelter';
 import { generateWorld } from './game/worldgen';
 import { createGameState, updateGameState } from './game/state';
 import {
@@ -169,6 +173,12 @@ setStockpilePoint(world.stockpilePoint.x, world.stockpilePoint.y);
 // wave/state init below; the builder role drains this same live queue that the
 // Plan tool fills and the CB-5 overlay renders (getBlueprints() - one global).
 resetQueue();
+
+// VS-3 T5 (GDD 6.2): fresh grouping + shelter-project state on world (re)init,
+// mirroring resetQueue above - no stale group edges or planned huts leak across
+// a restart/hot-reload. updateGroups/updateCoopBuild below repopulate both.
+resetGroups();
+resetShelters();
 
 // Starting resources so the first tool/wall can be crafted/built on load
 // (GDD 6.2 tool-gating, 8 build affordability).
@@ -338,6 +348,17 @@ function simulationTick(): void {
   // the survivor updates so a body downed this tick is honoured, and before the
   // prune/state pass so a freshly reanimated zombie is counted/rendered.
   updateInfection(survivors, zombies, tickCount);
+
+  // VS-3 T5 (GDD 6.2/8): survivor grouping + cooperative shelter building, on
+  // the group recheck cadence. updateGroups self-gates on GROUP_RECHECK_TICKS
+  // (and stamps each survivor's groupId - seekWarmth's way home to the group's
+  // hut); updateCoopBuild (reconcile abandoned projects -> ensure one per group
+  // -> stream cells into the blueprint queue) runs on the SAME cadence - it only
+  // tops up the queue, the builder role does the actual building. Runs after
+  // updateInfection so a survivor downed/turned this tick is already excluded
+  // from grouping and its project maths.
+  updateGroups(survivors, tickCount);
+  if (tickCount % GROUP_RECHECK_TICKS === 0) updateCoopBuild(survivors);
 
   // Zombies gnaw through structures they're pressing (GDD 7.4). After
   // updateZombie so moveDir/facing reflect this tick's intent.
