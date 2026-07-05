@@ -132,8 +132,11 @@ export function updateGameState(state: GameState, ctx: UpdateCtx): void {
     const isAlive = s.body.alive;
 
     if (wasAlive && !isAlive) {
-      // Transition: was alive last tick, now dead.
-      const cause = s.deathCause ?? 'killed by zombies';
+      // Transition: was alive last tick, now dead. Cause priority: the
+      // controller's own verdict (starvation/thirst/frozen), then the BODY's
+      // (a kill resolved in the body layer - drowning in locomotion, playtest
+      // v0.10 R), then the only remaining killer: the horde.
+      const cause = s.deathCause ?? s.body.deathCause ?? 'killed by zombies';
       lastDeathCause = cause;
       const event: DeathEvent = {
         cause,

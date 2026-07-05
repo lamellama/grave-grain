@@ -275,9 +275,14 @@ export function dissolveBody(body: Body): void {
  * flags, clear them here so a corpse can never "turn". Guarded by an `in` check
  * so this stays correct before those fields exist.
  */
-export function layDownCorpse(body: Body, _cause?: string): void {
+export function layDownCorpse(body: Body, cause?: string): void {
   body.alive = false;
   body.corpse = true;
+  // Record WHAT killed it on the body itself (playtest v0.10 R): a kill that
+  // resolves in the body layer (drowning, in locomotion) never sees the
+  // Survivor, so the state.ts death watcher reads this as its fallback and a
+  // drowned survivor is no longer mis-reported as 'killed by zombies'.
+  if (cause) body.deathCause = cause;
   body.corpseTicks = CORPSE_DECAY_TICKS;
   // A corpse from a quiet death must never reanimate (bite/turn is a separate
   // outcome) - clear any infection/downed state (revised death model, GDD 5.1).

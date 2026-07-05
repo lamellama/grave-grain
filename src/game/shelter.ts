@@ -72,12 +72,19 @@ export function shelterGroupIds(): number[] {
 }
 
 /**
- * First SOLID surface row at column x (top-down), or -1 if the column is open to
- * the bottom. The hut floor sits on this surface.
+ * First SOLID row at column x scanning DOWNWARD from `fromY`, or -1 if the
+ * column is open to the bottom. The hut floor sits on this surface.
+ *
+ * The scan starts at the GROUP'S FEET, not at y=0 (playtest v0.10 R "shelter
+ * built floating in the air"): a top-down scan returns the first solid the sky
+ * sees - which, for a colony standing INSIDE the starter camp, is the camp's
+ * ROOF - and the hut was planned on top of it, floating above their heads.
+ * Scanning down from where the members actually stand finds the ground under
+ * their boots (their own feet row counts if they stand flush against a slope).
  */
-function surfaceRow(x: number): number {
+function surfaceRowFrom(x: number, fromY: number): number {
   if (x < 0 || x >= WORLD_W) return -1;
-  for (let y = 0; y < WORLD_H; y++) {
+  for (let y = Math.max(0, fromY); y < WORLD_H; y++) {
     if (isSolidForBody(get(x, y))) return y;
   }
   return -1;
@@ -98,10 +105,16 @@ export function planShelter(
   );
   if (live.length === 0) return null;
 
-  // Centroid column of the group's feet.
+  // Centroid of the group's feet - column AND row (the row anchors the
+  // downward surface scan so the hut sits on the ground under their boots).
   let sumX = 0;
-  for (const i of live) sumX += survivors[i].body.x;
+  let sumY = 0;
+  for (const i of live) {
+    sumX += survivors[i].body.x;
+    sumY += survivors[i].body.y;
+  }
   const centroidX = Math.round(sumX / live.length);
+  const centroidFeetY = Math.round(sumY / live.length);
 
   // Size by member count: interior footprint area -> interior width.
   const interiorHeight = SHELTER_WALL_HEIGHT - 1; // floor-to-just-below-roof
@@ -128,8 +141,9 @@ export function planShelter(
   }
   if (iw < 1) return null;
 
-  // Floor at the centroid surface; the standing FEET row is one above it.
-  const surface = surfaceRow(centroidX);
+  // Floor at the first solid BELOW the group's feet (not the first solid the
+  // sky sees - that was the floating-shelter bug); feet row is one above it.
+  const surface = surfaceRowFrom(centroidX, centroidFeetY);
   if (surface <= SHELTER_WALL_HEIGHT) return null; // no room above the surface
   const feetRow = surface - 1;
   const roofRow = feetRow - (SHELTER_WALL_HEIGHT - 1);

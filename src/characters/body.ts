@@ -112,6 +112,12 @@ export interface Body {
   // arm is intact; set false when that arm is lost (consumed by Phase-7 combat).
   reachLeft: boolean;
   reachRight: boolean;
+  // What killed this body, when the KILL happened inside the body layer
+  // (playtest v0.10 R: drowning resolves in locomotion, which never sees the
+  // Survivor). layDownCorpse records its cause here; the state.ts death
+  // watcher reads survivor.deathCause ?? body.deathCause before falling back
+  // to 'killed by zombies' - so a drowned survivor is reported as DROWNED.
+  deathCause: string | null;
   // Water behaviour (playtest v0.9 Q/O, GDD 5.2/7.3). `buoyant` bodies FLOAT:
   // locomotion rises them toward the surface when the head submerges and lets
   // the water support them at the float line (survivors - so a rain/melt sheet
@@ -266,6 +272,7 @@ export function createBody(x: number, y: number): Body {
     rArmLost: false,
     reachLeft: true,
     reachRight: true,
+    deathCause: null,
     // Default = sink + breathe (the pre-Q behaviour, so raw test bodies and any
     // future body kind behave exactly as before). Survivors opt IN to buoyancy
     // (createSurvivor); zombies opt OUT of breathing (createZombie/reanimate).
