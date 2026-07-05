@@ -621,6 +621,57 @@ export const ZOMBIE_FLEE_RADIUS = 44;
 // intentionally absent; any per-hit output is determined by the
 // damage->cells handoff logic (GDD 5.1 / 7.2, see expensive_coder scope).
 
+// ---------------------------------------------------------------------------
+// Guard archery (GDD 7.2) - an armed guard no longer trades hand-to-hand blows;
+// it looses VISIBLE ARROWS that fly a gravity ARC and wound whatever body region
+// they strike (the same emergent damage->cells handoff, routed through the bone
+// the arrow lands on). These knobs live here so balance is a one-file job.
+// ---------------------------------------------------------------------------
+
+// Ticks between successive arrow shots for a guard (the bow's draw + loose
+// cadence). Separate from the melee ATTACK_COOLDOWN so archery can be tuned on
+// its own; a touch slower than a knife so a volley reads as a deliberate shot.
+export const ARROW_COOLDOWN = 40;
+
+// Nominal time-of-flight (ticks) an arrow is launched to travel to its aim
+// point. The launch velocity is solved from this + ARROW_GRAVITY so the arrow
+// arcs UP and comes back down onto the target (a longer flight = a lazier, more
+// visible arc). The arrow lands ON the aim cell only if unobstructed and the
+// target hasn't moved - drift as the horde advances is the intended variance
+// (it is WHERE the arrow lands, not the aim, that picks the wounded region).
+export const ARROW_FLIGHT_TICKS = 26;
+
+// Per-tick downward acceleration on an arrow in cells/tick^2 (the arc's droop).
+// Deliberately gentle so the shaft lofts a few cells at apex rather than
+// plunging. Lives in the BODY/AI layer (projectiles), never inside the chunked
+// CA, so it can never perturb chunk byte-equivalence (GDD 13 determinism).
+export const ARROW_GRAVITY = 0.05;
+
+// Aim heights above a target's feet-centre (cells). BODY = torso mass (the
+// default volley); HEAD = a finishing shot at a crawler that has already lost a
+// leg. These only choose where the guard AIMS; the region actually wounded is
+// resolved from the arrow's true impact cell (GDD 7.2 "where they hit").
+export const ARROW_AIM_BODY_UP = 6;
+export const ARROW_AIM_HEAD_UP = 10;
+
+// Muzzle offset from the guard's feet-centre where the arrow is nocked: forward
+// by the guard's facing (so it leaves the bow hand, not the chest) and up to
+// roughly shoulder height.
+export const ARROW_MUZZLE_FWD = 2;
+export const ARROW_MUZZLE_UP = 7;
+
+// Radius (cells) around an arrow's impact cell within which a body pixel counts
+// as struck. Small - an arrow is a point strike, not a splash - but >0 so a
+// shaft that clips the edge of a limb still bites rather than sailing through a
+// 1-cell seam between bones.
+export const ARROW_HIT_RADIUS = 1.5;
+
+// Hard cap on live arrows (oldest evicted past this) and each arrow's lifetime
+// in ticks before it is retired if it never strikes anything - keeps the array
+// bounded and cheap (GDD 13 perf) and stops a stray shaft flying forever.
+export const MAX_ARROWS = 64;
+export const ARROW_MAX_TICKS = 240;
+
 // 7.4 - Breaching: per-tick probability that a single zombie blocked by
 // a WOOD barrier chips 1 point of its integrity. Kept sub-0.2 so a lone
 // zombie breaks through only after sustained contact (GDD 7.4).

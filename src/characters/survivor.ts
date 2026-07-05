@@ -35,7 +35,7 @@ import { createBody } from './body';
 import { updateBody } from './locomotion';
 import { layDownCorpse } from './damage';
 import type { Zombie } from './zombie';
-import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
+import { launchArrow } from '../game/projectiles';
 import { get, set } from '../engine/grid';
 import { FIRE, CAMPFIRE, WATER, SNOW, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
@@ -104,7 +104,11 @@ import {
   PATH_REPATH_COOLDOWN,
   GUARD_ENGAGE_RADIUS,
   ZOMBIE_FLEE_RADIUS,
-  ATTACK_COOLDOWN,
+  ARROW_COOLDOWN,
+  ARROW_AIM_BODY_UP,
+  ARROW_AIM_HEAD_UP,
+  ARROW_MUZZLE_FWD,
+  ARROW_MUZZLE_UP,
   WORLD_W,
   BODY_W,
   BODY_H,
@@ -1138,46 +1142,48 @@ function nearestZombie(
 }
 
 /**
- * Guard combat (p7-t4, GDD 7.2 / 6.2): an armed guard engages the nearest
- * ALIVE zombie within GUARD_ENGAGE_RADIUS - close the distance, then strike on
- * cooldown. The aim is the same emergent model both ways: LEG the front rank to
- * SLOW it (intact target -> 'leg'), and HEADSHOT crawlers to FINISH them (target
- * already missing a leg -> 'head'). No zombie in range -> fall back to holding the
- * stockpile point. Only called when the role is 'guard' and a weapon is held.
+ * Guard combat (GDD 7.2 / 6.2): an armed guard is an ARCHER, not a brawler. It
+ * holds its assigned defensive point (the stockpile) and, whenever an ALIVE
+ * zombie is within GUARD_ENGAGE_RADIUS, looses a VISIBLE ARROW that flies a
+ * gravity ARC and wounds whatever body region it lands on (launchArrow ->
+ * updateArrows -> THE GATE). It never closes to melee - it volleys from range as
+ * the horde advances. The AIM only nudges where the shaft is sent: a crawler
+ * (already down a leg) gets a finishing head shot; everything else a torso-mass
+ * shot. WHICH region is actually wounded is decided by the arrow's true impact
+ * cell, so a shot at an advancing zombie naturally scatters across head/torso/
+ * legs (GDD 7.2 "body region specific damage depending on where they hit").
+ * Only called when the role is 'guard' and a weapon (the bow) is held.
  */
 function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
   const body = s.body;
   const bx = Math.round(body.x);
   const by = Math.round(body.y);
 
+  // Hold the defensive point: an archer volleys in place, it does NOT chase.
+  if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
+    body.moveDir = 0;
+  } else {
+    steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
+  }
+
   const z = nearestZombie(bx, by, zombies, GUARD_ENGAGE_RADIUS);
+  if (z === null) return; // nothing in range -> just hold the line
 
-  // No target in range -> hold the assigned point (the MVP guard default).
-  if (z === null) {
-    if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
-      body.moveDir = 0;
-    } else {
-      steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
-    }
-    return;
-  }
+  // Turn to face the target so the volley reads as aimed (locomotion keeps
+  // facing while moveDir is 0). facing is +1 (right) / -1 (left).
+  body.facing = z.body.x >= body.x ? 1 : -1;
 
-  // In range but out of reach -> close the distance toward the zombie's cell.
-  if (!bodiesAdjacent(body, z.body)) {
-    s.path = null; // chasing a moving target: don't reuse a stale resource route
-    steerToCell(s, Math.round(z.body.x), Math.round(z.body.y), Math.round(z.body.x));
-    return;
-  }
-
-  // Adjacent -> hold position and strike on cooldown. LEG an intact zombie to
-  // slow the front rank; HEADSHOT a crawler (already lost a leg) to finish it.
-  body.moveDir = 0;
+  // Loose an arrow on the bow's cadence. Nock it at shoulder height, forward of
+  // the guard's bow hand; aim at the target's torso mass, or its head to finish
+  // a crawler. The arc + the horde's advance do the rest (impact picks region).
   if (s.attackCooldown <= 0) {
     const crawling = z.body.lLegLost || z.body.rLegLost;
-    const aim = crawling ? 'head' : 'leg';
-    const region = pickAttackRegion(z.body, aim);
-    if (region) meleeAttack(z.body, region);
-    s.attackCooldown = ATTACK_COOLDOWN;
+    const sx = body.x + body.facing * ARROW_MUZZLE_FWD;
+    const sy = body.y - ARROW_MUZZLE_UP;
+    const tx = z.body.x;
+    const ty = z.body.y - (crawling ? ARROW_AIM_HEAD_UP : ARROW_AIM_BODY_UP);
+    launchArrow(sx, sy, tx, ty);
+    s.attackCooldown = ARROW_COOLDOWN;
   }
 }
 

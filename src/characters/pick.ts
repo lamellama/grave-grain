@@ -24,13 +24,30 @@ import type { Body, BoneName } from './body';
  * Pure: no DOM, no grid mutation - safe to call from a unit test.
  */
 export function pickBone(body: Body, worldX: number, worldY: number): BoneName | null {
+  return pickBoneNear(body, worldX, worldY, SHOOT_PICK_RADIUS);
+}
+
+/**
+ * Same nearest-non-destroyed-bone query as pickBone but with a caller-supplied
+ * pick `radius` (cells). This is the shared geometry both the Shoot tool
+ * (SHOOT_PICK_RADIUS) and the guard's ARROW impact (ARROW_HIT_RADIUS, a tight
+ * point strike) route through, so "which body region did this cell hit?" has a
+ * single definition. Returns null if the body is dead or nothing is within
+ * `radius`. Pure: no DOM, no grid mutation.
+ */
+export function pickBoneNear(
+  body: Body,
+  worldX: number,
+  worldY: number,
+  radius: number,
+): BoneName | null {
   if (!body.alive) {
     return null;
   }
 
   const rx = Math.round(body.x);
   const ry = Math.round(body.y);
-  const radiusSq = SHOOT_PICK_RADIUS * SHOOT_PICK_RADIUS;
+  const radiusSq = radius * radius;
 
   let bestName: BoneName | null = null;
   let bestDistSq = Infinity;

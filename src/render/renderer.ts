@@ -11,6 +11,7 @@ import * as grid from '../engine/grid';
 import { MATERIALS } from '../engine/materials';
 import { type Body } from '../characters/body';
 import { recentChips, getBreachTick } from '../game/breaching';
+import { getArrows } from '../game/projectiles';
 
 /**
  * Pre-parsed material colours: RGB[material_id] = [r, g, b] tuple.
@@ -353,6 +354,11 @@ class Renderer {
     }
     this.drawBodyList(this.zombieBodies, tintZombie);
 
+    // Guard arrows (GDD 7.2): visible arcing shafts, drawn OVER the bodies so a
+    // shaft in flight / biting a zombie reads clearly (ctx pass, never touches
+    // the ImageData - putImageData backing-store invariant preserved).
+    this.drawArrows();
+
     // CB-5: Blueprint overlay - translucent ghost rects drawn AFTER putImageData
     // (ctx pass only, never writes into ImageData - backing-store invariant safe).
     this.drawBlueprintOverlay();
@@ -466,6 +472,74 @@ class Renderer {
 
       ctx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
     }
+  }
+
+  /**
+   * Draw the live guard arrows (GDD 7.2) as short arced streaks over the world.
+   * Each arrow is a shaft drawn from its previous position to its current one
+   * (so it points along its travel and the arc reads frame-to-frame) with a
+   * lighter head at the tip. Mirrors the body/blueprint screen-rect math
+   * (floor-of-edges, camera offset, effectiveCellPx) so shafts track the camera
+   * and zoom. ctx pass only - never writes into the ImageData buffer.
+   */
+  private drawArrows(): void {
+    const arrows = getArrows();
+    if (arrows.length === 0) return;
+
+    const vw = this.viewportWidthPx;
+    const vh = this.viewportHeightPx;
+    const ctx = this.ctx;
+    const effCell = effectiveCellPx();
+
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.lineWidth = Math.max(1.5, effCell * 0.5);
+
+    for (const a of arrows) {
+      // Cell centres -> screen px (+0.5 cell to sit mid-cell, matching the way a
+      // body pixel fills its cell block).
+      const tipX = (a.x + 0.5 - camera.x) * effCell;
+      const tipY = (a.y + 0.5 - camera.y) * effCell;
+
+      // Tail: a short way back along the shaft's travel this tick, extended to a
+      // minimum length so a slow/near-apex arrow still draws as a visible dart.
+      let dx = a.x - a.prevX;
+      let dy = a.y - a.prevY;
+      const len = Math.hypot(dx, dy);
+      const shaftCells = 2.2; // shaft length in world cells
+      if (len > 1e-4) {
+        dx = (dx / len) * shaftCells;
+        dy = (dy / len) * shaftCells;
+      } else {
+        dx = 0;
+        dy = -shaftCells; // stationary shaft: draw it pointing up
+      }
+      const tailX = (a.x + 0.5 - dx - camera.x) * effCell;
+      const tailY = (a.y + 0.5 - dy - camera.y) * effCell;
+
+      // Cull arrows fully off-screen (cheap AABB on the two endpoints).
+      const minX = Math.min(tipX, tailX);
+      const maxX = Math.max(tipX, tailX);
+      const minY = Math.min(tipY, tailY);
+      const maxY = Math.max(tipY, tailY);
+      if (maxX < 0 || minX > vw || maxY < 0 || minY > vh) continue;
+
+      // Shaft.
+      ctx.strokeStyle = '#5a3a1a'; // dark wood
+      ctx.beginPath();
+      ctx.moveTo(tailX, tailY);
+      ctx.lineTo(tipX, tipY);
+      ctx.stroke();
+
+      // Head - a small light point at the tip so the pointy end is legible.
+      ctx.fillStyle = '#d9d2c2';
+      const hr = Math.max(1, effCell * 0.28);
+      ctx.beginPath();
+      ctx.arc(tipX, tipY, hr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.restore();
   }
 
   /**
