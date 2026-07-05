@@ -34,6 +34,7 @@ import {
   WOOD_PER_CHOP,
   STONE_PER_MINE,
   WOOD_TOOL_DURABILITY,
+  TOOL_BREAKAGE,
   THIRST_THRESHOLD,
 } from '../src/config';
 
@@ -131,8 +132,21 @@ addResource('wood', AXE_WOOD_COST);
   check(woodAtFirstDeposit === WOOD_PER_CHOP, `1: first deposit added WOOD_PER_CHOP (=${WOOD_PER_CHOP})`);
   check(s.body.alive, '1: survivor still alive');
   check(!tunneled, '1: NO body pixel ever entered a STONE cell (no-tunnel held)');
-  check(brokeAtChop === WOOD_TOOL_DURABILITY, `2: axe broke after WOOD_TOOL_DURABILITY (=${WOOD_TOOL_DURABILITY}) chops`);
-  check(s.tool === null && s.role === 'none', '2: tool null & role none after break (idle)');
+  // Tool breakage is disabled (config.TOOL_BREAKAGE === false, playtest request):
+  // the axe never wears out, so the survivor keeps its tool + role and just keeps
+  // chopping. (When re-enabled, it would instead break after WOOD_TOOL_DURABILITY
+  // chops and drop to idle.)
+  if (TOOL_BREAKAGE) {
+    check(brokeAtChop === WOOD_TOOL_DURABILITY, `2: axe broke after WOOD_TOOL_DURABILITY (=${WOOD_TOOL_DURABILITY}) chops`);
+    check(s.tool === null && s.role === 'none', '2: tool null & role none after break (idle)');
+  } else {
+    check(brokeAtChop === -1, '2: axe NEVER broke (breakage disabled)');
+    check(
+      s.tool !== null && s.tool.kind === 'axe' && s.role === 'lumberjack',
+      '2: survivor keeps axe + lumberjack role (breakage disabled)',
+    );
+    check(chops > WOOD_TOOL_DURABILITY, `2: chopped past the old break point (${chops} > ${WOOD_TOOL_DURABILITY})`);
+  }
 }
 
 // ===========================================================================
