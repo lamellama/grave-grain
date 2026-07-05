@@ -205,9 +205,13 @@ let simTick = 0;
  */
 function mainTick(
   survs: Survivor[],
-  opts: { topWarmth: Set<Survivor>; park: Set<Survivor> },
+  opts: { topWarmth: Set<Survivor>; park: Set<Survivor>; sim?: boolean },
 ): void {
-  simulation.step();
+  // B2 runs on a STATIC grid (sim: false): pinned-snow sky-spawn would pile
+  // snow cells along a drift pattern tied to the GLOBAL sim tick - which varies
+  // run-to-run with B1's Math.random wander - and a drift landing in the hut
+  // doorway flakes the walk-home path. The seek under test never needs the CA.
+  if (opts.sim !== false) simulation.step();
   for (const s of survs) {
     s.needs.hunger = NEED_MAX;
     s.needs.thirst = NEED_MAX;
@@ -339,7 +343,7 @@ label('B2 seekWarmth walks home: own hut beats a nearer foreign canopy');
     const parkOthers = new Set([m0, m1]);
     let arrived = -1;
     for (let t = 0; t < 3000; t++) {
-      mainTick(survs, { topWarmth: topOthers, park: parkOthers });
+      mainTick(survs, { topWarmth: topOthers, park: parkOthers, sim: false });
       const x = Math.round(cold.body.x);
       if (x >= leftIn && x <= rightIn && isSheltered(cold.body)) { arrived = t; break; }
     }
@@ -350,7 +354,7 @@ label('B2 seekWarmth walks home: own hut beats a nearer foreign canopy');
     // And it recovers there.
     let recovered = -1;
     for (let t = 0; t < 2000; t++) {
-      mainTick(survs, { topWarmth: topOthers, park: parkOthers });
+      mainTick(survs, { topWarmth: topOthers, park: parkOthers, sim: false });
       if (cold.needs.warmth > WARMTH_THRESHOLD) { recovered = t; break; }
     }
     check(recovered >= 0, 'B2: straggler recovered warmth above threshold at home');

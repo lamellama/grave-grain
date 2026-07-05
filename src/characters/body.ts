@@ -112,6 +112,14 @@ export interface Body {
   // arm is intact; set false when that arm is lost (consumed by Phase-7 combat).
   reachLeft: boolean;
   reachRight: boolean;
+  // Water behaviour (playtest v0.9 Q/O, GDD 5.2/7.3). `buoyant` bodies FLOAT:
+  // locomotion rises them toward the surface when the head submerges and lets
+  // the water support them at the float line (survivors - so a rain/melt sheet
+  // no longer drowns the colony). Non-buoyant bodies sink and walk the BOTTOM
+  // (zombies). `breathes` gates the drown clock: a non-breathing (undead) body
+  // never drowns, so a bottom-walking zombie crosses a lake bed intact.
+  buoyant: boolean;
+  breathes: boolean;
 }
 
 /**
@@ -258,5 +266,10 @@ export function createBody(x: number, y: number): Body {
     rArmLost: false,
     reachLeft: true,
     reachRight: true,
+    // Default = sink + breathe (the pre-Q behaviour, so raw test bodies and any
+    // future body kind behave exactly as before). Survivors opt IN to buoyancy
+    // (createSurvivor); zombies opt OUT of breathing (createZombie/reanimate).
+    buoyant: false,
+    breathes: true,
   };
 }

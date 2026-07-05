@@ -104,8 +104,12 @@ export interface Zombie {
  * senseRadius = SENSE_RADIUS, cooldown/accumulators zeroed and no route yet.
  */
 export function createZombie(x: number, y: number): Zombie {
+  const body = createBody(x, y);
+  // Undead don't breathe (playtest v0.9 Q): a zombie sinks (buoyant stays
+  // false) and walks the lake BOTTOM without the drown clock ever running.
+  body.breathes = false;
   return {
-    body: createBody(x, y),
+    body,
     state: 'idle',
     target: null,
     senseRadius: SENSE_RADIUS,
@@ -126,11 +130,17 @@ export function createZombie(x: number, y: number): Zombie {
  * 3 / 7.2 turning). Unlike createZombie this does NOT createBody - it WRAPS the
  * passed-in (infected, downed) Body so the reanimated zombie reuses the SAME rig
  * and the controller-swap is seamless (THE GATE: the intact reused rig means a
- * later headshot/dissolve on this zombie still releases real cells). The body is
- * left as-is (alive===true); only fresh idle/steering bookkeeping is created,
- * identical to createZombie's defaults.
+ * later headshot/dissolve on this zombie still releases real cells). The rig is
+ * left as-is (alive===true) apart from its water flags (it is undead now - see
+ * below); fresh idle/steering bookkeeping is created, identical to
+ * createZombie's defaults.
  */
 export function reanimateAsZombie(body: Body): Zombie {
+  // The wrapped body is undead now (playtest v0.9 Q): it stops floating (a
+  // turned survivor sinks and bottom-walks like any zombie) and stops breathing
+  // (the drown clock never runs again).
+  body.buoyant = false;
+  body.breathes = false;
   return {
     body,
     state: 'idle',

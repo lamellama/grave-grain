@@ -224,8 +224,12 @@ export interface Survivor {
  * home = spawn, role 'none', behaviour 'wander', no path/death yet.
  */
 export function createSurvivor(x: number, y: number): Survivor {
+  const body = createBody(x, y);
+  // Survivors FLOAT (playtest v0.9 Q/O): head bobs above the waterline instead
+  // of drowning under a rain/melt sheet. Zombies keep the sinking default.
+  body.buoyant = true;
   return {
-    body: createBody(x, y),
+    body,
     turned: false,
     needs: { hunger: NEED_MAX, thirst: NEED_MAX, warmth: NEED_MAX },
     wetness: 0, // start bone dry (VS-2 Task T-A)

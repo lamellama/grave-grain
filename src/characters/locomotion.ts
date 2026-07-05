@@ -75,7 +75,11 @@ function reactToEnvironment(body: Body): { dead: boolean; pinned: boolean } {
   }
 
   // --- Drown (GDD 5.2 "head submerged too long" / 7.3 drowned) -----------
-  if (headInWater) {
+  // Only bodies that BREATHE drown (playtest v0.9 Q): the undead walk the lake
+  // bottom with the clock never running. Buoyant bodies normally surface long
+  // before DROWN_TICKS - the clock still matters when they are TRAPPED under a
+  // solid ceiling (locomotion cannot rise them), so drowning stays meaningful.
+  if (headInWater && body.breathes) {
     body.drownTicks++;
     if (body.drownTicks >= DROWN_TICKS) {
       // GDD 5.1: drowning is a QUIET death - the rig lies down as a prone
@@ -163,6 +167,27 @@ function checkFire(body: Body): void {
       applyDamage(body, bone.name); // release the bone; its flesh ignites in-sim
     }
   }
+}
+
+/**
+ * Is ANY cell of the named bone WATER right now? Bounded probe over the bone's
+ * authored pixels (<=20 cells), mirroring reactToEnvironment's head scan. Used
+ * by the buoyancy resolve (playtest v0.9 Q): the HEAD probe decides "fully
+ * submerged -> rise", the TORSO probe decides "at the float line -> the water
+ * supports the body". A destroyed/absent bone reads false (a mangled body
+ * sinks - acceptable degradation).
+ */
+function boneInWater(body: Body, name: string): boolean {
+  const bone = body.rig.find((b) => b.name === name);
+  if (!bone || bone.destroyed) return false;
+  const rx = Math.round(body.x);
+  const ry = Math.round(body.y);
+  for (const p of bone.pixels) {
+    if (get(rx + bone.offset.dx + p.dx, ry + bone.offset.dy + p.dy) === WATER) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -277,6 +302,34 @@ export function updateBody(body: Body): void {
         body.xRemainder = 0; // wall: drop progress so we rest flush against it
         break;
       }
+    }
+  }
+
+  // --- Buoyancy (playtest v0.9 Q/O, GDD 5.2/7.3) ----------------------------
+  // A BUOYANT body (survivors) floats instead of settling to the bottom:
+  //   - FULLY SUBMERGED (head in water) -> rise ONE whole cell toward the
+  //     surface (swept, mirrors the fall - never into solid). If solid blocks
+  //     the rise (trapped under a ceiling) it stays put and the drown clock in
+  //     reactToEnvironment keeps running - trapped drowning stays meaningful.
+  //   - AT THE FLOAT LINE (head clear, torso in water) -> the water SUPPORTS
+  //     the body: no fall this tick. The body therefore sinks only until the
+  //     torso wets, then bobs there with the head above the waterline - which
+  //     is exactly why a rain/melt sheet no longer drowns the colony (O).
+  // Non-buoyant bodies (zombies) skip this entirely: they sink through water
+  // and walk the BOTTOM, unchanged from the pre-Q behaviour.
+  if (body.buoyant) {
+    if (boneInWater(body, 'head')) {
+      if (!bodyCellsSolidAt(body, 0, -1)) {
+        body.y -= 1; // rise toward the surface
+      }
+      body.vy = 0;
+      body.grounded = false;
+      return; // rising (or trapped): never also fall this tick
+    }
+    if (boneInWater(body, 'torso')) {
+      body.vy = 0;
+      body.grounded = false;
+      return; // supported by the water: hold depth (float)
     }
   }
 
