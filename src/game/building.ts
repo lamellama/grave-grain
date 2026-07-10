@@ -23,8 +23,14 @@ import type { ResourceKind } from './resources';
 import * as resources from './resources';
 import { inBounds, get, placeMaterial } from '../engine/grid';
 import { markTerrainEdit } from '../engine/navgrid';
-import { WOOD, WALL, CAMPFIRE, DOOR } from '../engine/materials';
-import { FENCE_COST, WALL_COST, CAMPFIRE_COST, DOOR_COST } from '../config';
+import { WOOD, WALL, CAMPFIRE, DOOR, STONE } from '../engine/materials';
+import {
+  FENCE_COST,
+  WALL_COST,
+  CAMPFIRE_COST,
+  DOOR_COST,
+  STONE_BLOCK_COST,
+} from '../config';
 
 // ---------------------------------------------------------------------------
 // Structure table (GDD 8)
@@ -35,7 +41,11 @@ import { FENCE_COST, WALL_COST, CAMPFIRE_COST, DOOR_COST } from '../config';
 // countdown on first visit (the campfire is NOT a breach-integrity structure).
 // 'door' (v0.10 playtest R8): a barred wooden DOOR cell - the living walk
 // through, the undead must gnaw it down (DOOR_INTEGRITY seeds via placeMaterial).
-export type StructureKind = 'fence' | 'wall' | 'campfire' | 'door';
+// 'stone' (v0.11 playtest R): a LOOSE STONE BLOCK - placeMaterial seeds the
+// STONE_LOOSE marker, so the placed cell FALLS under gravity and STACKS
+// (build walls by piling from the ground). The toolbar Stone verb places this;
+// WALL remains the precise breachable structure (Plan Wall / coop builders).
+export type StructureKind = 'fence' | 'wall' | 'campfire' | 'door' | 'stone';
 
 export const STRUCTURES: Record<
   StructureKind,
@@ -45,6 +55,7 @@ export const STRUCTURES: Record<
   wall: { material: WALL, cost: WALL_COST },
   campfire: { material: CAMPFIRE, cost: CAMPFIRE_COST },
   door: { material: DOOR, cost: DOOR_COST },
+  stone: { material: STONE, cost: STONE_BLOCK_COST },
 };
 
 /** The per-cell cost of a structure kind (drops into resources.canAfford/spend). */

@@ -15,7 +15,7 @@ import {
   isSolidForBody,
   isFlammable,
 } from '../src/engine/materials';
-import { WALL_INTEGRITY } from '../src/config';
+import { WALL_INTEGRITY, STONE_LOOSE } from '../src/config';
 
 declare const process: any;
 
@@ -34,9 +34,14 @@ placeMaterial(5, 5, WALL);
 assert(getIntegrity(5, 5) === WALL_INTEGRITY, `placeMaterial(WALL) integrity === WALL_INTEGRITY (${WALL_INTEGRITY})`);
 assert(WALL_INTEGRITY === 200, 'WALL_INTEGRITY === 200');
 
-// Raw STONE stays non-breachable.
+// Raw STONE stays non-breachable: hasIntegrity is FALSE, so breaching and the
+// breach-visual ignore its integrity slot entirely. Since playtest v0.11 R the
+// slot is REUSED as the loose-block marker (the FIRE-lifetime pattern) -
+// placeMaterial(STONE) is the player paint path and seeds STONE_LOOSE so a
+// painted stone falls-and-stacks instead of hanging off lateral contact.
 placeMaterial(6, 5, STONE);
-assert(getIntegrity(6, 5) === 0, 'placeMaterial(STONE) integrity === 0 (raw stone non-breachable)');
+assert(MATERIALS[STONE].hasIntegrity === false, 'STONE hasIntegrity === false (non-breachable)');
+assert(getIntegrity(6, 5) === STONE_LOOSE, 'placeMaterial(STONE) seeds the LOOSE-block marker (v0.11 R)');
 
 // WALL properties.
 assert(isSolidForBody(WALL) === true, 'isSolidForBody(WALL) === true');

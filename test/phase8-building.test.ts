@@ -36,7 +36,7 @@ import { addResource, resetStockpile, getStockpile } from '../src/game/resources
 import { material, set, get, getIntegrity, placeMaterial, integrity } from '../src/engine/grid';
 import { rebuildNavgrid }                    from '../src/engine/navgrid';
 import { WOOD, STONE, WALL, AIR, FIRE }      from '../src/engine/materials';
-import { WORLD_W, WOOD_INTEGRITY, WALL_INTEGRITY, P3_GROUND_Y } from '../src/config';
+import { WORLD_W, WOOD_INTEGRITY, WALL_INTEGRITY, P3_GROUND_Y, STONE_LOOSE } from '../src/config';
 import { createZombie, updateZombie }        from '../src/characters/zombie';
 import { createSurvivor }                    from '../src/characters/survivor';
 import { resolveBreaching }                  from '../src/game/breaching';
@@ -190,14 +190,17 @@ const { zombies: stoneZombies, target: stoneTarget } = buildScene(3, STONE);
 for (let t = 1; t <= WALL_TICK_LIMIT; t++) {
   tickBreaching(stoneZombies, stoneTarget);
 }
-// Verify: all stone cells still STONE, all integrity still 0
+// Verify: all stone cells still STONE and their integrity slot UNTOUCHED by
+// breaching. Since v0.11 R the slot on PLACED stone holds the loose-block
+// marker (STONE_LOOSE) - breaching gates on hasIntegrity(false for STONE), so
+// the marker surviving at its seeded value IS the never-chipped proof.
 let stoneIntact = true;
 for (let y = FENCE_TOP; y <= FLOOR - 1; y++) {
-  if (get(BARRIER_X, y) !== STONE)           stoneIntact = false;
-  if (getIntegrity(BARRIER_X, y) !== 0)      stoneIntact = false;
+  if (get(BARRIER_X, y) !== STONE)                stoneIntact = false;
+  if (getIntegrity(BARRIER_X, y) !== STONE_LOOSE) stoneIntact = false;
 }
 console.log(`  STONE column intact after ${WALL_TICK_LIMIT} ticks: ${stoneIntact}`);
-ok(stoneIntact, `raw STONE never chipped (hasIntegrity=false, integrity always 0, cell always STONE)`);
+ok(stoneIntact, `raw STONE never chipped (hasIntegrity=false, loose marker untouched, cell always STONE)`);
 const a2Pass = wallChipped && stoneIntact;
 
 // ============================================================

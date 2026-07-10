@@ -1386,3 +1386,26 @@ export const SOAK_CHANCE = 0.003;
 // shallow sheets/puddles (rain floods are capped at RAIN_MAX_POOL_DEPTH=3)
 // drain into the ground.
 export const SOAK_MAX_DEPTH = 6;
+
+// ---------------------------------------------------------------------------
+// v0.11 playtest R - stone-block physics (GDD 5.2)
+// ---------------------------------------------------------------------------
+
+// Integrity-slot marker for a LOOSE stone BLOCK (STONE hasIntegrity=false, so
+// its slot is free - the FIRE-lifetime / CAMPFIRE-fuel / SAPLING-timer reuse
+// pattern; breaching and the breach-visual both gate on hasIntegrity first,
+// so a marked stone stays non-breachable). PLACED stone (player paint) and
+// FALLEN stone (rubble) carry the marker: a loose block rests ONLY on support
+// from BELOW and stacks into columns/walls - lateral contact never defies
+// gravity. UNMARKED stone is NATIVE rock (worldgen strata, grid.set in tests):
+// it keeps the v0.9 N 4-neighbour mortar rule, so mined galleries, aquifer
+// roofs and natural overhangs stay standing.
+export const STONE_LOOSE = 1;
+
+// Cost of one placed loose STONE BLOCK (v0.11 playtest R - the toolbar Stone
+// verb): same stone price as a WALL cell, but a different verb entirely - a
+// block FALLS and STACKS (build walls by piling from the ground; climbable by
+// zombie ladders, never breachable like all raw stone), while WALL is the
+// precise, breachable structure that can span roofs/bridges (Plan Wall + coop
+// builders keep placing it).
+export const STONE_BLOCK_COST: Partial<Record<ResourceKind, number>> = { stone: 1 };

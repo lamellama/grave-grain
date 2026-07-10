@@ -47,6 +47,7 @@ import {
   EVAPORATE_CHANCE,
   SOAK_CHANCE,
   SOAK_MAX_DEPTH,
+  STONE_LOOSE,
   SNOW_SPAWN_CHANCE,
   SNOW_MAX_DEPTH,
   SNOW_MELT_WATER_FRACTION,
@@ -902,15 +903,36 @@ function isMortar(m: number): boolean {
  * placeMaterial -> markCellActive), and the stone falls on the next pass.
  */
 function updateStone(x: number, y: number): void {
-  if (
-    (x > 0 && isMortar(material[idx(x - 1, y)])) ||
-    (x < WORLD_W - 1 && isMortar(material[idx(x + 1, y)])) ||
-    (y > 0 && isMortar(material[idx(x, y - 1)])) ||
-    (y < WORLD_H - 1 && isMortar(material[idx(x, y + 1)]))
-  ) {
-    return; // mortared -> holds (strata, walls, piles)
+  const i = idx(x, y);
+  // NATIVE rock (integrity slot 0 - worldgen strata / raw grid.set): mortared
+  // while ANY 4-neighbour is STONE/WALL, so mined galleries, aquifer roofs and
+  // natural overhangs keep standing exactly as under the v0.9 N rule.
+  if (integrity[i] !== STONE_LOOSE) {
+    if (
+      (x > 0 && isMortar(material[idx(x - 1, y)])) ||
+      (x < WORLD_W - 1 && isMortar(material[idx(x + 1, y)])) ||
+      (y > 0 && isMortar(material[idx(x, y - 1)])) ||
+      (y < WORLD_H - 1 && isMortar(material[idx(x, y + 1)]))
+    ) {
+      return; // mortared -> holds
+    }
+    // An unsupported native stone is RUBBLE from here on (playtest v0.11 R):
+    // once rock has broken loose it behaves as a block for the rest of its
+    // life - in particular it can never re-hang off a lateral contact after
+    // landing (the old rule let a fallen stone glue itself to the SIDE of a
+    // pile and float there).
+    integrity[i] = STONE_LOOSE;
   }
-  trySwap(x, y, x, y + 1); // lone stone -> straight-down fall (or rest)
+  // LOOSE BLOCK (placed by the player, or fallen rubble): rests ONLY on
+  // support from BELOW - blocks fall under gravity and STACK into columns and
+  // walls; lateral contact never defies gravity (playtest v0.11 R "stone
+  // blocks"). Straight-down block fall, no powder spill/repose; displaces
+  // AIR/fluids only (trySwap), rests on anything else. trySwap does not carry
+  // the integrity slot, so the loose marker is moved by hand with the block.
+  if (trySwap(x, y, x, y + 1)) {
+    integrity[idx(x, y + 1)] = STONE_LOOSE;
+    integrity[i] = 0;
+  }
 }
 
 /**
