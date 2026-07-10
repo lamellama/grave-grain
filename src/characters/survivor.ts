@@ -63,6 +63,7 @@ import {
   STONE_PER_MINE,
   ORE_PER_MINE,
   FOOD_PER_GATHER,
+  FOOD_PER_FISH,
   HUNGER_RATE,
   THIRST_RATE,
   WARMTH_RATE,
@@ -816,13 +817,19 @@ function nearestReachableWarmth(s: Survivor): ReachTarget | null {
 
 /**
  * Nearest REACHABLE work target for a harvest role (playtest #3/#5): exposed
- * STONE/ORE for the miner, FOLIAGE for the lumberjack/forager - each filtered to
- * one with a standable bank and a route, so the survivor walks to and works a
- * reachable face/bush instead of fixating on an unreachable nearest one.
+ * STONE/ORE for the miner, FOLIAGE for the lumberjack/forager, WATER for the
+ * fisherman (GDD 6.2 "fishes at water" - the standable-bank filter is exactly
+ * the drink rule, so a fisherman works a pool's edge and never a sealed pond) -
+ * each filtered to one with a standable bank and a route, so the survivor walks
+ * to and works a reachable face/bush/bank instead of fixating on an unreachable
+ * nearest one.
  */
 function reachableWorkTarget(s: Survivor, role: RoleName): ReachTarget | null {
   if (role === 'miner') {
     return nearestReachable(s, (x, y) => isExposedRock(x, y));
+  }
+  if (role === 'fisherman') {
+    return nearestReachable(s, (x, y) => get(x, y) === WATER);
   }
   return nearestReachable(s, (x, y) => get(x, y) === FOLIAGE);
 }
@@ -1289,6 +1296,13 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
           s.carryKind = out;
           harvested = true;
         }
+      } else if (role === 'fisherman' && m === WATER) {
+        // GDD 6.2 fisherman: the catch comes OUT OF the water without consuming
+        // the cell - water is the renewable food source (paid for in FISH_TICKS).
+        // No set()/markTerrainEdit: the grid and navgrid are untouched.
+        s.carrying += FOOD_PER_FISH;
+        s.carryKind = 'food';
+        harvested = true;
       }
       s.workTarget = null;
       s.workStand = null;
