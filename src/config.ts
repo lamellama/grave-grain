@@ -1366,3 +1366,23 @@ export const IRON_ATTACK_COOLDOWN_MULT = 0.5;
 // "one or both edges", 12.2 "zombie-edge count" knob). Set above WIN_WAVES
 // to disable dual-edge entirely.
 export const ZOMBIE_DUAL_EDGE_FROM_WAVE = 3;
+
+// ---------------------------------------------------------------------------
+// v0.11 playtest S - flood drainage: water soaks into soil (GDD 10)
+// ---------------------------------------------------------------------------
+
+// Chance per COLUMN per tick that the bottom cell of a sky-exposed water body
+// RESTING ON SOIL (DIRT/SAND below) is absorbed into the ground. Runs in every
+// weather EXCEPT rain (storms flood; the ground drinks the flood afterwards).
+// Complements the R8 clear-weather EVAPORATE_CHANCE (0.001, top-down): soak is
+// the bottom-up valve and the faster one, so a post-storm sheet drains in
+// roughly depth/SOAK_CHANCE ticks (~2 deep -> ~11 s at 60 Hz). Stone/wall
+// basins are WATERPROOF by material - the worldgen drinking pond and the
+// underground aquifers are carved into STONE, so they never drain this way.
+export const SOAK_CHANCE = 0.003;
+
+// Walk cap (rows, surface->floor) for the soak probe: a water body deeper
+// than this never soaks - open lakes and deep dirt-pit ponds persist; only
+// shallow sheets/puddles (rain floods are capped at RAIN_MAX_POOL_DEPTH=3)
+// drain into the ground.
+export const SOAK_MAX_DEPTH = 6;

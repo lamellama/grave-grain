@@ -126,6 +126,25 @@ function seedStoneGravity(s: Sim): void {
   for (let y = 120; y < 126; y++) grid.set(135, y, mats.STONE); // column -> holds
 }
 
+// (g) SOAK (playtest v0.11 S): a standing water sheet on a DIRT-bottomed,
+//     stone-walled basin drains bottom-up via applySoak (per-column simRand
+//     rolls, non-chunk-gated sweep) while the sheet re-levels - must stay
+//     byte-identical chunked vs full, including the wake around each absorbed
+//     cell. Dirt is fully enclosed (stone shelf below, walls at the ends) so
+//     the known updateDirt edge-diagonal gap (see PROGRESS) never triggers.
+function seedSoak(s: Sim): void {
+  floor(s);
+  const { grid, mats } = s;
+  for (let y = FLOOR_Y - 7; y < FLOOR_Y; y++) {
+    grid.set(110, y, mats.STONE); // basin walls
+    grid.set(190, y, mats.STONE);
+  }
+  for (let x = 111; x < 190; x++)
+    for (let y = FLOOR_Y - 2; y < FLOOR_Y; y++) grid.set(x, y, mats.DIRT);
+  for (let x = 111; x < 190; x++)
+    for (let y = FLOOR_Y - 4; y < FLOOR_Y - 2; y++) grid.set(x, y, mats.WATER);
+}
+
 function snapshot(s: Sim): Uint8Array {
   const n = s.grid.material.length;
   const snap = new Uint8Array(n * 2);
@@ -170,6 +189,7 @@ const SCENARIOS: Array<{ name: string; seed: (s: Sim) => void }> = [
   { name: 'GORE pile (flesh/bone/blood) settle', seed: seedGore },
   { name: 'CAMPFIRE burns next to WOOD (no spread)', seed: seedCampfire },
   { name: 'STONE gravity: lone falls, mortared holds', seed: seedStoneGravity },
+  { name: 'SOAK: sheet on dirt drains bottom-up', seed: seedSoak },
 ];
 
 const W = freshSim().config.WORLD_W;
@@ -194,7 +214,7 @@ for (const { name, seed } of SCENARIOS) {
   else console.log(`FAIL: equivalence: ${name} — DIVERGED (see above)`);
 }
 if (!allEqual) fail('chunked run diverged from full-scan reference');
-ok('EQUIVALENCE BATTERY: all 6 scenarios byte-identical at 50/150/300 (OFF == ON)');
+ok('EQUIVALENCE BATTERY: all 7 scenarios byte-identical at 50/150/300 (OFF == ON)');
 
 // ===========================================================================
 // 2. NO-TUNNEL — nothing falls through the stone floor (checked on chunked run).
