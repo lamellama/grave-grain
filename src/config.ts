@@ -1330,3 +1330,26 @@ export const FOOD_PER_FISH = 1;
 export const DIGGER_DOWN_TINT: [number, number, number] = [125, 85, 165];
 export const DIGGER_UP_TINT: [number, number, number] = [185, 105, 185];
 export const FISHERMAN_TINT: [number, number, number] = [55, 160, 165];
+
+// ---------------------------------------------------------------------------
+// GDD 14 Beyond item 5 - Iron tool tier (GDD 6.3)
+// ---------------------------------------------------------------------------
+
+// Craft cost of an IRON-tier tool (any upgradable kind): ore smelted around a
+// wood haft. Ore's first (and so far only) stockpile sink - the miner's output
+// finally buys something. No workstation gate (GDD 6.3 marks it optional).
+export const IRON_TOOL_ORE_COST = 2;
+export const IRON_TOOL_WOOD_COST = 1;
+
+// Iron is durable (GDD 6.3 "wooden tools are brittle, iron tools are durable"):
+// durability = the kind's wood-tier durability x this multiplier.
+export const IRON_DURABILITY_MULT = 4;
+
+// Iron works faster (GDD 6.2 "wood tool -> iron tool -> faster work"): timed
+// work (chop/mine/gather/build/dig) takes this fraction of the wood ticks.
+export const IRON_WORK_TICKS_MULT = 0.5;
+
+// Iron fights harder (GDD 6.2 "stronger combat"): an iron-armed guard strikes
+// on this fraction of ATTACK_COOLDOWN. The damage model stays emergent/cellular
+// (GDD 7.2) - iron buys CADENCE, not a bigger hit, so melee balance holds.
+export const IRON_ATTACK_COOLDOWN_MULT = 0.5;

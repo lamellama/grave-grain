@@ -37,6 +37,9 @@ import {
   HAMMER_DURABILITY,
   BUILD_TICKS,
   BUILDER_TINT,
+  IRON_TOOL_ORE_COST,
+  IRON_TOOL_WOOD_COST,
+  IRON_DURABILITY_MULT,
   SHOVEL_WOOD_COST,
   SHOVEL_DURABILITY,
   DIG_TICKS,
@@ -118,12 +121,29 @@ export function roleTintCss(role: RoleName): string {
   return `rgb(${t[0]},${t[1]},${t[2]})`;
 }
 
-/** Wood-tier tool kinds. Weapons are tools too (GDD 6.3). */
+/** Tool kinds. Weapons are tools too (GDD 6.3). */
 export type ToolKind = 'pickaxe' | 'axe' | 'basket' | 'weapon' | 'hammer' | 'shovel' | 'rod';
 
-/** A held tool: a kind plus remaining durability (counts down to break). */
+/** Tool quality tier (GDD 6.3): wood is cheap and brittle, iron durable/fast. */
+export type ToolTier = 'wood' | 'iron';
+
+/**
+ * Kinds that HAVE an iron tier (GDD 6.2 table: shovel/pickaxe/axe are
+ * "wood->iron", weapons and by extension the hammer are metal tools). The
+ * basket and fishing rod stay wood-only - there is no iron basket.
+ */
+export const IRON_UPGRADABLE: readonly ToolKind[] = [
+  'pickaxe',
+  'axe',
+  'shovel',
+  'weapon',
+  'hammer',
+];
+
+/** A held tool: kind + tier + remaining durability (counts down to break). */
 export interface Tool {
   kind: ToolKind;
+  tier: ToolTier;
   durability: number;
 }
 
@@ -145,15 +165,22 @@ export interface RoleDef {
 // Tools (GDD 6.3 - durability, wood is brittle)
 // ---------------------------------------------------------------------------
 
-/** Fresh tool of the given kind at full wood-tier durability. */
-export function makeTool(kind: ToolKind): Tool {
-  // Hammer/shovel use their own higher durability so a builder can finish a
-  // wall line and a digger a full-length tunnel (one use per column).
-  const durability =
+/** Fresh tool of the given kind and tier at that tier's full durability. */
+export function makeTool(kind: ToolKind, tier: ToolTier = 'wood'): Tool {
+  // Hammer/shovel use their own higher wood-tier durability so a builder can
+  // finish a wall line and a digger a full-length tunnel (one use per column).
+  const base =
     kind === 'hammer' ? HAMMER_DURABILITY :
     kind === 'shovel' ? SHOVEL_DURABILITY :
     WOOD_TOOL_DURABILITY;
-  return { kind, durability };
+  // GDD 6.3: wood is brittle, iron durable - same kind, x-multiplied lifespan.
+  const durability = tier === 'iron' ? base * IRON_DURABILITY_MULT : base;
+  return { kind, tier, durability };
+}
+
+/** Stockpile cost of the IRON tier of a kind (flat across upgradable kinds). */
+export function ironCostFor(): Partial<Record<ResourceKind, number>> {
+  return { wood: IRON_TOOL_WOOD_COST, ore: IRON_TOOL_ORE_COST };
 }
 
 /**
@@ -417,9 +444,13 @@ export function canAssign(role: RoleName, ownedTools: ToolKind[]): boolean {
 }
 
 /**
- * Auto-craft the wood-tier tool a role requires, spending from the stockpile.
+ * Auto-craft the WOOD-tier tool a role requires, spending from the stockpile.
  * Returns null if the role needs no tool OR the spend fails (insufficient
  * stockpile). On success the stockpile is debited and a fresh tool is returned.
+ * Fresh crafts are ALWAYS wood (cheap, predictable - the free-axe bootstrap
+ * stays free); the IRON tier is bought only by the player's explicit
+ * re-assign upgrade in assignRole (GDD 6.2 "roles can be upgraded"), so
+ * scarce ore is never spent silently.
  */
 export function craftToolFor(role: RoleName): Tool | null {
   const def = ROLES[role];

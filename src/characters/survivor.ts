@@ -45,9 +45,12 @@ import { findPath, isPathStale } from '../game/pathfinding';
 import type { RoleName, Tool, ToolKind } from '../game/roles';
 import {
   ROLES,
+  IRON_UPGRADABLE,
   isExposedRock,
   isDiggable,
   useTool,
+  makeTool,
+  ironCostFor,
   mineOutput,
   canAssign,
   craftToolFor,
@@ -112,6 +115,8 @@ import {
   BUILDER_REACH_UP,
   DIG_TICKS,
   DIG_DISTANCE,
+  IRON_WORK_TICKS_MULT,
+  IRON_ATTACK_COOLDOWN_MULT,
 } from '../config';
 
 /**
@@ -1116,11 +1121,23 @@ export function assignRole(s: Survivor, role: RoleName): boolean {
   const owned: ToolKind[] = s.tool ? [s.tool.kind] : [];
   if (!canAssign(role, owned)) return false;
   const required = ROLES[role].requiredTool;
-  // Keep a matching held tool; otherwise auto-craft from the stockpile.
+  // Keep a matching held tool; otherwise auto-craft from the stockpile (at the
+  // best affordable tier - craftToolFor prefers iron, GDD 6.3).
   let tool = s.tool;
   if (required !== null && (tool === null || tool.kind !== required)) {
     tool = craftToolFor(role);
     if (tool === null) return false; // canAssign said yes but spend failed
+  } else if (
+    required !== null &&
+    tool !== null &&
+    tool.tier === 'wood' &&
+    IRON_UPGRADABLE.includes(required) &&
+    spend(ironCostFor())
+  ) {
+    // GDD 6.2 "roles can be upgraded once iron is available": RE-assigning the
+    // role with ore banked swaps the held wood tool for a fresh iron one. The
+    // player triggers it (a re-tap), so scarce ore is never spent silently.
+    tool = makeTool(required, 'iron');
   }
   s.role = role;
   s.tool = tool;
@@ -1204,14 +1221,31 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
 
   // Adjacent -> hold position and strike on cooldown. LEG an intact zombie to
   // slow the front rank; HEADSHOT a crawler (already lost a leg) to finish it.
+  // An IRON weapon strikes on a shorter cooldown (GDD 6.2 "stronger combat" -
+  // cadence, not a bigger hit, so the emergent damage model is untouched).
   body.moveDir = 0;
   if (s.attackCooldown <= 0) {
     const crawling = z.body.lLegLost || z.body.rLegLost;
     const aim = crawling ? 'head' : 'leg';
     const region = pickAttackRegion(z.body, aim);
     if (region) meleeAttack(z.body, region);
-    s.attackCooldown = ATTACK_COOLDOWN;
+    s.attackCooldown =
+      s.tool !== null && s.tool.tier === 'iron'
+        ? Math.max(1, Math.round(ATTACK_COOLDOWN * IRON_ATTACK_COOLDOWN_MULT))
+        : ATTACK_COOLDOWN;
   }
+}
+
+/**
+ * Timed-work duration for the held tool's tier (GDD 6.2/6.3 "iron -> faster
+ * work"): iron scales the wood-tier ticks by IRON_WORK_TICKS_MULT (floor 1
+ * tick). Applied at every point a work timer is armed (harvest, build, dig).
+ */
+function tierWorkTicks(base: number, tool: Tool | null): number {
+  if (tool !== null && tool.tier === 'iron') {
+    return Math.max(1, Math.round(base * IRON_WORK_TICKS_MULT));
+  }
+  return base;
 }
 
 /**
@@ -1278,7 +1312,7 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
       const t = s.workTarget;
       if (cellWithinReach(body, t.x, t.y)) {
         s.roleState = 'working';
-        s.workTicksLeft = ROLES[role].workTicks;
+        s.workTicksLeft = tierWorkTicks(ROLES[role].workTicks, s.tool);
         s.path = null;
         body.moveDir = 0;
         return;
@@ -1609,7 +1643,7 @@ function driveDigger(s: Survivor): void {
   // Timed carve, standing at the face (the harvest 'working' pattern).
   body.moveDir = 0;
   if (s.workTicksLeft === 0) {
-    s.workTicksLeft = DIG_TICKS;
+    s.workTicksLeft = tierWorkTicks(DIG_TICKS, s.tool);
     return;
   }
   s.workTicksLeft--;
@@ -1676,7 +1710,7 @@ function driveBuilder(s: Survivor): void {
       const t = s.workTarget!;
       if (cellWithinReach(body, t.x, t.y, BUILDER_REACH_UP)) {
         s.roleState = 'working';
-        s.workTicksLeft = ROLES['builder'].workTicks;
+        s.workTicksLeft = tierWorkTicks(ROLES['builder'].workTicks, s.tool);
         s.path = null;
         body.moveDir = 0;
         return;
