@@ -1353,3 +1353,16 @@ export const IRON_WORK_TICKS_MULT = 0.5;
 // on this fraction of ATTACK_COOLDOWN. The damage model stays emergent/cellular
 // (GDD 7.2) - iron buys CADENCE, not a bigger hit, so melee balance holds.
 export const IRON_ATTACK_COOLDOWN_MULT = 0.5;
+
+// ---------------------------------------------------------------------------
+// GDD 14 Beyond item 6 - Dual-edge spawns (GDD 7.1 / 12.2)
+// ---------------------------------------------------------------------------
+
+// The wave number from which zombies spawn from BOTH horizontal edges (each
+// edge-spawn rolls a 50/50 side) instead of only ZOMBIE_SPAWN_EDGE. Early
+// waves teach the single-front game; later waves FLANK - the colony sits
+// SPAWN_ZONE_MARGIN from its near edge, so the second front arrives sooner
+// and defending both directions becomes the late-game pressure (GDD 7.1
+// "one or both edges", 12.2 "zombie-edge count" knob). Set above WIN_WAVES
+// to disable dual-edge entirely.
+export const ZOMBIE_DUAL_EDGE_FROM_WAVE = 3;
