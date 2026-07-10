@@ -23,7 +23,7 @@
 import type { ResourceKind } from './resources';
 import { canAfford, spend, stockpilePoint } from './resources';
 import { get } from '../engine/grid';
-import { AIR, STONE, ORE, FOLIAGE, WATER } from '../engine/materials';
+import { AIR, STONE, ORE, FOLIAGE, WATER, DIRT, SAND, SNOW, ASH } from '../engine/materials';
 import { RESOURCE_SCAN_RADIUS, WOOD_TOOL_DURABILITY, ROLE_TINT_MIX } from '../config';
 import {
   CHOP_TICKS,
@@ -285,6 +285,18 @@ function nearestMaterial(
     if (best) return best;
   }
   return null;
+}
+
+/**
+ * Can a shovel remove this material (GDD 6.2 diggers)? Soils and powders only:
+ * DIRT/SAND/SNOW/ASH. STONE and ORE stop a dig ("tunnels until hitting
+ * ore/stone" - the face is left EXPOSED for a miner); structures (WOOD/WALL/
+ * DOOR) also stop it, so a digger can never shovel through the colony's own
+ * defenses. Fluids and permeables neither dig nor block - water pouring into a
+ * fresh tunnel is the GDD 6.2 intended emergent risk.
+ */
+export function isDiggable(m: number): boolean {
+  return m === DIRT || m === SAND || m === SNOW || m === ASH;
 }
 
 /**
