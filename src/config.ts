@@ -1292,3 +1292,41 @@ export const WEATHER_OVERLAY_DENSITY = 120;
 // light as it now is; snow keeps the full WEATHER_OVERLAY_DENSITY flake count.
 // Draw-time only (ui.drawWeather) - never touches the sim.
 export const RAIN_OVERLAY_DENSITY = 60;
+
+// ---------------------------------------------------------------------------
+// GDD 14 Beyond item 4 - Digger & Fisherman roles (GDD 6.2)
+// ---------------------------------------------------------------------------
+
+// Wood cost to craft a shovel (shared by both digger roles). Non-zero: the
+// lumberjack (free axe) stays the colony's only bootstrap role.
+export const SHOVEL_WOOD_COST = 2;
+
+// Shovel durability: one use per dug COLUMN, so a fresh shovel survives at
+// least one full-length dig (DIG_DISTANCE) with headroom for a second start.
+// Mirrors HAMMER_DURABILITY's "big enough to finish the job" rationale.
+export const SHOVEL_DURABILITY = 24;
+
+// Ticks to dig one column of the tunnel (stand at the face, then carve).
+// Slower than gathering, quicker than mining - dirt yields easier than stone.
+export const DIG_TICKS = 30;
+
+// Tunnel length in COLUMNS for one dig assignment (GDD 6.2 "a set distance").
+// The digger stops early on hitting non-diggable rock (stone/ore stays, now
+// EXPOSED at the tunnel face for a miner) and reverts to idle when done.
+export const DIG_DISTANCE = 16;
+
+// Wood cost to craft a fishing rod (GDD 6.2 fisherman gate).
+export const ROD_WOOD_COST = 2;
+
+// Ticks per catch. Fishing is the SLOWEST food per unit - the water never
+// depletes (unlike foraged bushes), so renewability is paid for in time.
+export const FISH_TICKS = 150;
+
+// Food units per completed catch.
+export const FOOD_PER_FISH = 1;
+
+// Role tints (render-only, task 11-5 pattern) - distinct from every existing
+// role swatch (l-role-legend distinctness): diggers purple/plum, fisherman teal.
+export const DIGGER_DOWN_TINT: [number, number, number] = [125, 85, 165];
+export const DIGGER_UP_TINT: [number, number, number] = [185, 105, 185];
+export const FISHERMAN_TINT: [number, number, number] = [55, 160, 165];

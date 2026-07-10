@@ -185,7 +185,7 @@ resetShelters();
 // Playtest R9: no camp flag at the start of a run - survivors build NOTHING
 // until the player plants it (Flag tool). Prompt the player once.
 resetCampFlag();
-pushToast('Plant the ⚑ Flag to choose where camp is built');
+pushToast('Plant the \u2691 Flag to choose where camp is built');
 
 // Starting resources so the first tool/wall can be crafted/built on load
 // (GDD 6.2 tool-gating, 8 build affordability).

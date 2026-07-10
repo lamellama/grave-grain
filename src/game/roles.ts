@@ -23,7 +23,7 @@
 import type { ResourceKind } from './resources';
 import { canAfford, spend, stockpilePoint } from './resources';
 import { get } from '../engine/grid';
-import { AIR, STONE, ORE, FOLIAGE } from '../engine/materials';
+import { AIR, STONE, ORE, FOLIAGE, WATER } from '../engine/materials';
 import { RESOURCE_SCAN_RADIUS, WOOD_TOOL_DURABILITY, ROLE_TINT_MIX } from '../config';
 import {
   CHOP_TICKS,
@@ -37,14 +37,34 @@ import {
   HAMMER_DURABILITY,
   BUILD_TICKS,
   BUILDER_TINT,
+  SHOVEL_WOOD_COST,
+  SHOVEL_DURABILITY,
+  DIG_TICKS,
+  ROD_WOOD_COST,
+  FISH_TICKS,
+  DIGGER_DOWN_TINT,
+  DIGGER_UP_TINT,
+  FISHERMAN_TINT,
 } from '../config';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** MVP roles (GDD 6.2 subset); 'none' is the unassigned default. */
-export type RoleName = 'none' | 'miner' | 'lumberjack' | 'forager' | 'guard' | 'builder';
+/**
+ * Roles (GDD 6.2); 'none' is the unassigned default. The two diggers and the
+ * fisherman are the GDD 14 "Beyond" additions (item 4) on top of the MVP five.
+ */
+export type RoleName =
+  | 'none'
+  | 'miner'
+  | 'lumberjack'
+  | 'forager'
+  | 'guard'
+  | 'builder'
+  | 'diggerDown'
+  | 'diggerUp'
+  | 'fisherman';
 
 // ---------------------------------------------------------------------------
 // Role tints (GDD 12 UX readability, task 11-5 - render-only)
@@ -62,6 +82,9 @@ export const ROLE_TINT: Record<RoleName, [number, number, number]> = {
   forager:    [ 60, 140,  60], // forest green
   guard:      [ 70, 110, 170], // steel-blue
   builder:    BUILDER_TINT,    // amber/tan (GDD 6.2 builder role)
+  diggerDown: DIGGER_DOWN_TINT, // deep purple (GDD 6.2 down-diagonal digger)
+  diggerUp:   DIGGER_UP_TINT,   // plum/magenta (GDD 6.2 up-diagonal digger)
+  fisherman:  FISHERMAN_TINT,   // teal (GDD 6.2 fisherman)
 };
 
 /**
@@ -96,7 +119,7 @@ export function roleTintCss(role: RoleName): string {
 }
 
 /** Wood-tier tool kinds. Weapons are tools too (GDD 6.3). */
-export type ToolKind = 'pickaxe' | 'axe' | 'basket' | 'weapon' | 'hammer';
+export type ToolKind = 'pickaxe' | 'axe' | 'basket' | 'weapon' | 'hammer' | 'shovel' | 'rod';
 
 /** A held tool: a kind plus remaining durability (counts down to break). */
 export interface Tool {
@@ -124,8 +147,12 @@ export interface RoleDef {
 
 /** Fresh tool of the given kind at full wood-tier durability. */
 export function makeTool(kind: ToolKind): Tool {
-  // Hammer uses its own higher durability so a builder can finish a wall line.
-  const durability = kind === 'hammer' ? HAMMER_DURABILITY : WOOD_TOOL_DURABILITY;
+  // Hammer/shovel use their own higher durability so a builder can finish a
+  // wall line and a digger a full-length tunnel (one use per column).
+  const durability =
+    kind === 'hammer' ? HAMMER_DURABILITY :
+    kind === 'shovel' ? SHOVEL_DURABILITY :
+    WOOD_TOOL_DURABILITY;
   return { kind, durability };
 }
 
@@ -191,6 +218,33 @@ export const ROLES: Record<RoleName, RoleDef> = {
     harvestMaterial: null,
     workTicks: 0,
     craftCost: { wood: WEAPON_WOOD_COST },
+  },
+  // Tunnels diagonally DOWN a set distance or until hitting rock (GDD 6.2):
+  // output is ACCESS (depth, exposed ore), not a stockpile resource. The dig
+  // loop is self-driven (driveDigger in survivor.ts), so no harvestMaterial.
+  diggerDown: {
+    requiredTool: 'shovel',
+    output: null,
+    harvestMaterial: null,
+    workTicks: DIG_TICKS,
+    craftCost: { wood: SHOVEL_WOOD_COST },
+  },
+  // Tunnels diagonally UP - ramps and escape routes (GDD 6.2).
+  diggerUp: {
+    requiredTool: 'shovel',
+    output: null,
+    harvestMaterial: null,
+    workTicks: DIG_TICKS,
+    craftCost: { wood: SHOVEL_WOOD_COST },
+  },
+  // Fishes AT water (GDD 6.2): stands on the bank and pulls food from the
+  // WATER cell WITHOUT consuming it - renewable food, paid for in FISH_TICKS.
+  fisherman: {
+    requiredTool: 'rod',
+    output: 'food',
+    harvestMaterial: WATER,
+    workTicks: FISH_TICKS,
+    craftCost: { wood: ROD_WOOD_COST },
   },
 };
 
@@ -286,8 +340,10 @@ function nearestExposedRock(
  * Find the work target for a role from (fromX, fromY), or null if none in range:
  *   lumberjack/forager -> nearest FOLIAGE (tree/bush) within RESOURCE_SCAN_RADIUS.
  *   miner             -> nearest EXPOSED stone/ore (skips fully-buried rock).
+ *   fisherman         -> nearest WATER cell (the bank stand is survivor.ts' job).
  *   guard             -> the stockpile hold point (MVP "hold a point", GDD 6.2).
  *   builder           -> null (target acquisition is queue-driven - BQ-3 in survivor.ts).
+ *   diggerDown/Up     -> null (the dig face is self-propelled - driveDigger).
  *   none              -> null.
  */
 export function findTarget(
@@ -301,11 +357,18 @@ export function findTarget(
       return nearestMaterial(fromX, fromY, FOLIAGE, RESOURCE_SCAN_RADIUS);
     case 'miner':
       return nearestExposedRock(fromX, fromY, RESOURCE_SCAN_RADIUS);
+    case 'fisherman':
+      return nearestMaterial(fromX, fromY, WATER, RESOURCE_SCAN_RADIUS);
     case 'guard':
       return { x: stockpilePoint.x, y: stockpilePoint.y };
     case 'builder':
       // Builder targets are pulled from the blueprint queue (BQ-3), not
       // grid-scanned here. Return null; survivor.ts drives the pick.
+      return null;
+    case 'diggerDown':
+    case 'diggerUp':
+      // Diggers carve their own advancing face from the body's position
+      // (driveDigger in survivor.ts) - there is no scanned target.
       return null;
     case 'none':
     default:
