@@ -1240,23 +1240,11 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
   // facing while moveDir is 0). facing is +1 (right) / -1 (left).
   body.facing = z.body.x >= body.x ? 1 : -1;
 
-  // Adjacent -> hold position and strike on cooldown. LEG an intact zombie to
-  // slow the front rank; HEADSHOT a crawler (already lost a leg) to finish it.
-  // An IRON weapon strikes on a shorter cooldown (GDD 6.2 "stronger combat" -
-  // cadence, not a bigger hit, so the emergent damage model is untouched).
-  body.moveDir = 0;
-  if (s.attackCooldown <= 0) {
-    const crawling = z.body.lLegLost || z.body.rLegLost;
-    const aim = crawling ? 'head' : 'leg';
-    const region = pickAttackRegion(z.body, aim);
-    if (region) meleeAttack(z.body, region);
-    s.attackCooldown =
-      s.tool !== null && s.tool.tier === 'iron'
-        ? Math.max(1, Math.round(ATTACK_COOLDOWN * IRON_ATTACK_COOLDOWN_MULT))
-        : ATTACK_COOLDOWN;
   // Loose an arrow on the bow's cadence. Nock it at shoulder height, forward of
   // the guard's bow hand; aim at the target's torso mass, or its head to finish
   // a crawler. The arc + the horde's advance do the rest (impact picks region).
+  // An IRON weapon looses on a shorter cooldown (GDD 6.2 "stronger combat" -
+  // cadence, not a bigger hit, so the emergent damage model is untouched).
   if (s.attackCooldown <= 0) {
     const crawling = z.body.lLegLost || z.body.rLegLost;
     const sx = body.x + body.facing * ARROW_MUZZLE_FWD;
@@ -1264,7 +1252,10 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
     const tx = z.body.x;
     const ty = z.body.y - (crawling ? ARROW_AIM_HEAD_UP : ARROW_AIM_BODY_UP);
     launchArrow(sx, sy, tx, ty);
-    s.attackCooldown = ARROW_COOLDOWN;
+    s.attackCooldown =
+      s.tool !== null && s.tool.tier === 'iron'
+        ? Math.max(1, Math.round(ARROW_COOLDOWN * IRON_ATTACK_COOLDOWN_MULT))
+        : ARROW_COOLDOWN;
   }
 }
 
