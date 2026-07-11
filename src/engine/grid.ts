@@ -4,8 +4,8 @@
  * One Uint8Array for material, one for integrity (unused until Phase 2).
  */
 
-import { WORLD_W, WORLD_H } from '../config';
-import { MATERIALS } from './materials';
+import { WORLD_W, WORLD_H, STONE_LOOSE } from '../config';
+import { MATERIALS, STONE } from './materials';
 import { markCellActive } from './chunks';
 
 /**
@@ -86,6 +86,12 @@ export function setIntegrity(x: number, y: number, value: number): void {
  * Place a material at (x, y), seeding its baseIntegrity into the integrity array.
  * Clearing (id=AIR=0) automatically resets integrity to 0.
  * Bounds-safe: silently no-ops if out of bounds.
+ *
+ * PLACED STONE is a LOOSE BLOCK (playtest v0.11 R): the player's paint path
+ * routes through here, and painted stone must fall-and-stack (below-support)
+ * rather than hang off lateral contact like NATIVE worldgen rock. STONE has
+ * hasIntegrity=false, so its integrity slot is free to carry the marker
+ * (worldgen's own put() and raw grid.set leave it 0 = native).
  */
 export function placeMaterial(x: number, y: number, id: number): void {
   if (!inBounds(x, y)) {
@@ -93,5 +99,9 @@ export function placeMaterial(x: number, y: number, id: number): void {
   }
   set(x, y, id);
   const mat = MATERIALS[id];
-  setIntegrity(x, y, mat?.hasIntegrity ? mat.baseIntegrity : 0);
+  setIntegrity(
+    x,
+    y,
+    mat?.hasIntegrity ? mat.baseIntegrity : id === STONE ? STONE_LOOSE : 0,
+  );
 }

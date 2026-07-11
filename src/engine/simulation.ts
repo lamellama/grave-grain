@@ -45,6 +45,9 @@ import {
   RAIN_SPAWN_CHANCE,
   RAIN_MAX_POOL_DEPTH,
   EVAPORATE_CHANCE,
+  SOAK_CHANCE,
+  SOAK_MAX_DEPTH,
+  STONE_LOOSE,
   SNOW_SPAWN_CHANCE,
   SNOW_MAX_DEPTH,
   SNOW_MELT_WATER_FRACTION,
@@ -200,6 +203,11 @@ const SALT_EVAPORATE = 800;
 // melt fires, does this SNOW cell become WATER or just vanish (fluffy snow is
 // mostly air)? Distinct salt so it is independent of the melt roll itself.
 const SALT_MELT_KIND = 810;
+// Ground-absorption roll (v0.11 playtest S "floods don't dissipate"): per
+// COLUMN per non-rain tick, may the bottom cell of a shallow water body
+// resting on soil soak into the ground? Distinct from SALT_EVAPORATE so the
+// two drainage valves roll independently at the same column/tick.
+const SALT_SOAK = 820;
 // Last tick's ambient temperature, to detect the cold->warm EDGE that wakes a
 // settled snowpack for ambient melt. Cold sentinel so the first warm tick fires.
 let lastTemp = -1e9;
@@ -240,6 +248,12 @@ export function step(): void {
   //    the fall by one tick on the chunked path only -> divergence.)
   updateWeather(tick);
   applyWeather();
+
+  // Ground absorption (v0.11 playtest S): the bottom-up drainage valve for
+  // standing water on soil. Same NON-chunk-gated, before-beginTick contract as
+  // applyWeather (its markCellActive lands in THIS tick's work set), so the
+  // chunked and full-scan paths absorb byte-identically.
+  applySoak();
 
   // Tree reproduction (GDD 9): a slow-cadence, deterministic, NON-chunk-gated
   // seed-drop sweep - the applyWeather pattern. It runs BEFORE beginTick for the
@@ -369,7 +383,11 @@ function applyWeather(): void {
       if (material[i] !== WATER) continue;
       material[i] = AIR;
       integrity[i] = 0;
-      moved[i] = 1; // claim so the freed AIR isn't re-processed this tick
+      // UNCLAIMED in the moved-guard (fixed with playtest v0.11 S - the old
+      // claim here was a LATENT chunked-vs-full divergence: it blocked the
+      // pool from reacting during the single woken tick, so the chunked pool
+      // froze while the full scan sloshed a neighbour in next tick. Leaving
+      // the freed cell open lets the same-tick inflow happen on both paths.)
       markCellActive(x, sy); // WATER->AIR is a change -> wake for neighbours
     }
     return;
@@ -437,6 +455,67 @@ function applyWeather(): void {
       integrity[i] = 0; // SNOW carries no integrity (clear any stale slot)
       markCellActive(x, y); // wake the chunk so the chunked scan sees the spawn
     }
+  }
+}
+
+/**
+ * Ground absorption pass (v0.11 playtest S "rain creates floods which don't
+ * dissipate", GDD 10): standing water SOAKS INTO soil over time. Runs every
+ * NON-RAIN tick as a deterministic, NON-chunk-gated per-column sweep - the
+ * applyWeather pattern, before beginTick, so the chunked and full-scan paths
+ * stay byte-identical without keeping every puddle's chunk awake between rolls.
+ *
+ * Per column x: roll simRand(x, 0, SALT_SOAK) < SOAK_CHANCE (cheap roll first),
+ * then walk from the sky-exposed surface: if it is WATER (or SNOW - a
+ * snow-dusted puddle still drains into the soil beneath, and without the
+ * pass-through a single floating fleck would waterproof its column), find the
+ * body's BOTTOM water cell within SOAK_MAX_DEPTH rows (splash gaps of AIR and
+ * floating SNOW are walked through, like columnWater). The bottom cell is
+ * absorbed (WATER -> AIR) only when it RESTS DIRECTLY ON soil (DIRT or SAND
+ * below) - so:
+ *   - post-storm sheets and puddles on open ground drain away bottom-up
+ *     (this is the flood valve; rain pools are <= RAIN_MAX_POOL_DEPTH deep);
+ *   - STONE/WALL basins are WATERPROOF - the worldgen drinking pond and the
+ *     underground aquifers are carved into stone, so they never drain;
+ *   - bodies deeper than SOAK_MAX_DEPTH (open lakes) never soak;
+ *   - water still falling (an AIR gap above the floor) waits until it lands.
+ * During RAIN the pass is off: storms flood, the ground drinks the flood
+ * afterwards - complementing the R8 top-down clear-weather evaporation.
+ */
+function applySoak(): void {
+  if (getWeather() === 'rain') return;
+  for (let x = 0; x < WORLD_W; x++) {
+    if (simRand(x, 0, SALT_SOAK) >= SOAK_CHANCE) continue; // cheap roll first
+    const sy = skySurface(x);
+    if (sy >= WORLD_H) continue;
+    const surf = material[sy * WORLD_W + x];
+    if (surf !== WATER && surf !== SNOW) continue;
+    // Walk to the bottom of the (possibly splash-gapped, possibly snow-dusted)
+    // water body, capped.
+    const yMax = Math.min(WORLD_H - 1, sy + SOAK_MAX_DEPTH);
+    let lastWater = -1;
+    let yy = sy;
+    while (yy <= yMax) {
+      const m = material[yy * WORLD_W + x];
+      if (m === WATER) lastWater = yy;
+      else if (m !== AIR && m !== SNOW) break; // reached the floor under the body
+      yy++;
+    }
+    if (lastWater < 0) continue; // a pure snowpack, no water beneath
+    if (yy > yMax) continue; // no floor within the cap -> deep body, never soaks
+    const floor = material[yy * WORLD_W + x];
+    if (floor !== DIRT && floor !== SAND) continue; // stone/wall = waterproof
+    if (lastWater !== yy - 1) continue; // not resting on the soil (still falling)
+    const i = lastWater * WORLD_W + x;
+    material[i] = AIR; // absorbed into the ground
+    integrity[i] = 0;
+    // Deliberately UNCLAIMED in the moved-guard (the rain-spawn contract, NOT
+    // the old evaporation claim): neighbours must be able to flow into the
+    // freed cell THIS tick, while the woken chunk is processed. A claim blocks
+    // that one reaction window, nothing moves, the chunk sleeps again - and
+    // the full scan (which re-rolls every tick) sloshes water into the hole a
+    // tick later => chunked-vs-full divergence.
+    markCellActive(x, lastWater); // water above/beside settles into the hole
   }
 }
 
@@ -824,15 +903,36 @@ function isMortar(m: number): boolean {
  * placeMaterial -> markCellActive), and the stone falls on the next pass.
  */
 function updateStone(x: number, y: number): void {
-  if (
-    (x > 0 && isMortar(material[idx(x - 1, y)])) ||
-    (x < WORLD_W - 1 && isMortar(material[idx(x + 1, y)])) ||
-    (y > 0 && isMortar(material[idx(x, y - 1)])) ||
-    (y < WORLD_H - 1 && isMortar(material[idx(x, y + 1)]))
-  ) {
-    return; // mortared -> holds (strata, walls, piles)
+  const i = idx(x, y);
+  // NATIVE rock (integrity slot 0 - worldgen strata / raw grid.set): mortared
+  // while ANY 4-neighbour is STONE/WALL, so mined galleries, aquifer roofs and
+  // natural overhangs keep standing exactly as under the v0.9 N rule.
+  if (integrity[i] !== STONE_LOOSE) {
+    if (
+      (x > 0 && isMortar(material[idx(x - 1, y)])) ||
+      (x < WORLD_W - 1 && isMortar(material[idx(x + 1, y)])) ||
+      (y > 0 && isMortar(material[idx(x, y - 1)])) ||
+      (y < WORLD_H - 1 && isMortar(material[idx(x, y + 1)]))
+    ) {
+      return; // mortared -> holds
+    }
+    // An unsupported native stone is RUBBLE from here on (playtest v0.11 R):
+    // once rock has broken loose it behaves as a block for the rest of its
+    // life - in particular it can never re-hang off a lateral contact after
+    // landing (the old rule let a fallen stone glue itself to the SIDE of a
+    // pile and float there).
+    integrity[i] = STONE_LOOSE;
   }
-  trySwap(x, y, x, y + 1); // lone stone -> straight-down fall (or rest)
+  // LOOSE BLOCK (placed by the player, or fallen rubble): rests ONLY on
+  // support from BELOW - blocks fall under gravity and STACK into columns and
+  // walls; lateral contact never defies gravity (playtest v0.11 R "stone
+  // blocks"). Straight-down block fall, no powder spill/repose; displaces
+  // AIR/fluids only (trySwap), rests on anything else. trySwap does not carry
+  // the integrity slot, so the loose marker is moved by hand with the block.
+  if (trySwap(x, y, x, y + 1)) {
+    integrity[idx(x, y + 1)] = STONE_LOOSE;
+    integrity[i] = 0;
+  }
 }
 
 /**

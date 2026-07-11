@@ -18,6 +18,11 @@
  * While the live count is at MAX_ZOMBIES the spawner defers (doesn't consume
  * `pendingThisWave`); it retries on every subsequent tick until room opens.
  *
+ * DUAL-EDGE ESCALATION (GDD 7.1 "one or both edges" / 12.2 zombie-edge count):
+ * waves before ZOMBIE_DUAL_EDGE_FROM_WAVE spawn from the single configured
+ * ZOMBIE_SPAWN_EDGE; from that wave on, every edge spawn rolls a 50/50 side,
+ * so the late game pressures BOTH flanks of the colony.
+ *
  * BURROW SPAWNS (playtest R9 "came out of the ground"): when the caller passes
  * `burrowCenterX` (main passes the colony spawn column), each spawn rolls
  * ZOMBIE_BURROW_CHANCE to SURFACE FROM THE SOIL at a column
@@ -50,6 +55,7 @@ import {
   MAX_ZOMBIES,
   WIN_WAVES,
   ZOMBIE_SPAWN_EDGE,
+  ZOMBIE_DUAL_EDGE_FROM_WAVE,
   WORLD_W,
   WORLD_H,
 } from '../config';
@@ -177,10 +183,20 @@ export function updateWaves(
           );
           spawned.push(createBurrowedZombie(bx, columnSurfaceY(bx)));
         } else {
-          // Edge spawn: inset from the configured edge, a couple cells ABOVE
-          // the actual surface of that column so it lands on top (never buried).
+          // Edge spawn: inset from the edge, a couple cells ABOVE the actual
+          // surface of that column so it lands on top (never buried).
+          // DUAL-EDGE ESCALATION (GDD 7.1 "one or both edges" / 12.2): from
+          // wave ZOMBIE_DUAL_EDGE_FROM_WAVE each spawn rolls a 50/50 side, so
+          // late waves FLANK the colony; earlier waves keep the single
+          // configured front.
+          const edge =
+            state.waveNumber >= ZOMBIE_DUAL_EDGE_FROM_WAVE
+              ? Math.random() < 0.5
+                ? 'left'
+                : 'right'
+              : ZOMBIE_SPAWN_EDGE;
           const spawnX =
-            ZOMBIE_SPAWN_EDGE === 'left'
+            edge === 'left'
               ? ZOMBIE_SPAWN_INSET
               : WORLD_W - 1 - ZOMBIE_SPAWN_INSET;
           const spawnY = Math.max(1, columnSurfaceY(spawnX) - 2);

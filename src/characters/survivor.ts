@@ -45,8 +45,12 @@ import { findPath, isPathStale } from '../game/pathfinding';
 import type { RoleName, Tool, ToolKind } from '../game/roles';
 import {
   ROLES,
+  IRON_UPGRADABLE,
   isExposedRock,
+  isDiggable,
   useTool,
+  makeTool,
+  ironCostFor,
   mineOutput,
   canAssign,
   craftToolFor,
@@ -63,6 +67,7 @@ import {
   STONE_PER_MINE,
   ORE_PER_MINE,
   FOOD_PER_GATHER,
+  FOOD_PER_FISH,
   HUNGER_RATE,
   THIRST_RATE,
   WARMTH_RATE,
@@ -113,6 +118,10 @@ import {
   BODY_W,
   BODY_H,
   BUILDER_REACH_UP,
+  DIG_TICKS,
+  DIG_DISTANCE,
+  IRON_WORK_TICKS_MULT,
+  IRON_ATTACK_COOLDOWN_MULT,
   BUILD_STUCK_TICKS,
   TOOL_BREAKAGE,
 } from '../config';
@@ -186,6 +195,19 @@ export interface Survivor {
   // queue for the nearest claimable job). Persists across need-overrides so a
   // builder pulled away to drink resumes the same job on return.
   buildTarget: Blueprint | null;
+  // Digger tunnel profile (GDD 6.2 diggers, DF-3). The dig is SELF-PROPELLED
+  // state, not a scanned target: `digDir` is the horizontal heading (from
+  // body.facing at assignment), `digX` the next column to carve (null until the
+  // first drive tick starts the profile), `digFloorY` that column's floor row
+  // (descends/ascends 1 per column - the 45-degree staircase), and
+  // `digStepsLeft` the columns remaining of the assignment's DIG_DISTANCE.
+  // Explicit profile state (never re-derived from the live body) so an
+  // override that drags the digger away, or an early fall into the fresh
+  // notch, can't skew the tunnel's geometry.
+  digDir: 1 | -1;
+  digX: number | null;
+  digFloorY: number;
+  digStepsLeft: number;
   // Anti-deadlock (VS-3 T3): ticks a builder has spent walking to its claimed
   // cell WITHOUT physically getting closer (feet position unchanged). A walking
   // builder resets it every time it advances a cell; a builder wedged against the
@@ -266,6 +288,10 @@ export function createSurvivor(x: number, y: number): Survivor {
     carryKind: null,
     roleState: 'toTarget',
     buildTarget: null,
+    digDir: 1,
+    digX: null,
+    digFloorY: 0,
+    digStepsLeft: 0,
     buildStuckTicks: 0,
     buildStuckX: 0,
     buildStuckY: 0,
@@ -836,13 +862,19 @@ function nearestReachableWarmth(s: Survivor): ReachTarget | null {
 
 /**
  * Nearest REACHABLE work target for a harvest role (playtest #3/#5): exposed
- * STONE/ORE for the miner, FOLIAGE for the lumberjack/forager - each filtered to
- * one with a standable bank and a route, so the survivor walks to and works a
- * reachable face/bush instead of fixating on an unreachable nearest one.
+ * STONE/ORE for the miner, FOLIAGE for the lumberjack/forager, WATER for the
+ * fisherman (GDD 6.2 "fishes at water" - the standable-bank filter is exactly
+ * the drink rule, so a fisherman works a pool's edge and never a sealed pond) -
+ * each filtered to one with a standable bank and a route, so the survivor walks
+ * to and works a reachable face/bush/bank instead of fixating on an unreachable
+ * nearest one.
  */
 function reachableWorkTarget(s: Survivor, role: RoleName): ReachTarget | null {
   if (role === 'miner') {
     return nearestReachable(s, (x, y) => isExposedRock(x, y));
+  }
+  if (role === 'fisherman') {
+    return nearestReachable(s, (x, y) => get(x, y) === WATER);
   }
   return nearestReachable(s, (x, y) => get(x, y) === FOLIAGE);
 }
@@ -1110,11 +1142,23 @@ export function assignRole(s: Survivor, role: RoleName): boolean {
   const owned: ToolKind[] = s.tool ? [s.tool.kind] : [];
   if (!canAssign(role, owned)) return false;
   const required = ROLES[role].requiredTool;
-  // Keep a matching held tool; otherwise auto-craft from the stockpile.
+  // Keep a matching held tool; otherwise auto-craft from the stockpile (at the
+  // best affordable tier - craftToolFor prefers iron, GDD 6.3).
   let tool = s.tool;
   if (required !== null && (tool === null || tool.kind !== required)) {
     tool = craftToolFor(role);
     if (tool === null) return false; // canAssign said yes but spend failed
+  } else if (
+    required !== null &&
+    tool !== null &&
+    tool.tier === 'wood' &&
+    IRON_UPGRADABLE.includes(required) &&
+    spend(ironCostFor())
+  ) {
+    // GDD 6.2 "roles can be upgraded once iron is available": RE-assigning the
+    // role with ore banked swaps the held wood tool for a fresh iron one. The
+    // player triggers it (a re-tap), so scarce ore is never spent silently.
+    tool = makeTool(required, 'iron');
   }
   s.role = role;
   s.tool = tool;
@@ -1124,6 +1168,15 @@ export function assignRole(s: Survivor, role: RoleName): boolean {
   s.workStand = null;
   s.workTicksLeft = 0;
   s.path = null;
+  // Digger assignment (GDD 6.2, DF-3): arm a fresh tunnel profile heading the
+  // way the survivor is FACING (the Lemmings-style "digs the way it's looking").
+  // digX stays null - the profile anchors to the body on the FIRST drive tick,
+  // so an override between assignment and first dig can't skew the geometry.
+  if (role === 'diggerDown' || role === 'diggerUp') {
+    s.digDir = s.body.facing;
+    s.digX = null;
+    s.digStepsLeft = DIG_DISTANCE;
+  }
   return true;
 }
 
@@ -1187,6 +1240,20 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
   // facing while moveDir is 0). facing is +1 (right) / -1 (left).
   body.facing = z.body.x >= body.x ? 1 : -1;
 
+  // Adjacent -> hold position and strike on cooldown. LEG an intact zombie to
+  // slow the front rank; HEADSHOT a crawler (already lost a leg) to finish it.
+  // An IRON weapon strikes on a shorter cooldown (GDD 6.2 "stronger combat" -
+  // cadence, not a bigger hit, so the emergent damage model is untouched).
+  body.moveDir = 0;
+  if (s.attackCooldown <= 0) {
+    const crawling = z.body.lLegLost || z.body.rLegLost;
+    const aim = crawling ? 'head' : 'leg';
+    const region = pickAttackRegion(z.body, aim);
+    if (region) meleeAttack(z.body, region);
+    s.attackCooldown =
+      s.tool !== null && s.tool.tier === 'iron'
+        ? Math.max(1, Math.round(ATTACK_COOLDOWN * IRON_ATTACK_COOLDOWN_MULT))
+        : ATTACK_COOLDOWN;
   // Loose an arrow on the bow's cadence. Nock it at shoulder height, forward of
   // the guard's bow hand; aim at the target's torso mass, or its head to finish
   // a crawler. The arc + the horde's advance do the rest (impact picks region).
@@ -1199,6 +1266,18 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
     launchArrow(sx, sy, tx, ty);
     s.attackCooldown = ARROW_COOLDOWN;
   }
+}
+
+/**
+ * Timed-work duration for the held tool's tier (GDD 6.2/6.3 "iron -> faster
+ * work"): iron scales the wood-tier ticks by IRON_WORK_TICKS_MULT (floor 1
+ * tick). Applied at every point a work timer is armed (harvest, build, dig).
+ */
+function tierWorkTicks(base: number, tool: Tool | null): number {
+  if (tool !== null && tool.tier === 'iron') {
+    return Math.max(1, Math.round(base * IRON_WORK_TICKS_MULT));
+  }
+  return base;
 }
 
 /**
@@ -1229,10 +1308,17 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
   // Builder (GDD 6.2 / 8, BQ-3): a queue-driven role, NOT a harvest role - it
   // claims a player blueprint, walks to it, builds it (BUILD_TICKS), then calls
   // placeStructure() to actualise the cell (atomic stockpile spend). Branch out
-  // before the harvest switch (which only knows lumberjack/forager/miner and
-  // would spin harvesting nothing for a builder).
+  // before the harvest switch (which only knows lumberjack/forager/miner/
+  // fisherman and would spin harvesting nothing for a builder).
   if (role === 'builder') {
     driveBuilder(s);
+    return;
+  }
+
+  // Diggers (GDD 6.2, DF-3): self-propelled tunnel carving - no scanned target,
+  // no stockpile deposit. Branch out before the harvest switch like the builder.
+  if (role === 'diggerDown' || role === 'diggerUp') {
+    driveDigger(s);
     return;
   }
 
@@ -1258,7 +1344,7 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
       const t = s.workTarget;
       if (cellWithinReach(body, t.x, t.y)) {
         s.roleState = 'working';
-        s.workTicksLeft = ROLES[role].workTicks;
+        s.workTicksLeft = tierWorkTicks(ROLES[role].workTicks, s.tool);
         s.path = null;
         body.moveDir = 0;
         return;
@@ -1312,6 +1398,13 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
           s.carryKind = out;
           harvested = true;
         }
+      } else if (role === 'fisherman' && m === WATER) {
+        // GDD 6.2 fisherman: the catch comes OUT OF the water without consuming
+        // the cell - water is the renewable food source (paid for in FISH_TICKS).
+        // No set()/markTerrainEdit: the grid and navgrid are untouched.
+        s.carrying += FOOD_PER_FISH;
+        s.carryKind = 'food';
+        harvested = true;
       }
       s.workTarget = null;
       s.workStand = null;
@@ -1494,6 +1587,150 @@ function releaseBuildClaim(s: Survivor): void {
 }
 
 /**
+ * How far ahead of the body anchor the dig face sits: just past the leading
+ * edge of the BODY_W-wide rig, so the carve column is always the first one the
+ * body cannot already occupy. Derived, not tuned - keep it in lockstep with
+ * the body footprint.
+ */
+const DIG_FACE_OFFSET = BODY_W / 2 + 1;
+
+/**
+ * Bore height carved above each tunnel tread. A RIGID BODY_WxBODY_H rig riding
+ * a 45-degree staircase spans BODY_W columns whose treads differ by up to
+ * BODY_W-1 rows, so each column needs clearance for the body's full height
+ * PLUS that diagonal spread (and +1 for the mid-step transition):
+ * BODY_H + (BODY_W - 1) + 1. A 12-row bore wedges the leading arm/head into
+ * the ceiling and stalls the dig - this is geometry, not balance; keep it
+ * derived from the body box.
+ */
+const DIG_BORE = BODY_H + BODY_W;
+
+/**
+ * End the current dig assignment: back to idle 'none' (Lemmings one-shot job -
+ * the tint drop tells the player it finished), KEEPING the shovel so the next
+ * dig assignment reuses it (assignRole keeps a matching held tool).
+ */
+function finishDig(s: Survivor): void {
+  s.role = 'none';
+  s.roleState = 'toTarget';
+  s.workTicksLeft = 0;
+  s.digX = null;
+  s.path = null;
+  s.body.moveDir = 0;
+}
+
+/**
+ * Digger loop (GDD 6.2 diggers, DF-3): carve a 45-degree stair-step tunnel
+ * DIG_DISTANCE columns long, one column per DIG_TICKS. Per carved column the
+ * digger clears the DIG_BORE-tall bore slice above that column's floor row
+ * (isDiggable soils/powders -> AIR via set + markTerrainEdit - real grid edits,
+ * so sand/water pouring into the fresh tunnel is live emergent risk, GDD 6.2),
+ * then walks into the notch; locomotion does the 1-cell step down/up. The dig
+ * STOPS - reverting to idle - when it hits a non-diggable solid (stone/ore is
+ * left EXPOSED at the face for a miner; structures are never shoveled), when
+ * the floor ahead vanishes (open cliff - never march into the void), or when
+ * the distance is done. Shovel durability: one use per carved column.
+ */
+function driveDigger(s: Survivor): void {
+  const body = s.body;
+  const slope = s.role === 'diggerDown' ? 1 : -1;
+  const dir = s.digDir;
+  const ax = Math.round(body.x);
+  const fy = Math.round(body.y);
+
+  // Assignment's distance done -> job complete.
+  if (s.digStepsLeft <= 0) {
+    finishDig(s);
+    return;
+  }
+
+  // First drive tick: anchor the tunnel profile to the body. The first column
+  // sits just past the leading edge; its floor one step down (up) from the
+  // CURRENT floor (feet row fy stands on the solid at fy+1).
+  if (s.digX === null) {
+    s.digX = ax + dir * DIG_FACE_OFFSET;
+    s.digFloorY = fy + 1 + slope;
+  }
+
+  const gap = (s.digX - ax) * dir; // columns from anchor to the face (+ = ahead)
+
+  // Displaced from the face (a need-override walked us away, or we spawned the
+  // profile and have yet to arrive): path back to the stand column at the face.
+  // The freshly-carved staircase is walkable, so A* (or the straight-line
+  // fallback) can deliver us; the carve timer restarts on arrival.
+  if (gap > DIG_FACE_OFFSET || gap < 0) {
+    s.workTicksLeft = 0;
+    const standX = s.digX - dir * DIG_FACE_OFFSET;
+    const standY = s.digFloorY - slope - 1; // feet row on the last carved floor
+    steerToCell(s, standX, standY, standX);
+    return;
+  }
+
+  // At the face: inspect the next column's bore slice (the DIG_BORE rows above
+  // its floor - the opening the diagonally-riding body needs to advance).
+  const cx = s.digX;
+  const floorY = s.digFloorY;
+  let hasDig = false;
+  for (let y = floorY - DIG_BORE; y <= floorY - 1; y++) {
+    const m = get(cx, y);
+    if (isDiggable(m)) {
+      hasDig = true;
+    } else if (isSolidForBody(m)) {
+      // Hit rock or a structure (GDD 6.2 "until hitting ore/stone"): stop with
+      // the blocker untouched - and, for stone/ore, now EXPOSED at the face.
+      finishDig(s);
+      return;
+    }
+  }
+
+  if (!hasDig) {
+    // Nothing to carve in this column.
+    if (isSolidForBody(get(cx, floorY))) {
+      // A pre-cleared passage with solid footing: the step is free - advance
+      // the profile without work or shovel wear and keep walking.
+      s.digX = cx + dir;
+      s.digFloorY = floorY + slope;
+      s.digStepsLeft--;
+      body.moveDir = dir;
+    } else {
+      // Open air with no floor ahead (surface ran out / cliff): stop rather
+      // than tunnel into the void.
+      finishDig(s);
+    }
+    return;
+  }
+
+  // Timed carve, standing at the face (the harvest 'working' pattern).
+  body.moveDir = 0;
+  if (s.workTicksLeft === 0) {
+    s.workTicksLeft = tierWorkTicks(DIG_TICKS, s.tool);
+    return;
+  }
+  s.workTicksLeft--;
+  if (s.workTicksLeft > 0) return;
+
+  // Carve the bore slice: every diggable cell -> AIR (floor row stays - it is
+  // the staircase tread). Real edits: the sim + navgrid see them immediately.
+  for (let y = floorY - DIG_BORE; y <= floorY - 1; y++) {
+    if (isDiggable(get(cx, y))) {
+      set(cx, y, AIR);
+      markTerrainEdit(cx, y);
+    }
+  }
+  // Advance the profile one column, spend one shovel use, walk into the notch.
+  s.digX = cx + dir;
+  s.digFloorY = floorY + slope;
+  s.digStepsLeft--;
+  if (useTool(s.tool!)) {
+    console.log('Tool broke: digger shovel - returning to idle');
+    s.tool = null;
+    finishDig(s);
+    return;
+  }
+  body.moveDir = dir;
+}
+
+/**
  * Builder loop (BQ-3, GDD 6.2/8): the queue-driven sibling of driveRole's
  * harvest machine. Two states reusing roleState ('toStockpile' is never entered
  * - a builder spends FROM the stockpile, it doesn't deposit):
@@ -1536,7 +1773,7 @@ function driveBuilder(s: Survivor): void {
       const t = s.workTarget!;
       if (cellWithinReach(body, t.x, t.y, BUILDER_REACH_UP)) {
         s.roleState = 'working';
-        s.workTicksLeft = ROLES['builder'].workTicks;
+        s.workTicksLeft = tierWorkTicks(ROLES['builder'].workTicks, s.tool);
         s.path = null;
         body.moveDir = 0;
         s.buildStuckTicks = 0;

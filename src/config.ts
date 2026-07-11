@@ -1417,3 +1417,120 @@ export const WEATHER_OVERLAY_DENSITY = 120;
 // light as it now is; snow keeps the full WEATHER_OVERLAY_DENSITY flake count.
 // Draw-time only (ui.drawWeather) - never touches the sim.
 export const RAIN_OVERLAY_DENSITY = 60;
+
+// ---------------------------------------------------------------------------
+// GDD 14 Beyond item 4 - Digger & Fisherman roles (GDD 6.2)
+// ---------------------------------------------------------------------------
+
+// Wood cost to craft a shovel (shared by both digger roles). Non-zero: the
+// lumberjack (free axe) stays the colony's only bootstrap role.
+export const SHOVEL_WOOD_COST = 2;
+
+// Shovel durability: one use per dug COLUMN, so a fresh shovel survives at
+// least one full-length dig (DIG_DISTANCE) with headroom for a second start.
+// Mirrors HAMMER_DURABILITY's "big enough to finish the job" rationale.
+export const SHOVEL_DURABILITY = 24;
+
+// Ticks to dig one column of the tunnel (stand at the face, then carve).
+// Slower than gathering, quicker than mining - dirt yields easier than stone.
+export const DIG_TICKS = 30;
+
+// Tunnel length in COLUMNS for one dig assignment (GDD 6.2 "a set distance").
+// The digger stops early on hitting non-diggable rock (stone/ore stays, now
+// EXPOSED at the tunnel face for a miner) and reverts to idle when done.
+export const DIG_DISTANCE = 16;
+
+// Wood cost to craft a fishing rod (GDD 6.2 fisherman gate).
+export const ROD_WOOD_COST = 2;
+
+// Ticks per catch. Fishing is the SLOWEST food per unit - the water never
+// depletes (unlike foraged bushes), so renewability is paid for in time.
+export const FISH_TICKS = 150;
+
+// Food units per completed catch.
+export const FOOD_PER_FISH = 1;
+
+// Role tints (render-only, task 11-5 pattern) - distinct from every existing
+// role swatch (l-role-legend distinctness): diggers purple/plum, fisherman teal.
+export const DIGGER_DOWN_TINT: [number, number, number] = [125, 85, 165];
+export const DIGGER_UP_TINT: [number, number, number] = [185, 105, 185];
+export const FISHERMAN_TINT: [number, number, number] = [55, 160, 165];
+
+// ---------------------------------------------------------------------------
+// GDD 14 Beyond item 5 - Iron tool tier (GDD 6.3)
+// ---------------------------------------------------------------------------
+
+// Craft cost of an IRON-tier tool (any upgradable kind): ore smelted around a
+// wood haft. Ore's first (and so far only) stockpile sink - the miner's output
+// finally buys something. No workstation gate (GDD 6.3 marks it optional).
+export const IRON_TOOL_ORE_COST = 2;
+export const IRON_TOOL_WOOD_COST = 1;
+
+// Iron is durable (GDD 6.3 "wooden tools are brittle, iron tools are durable"):
+// durability = the kind's wood-tier durability x this multiplier.
+export const IRON_DURABILITY_MULT = 4;
+
+// Iron works faster (GDD 6.2 "wood tool -> iron tool -> faster work"): timed
+// work (chop/mine/gather/build/dig) takes this fraction of the wood ticks.
+export const IRON_WORK_TICKS_MULT = 0.5;
+
+// Iron fights harder (GDD 6.2 "stronger combat"): an iron-armed guard strikes
+// on this fraction of ATTACK_COOLDOWN. The damage model stays emergent/cellular
+// (GDD 7.2) - iron buys CADENCE, not a bigger hit, so melee balance holds.
+export const IRON_ATTACK_COOLDOWN_MULT = 0.5;
+
+// ---------------------------------------------------------------------------
+// GDD 14 Beyond item 6 - Dual-edge spawns (GDD 7.1 / 12.2)
+// ---------------------------------------------------------------------------
+
+// The wave number from which zombies spawn from BOTH horizontal edges (each
+// edge-spawn rolls a 50/50 side) instead of only ZOMBIE_SPAWN_EDGE. Early
+// waves teach the single-front game; later waves FLANK - the colony sits
+// SPAWN_ZONE_MARGIN from its near edge, so the second front arrives sooner
+// and defending both directions becomes the late-game pressure (GDD 7.1
+// "one or both edges", 12.2 "zombie-edge count" knob). Set above WIN_WAVES
+// to disable dual-edge entirely.
+export const ZOMBIE_DUAL_EDGE_FROM_WAVE = 3;
+
+// ---------------------------------------------------------------------------
+// v0.11 playtest S - flood drainage: water soaks into soil (GDD 10)
+// ---------------------------------------------------------------------------
+
+// Chance per COLUMN per tick that the bottom cell of a sky-exposed water body
+// RESTING ON SOIL (DIRT/SAND below) is absorbed into the ground. Runs in every
+// weather EXCEPT rain (storms flood; the ground drinks the flood afterwards).
+// Complements the R8 clear-weather EVAPORATE_CHANCE (0.001, top-down): soak is
+// the bottom-up valve and the faster one, so a post-storm sheet drains in
+// roughly depth/SOAK_CHANCE ticks (~2 deep -> ~11 s at 60 Hz). Stone/wall
+// basins are WATERPROOF by material - the worldgen drinking pond and the
+// underground aquifers are carved into STONE, so they never drain this way.
+export const SOAK_CHANCE = 0.003;
+
+// Walk cap (rows, surface->floor) for the soak probe: a water body deeper
+// than this never soaks - open lakes and deep dirt-pit ponds persist; only
+// shallow sheets/puddles (rain floods are capped at RAIN_MAX_POOL_DEPTH=3)
+// drain into the ground.
+export const SOAK_MAX_DEPTH = 6;
+
+// ---------------------------------------------------------------------------
+// v0.11 playtest R - stone-block physics (GDD 5.2)
+// ---------------------------------------------------------------------------
+
+// Integrity-slot marker for a LOOSE stone BLOCK (STONE hasIntegrity=false, so
+// its slot is free - the FIRE-lifetime / CAMPFIRE-fuel / SAPLING-timer reuse
+// pattern; breaching and the breach-visual both gate on hasIntegrity first,
+// so a marked stone stays non-breachable). PLACED stone (player paint) and
+// FALLEN stone (rubble) carry the marker: a loose block rests ONLY on support
+// from BELOW and stacks into columns/walls - lateral contact never defies
+// gravity. UNMARKED stone is NATIVE rock (worldgen strata, grid.set in tests):
+// it keeps the v0.9 N 4-neighbour mortar rule, so mined galleries, aquifer
+// roofs and natural overhangs stay standing.
+export const STONE_LOOSE = 1;
+
+// Cost of one placed loose STONE BLOCK (v0.11 playtest R - the toolbar Stone
+// verb): same stone price as a WALL cell, but a different verb entirely - a
+// block FALLS and STACKS (build walls by piling from the ground; climbable by
+// zombie ladders, never breachable like all raw stone), while WALL is the
+// precise, breachable structure that can span roofs/bridges (Plan Wall + coop
+// builders keep placing it).
+export const STONE_BLOCK_COST: Partial<Record<ResourceKind, number>> = { stone: 1 };
