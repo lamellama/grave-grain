@@ -66,7 +66,6 @@ import {
   drawWeather,
   advanceHitFlashes,
   drawSelectionHighlight,
-  drawArrows,
 } from './game/ui';
 
 // ============================================================================
@@ -185,8 +184,8 @@ resetGroups();
 resetShelters();
 
 // Round 11: the camp flag is retired - the player designates camp by BUYING A
-// HUT (game/prefabs.ts). Fresh registries for huts and guard arrows, and
-// prompt the player once.
+// HUT (game/prefabs.ts). Fresh registries for huts and guard arrows (no stale
+// shaft leaks across a restart/hot-reload), and prompt the player once.
 resetHuts();
 resetArrows();
 pushToast('Buy a \u2302 Hut to set up camp - survivors move in for warmth');
@@ -338,7 +337,9 @@ function simulationTick(): void {
   for (let i = 0; i < zombies.length; i++) {
     const z = zombies[i];
     if (zombieShouldRun(z, i, win, survivorBodies, tickCount)) {
-      updateZombie(z, survivors, zombies);
+      // Pass the colony column so idle zombies drift toward the base instead of
+      // shuffling in place at the spawn edge (playtest fix - see colonyPullX).
+      updateZombie(z, survivors, zombies, world.spawnX);
     }
   }
 
@@ -395,9 +396,10 @@ function simulationTick(): void {
     if (z.body.alive) updateSpikeContact(z.body);
   }
 
-  // Round 11 guard arrows: advance every arrow in flight (ballistic sweep,
-  // terrain stops, zombie wounds through THE GATE). After the survivor pass so
-  // an arrow loosed this tick starts flying next tick.
+  // Guard archery (GDD 7.2): advance every in-flight arrow one tick and resolve
+  // its arc/impact. Runs AFTER the survivor loop so this tick's freshly-loosed
+  // shots exist, and after updateInfection so an arrow wounds the current bodies
+  // (a headshot on a reanimating corpse still counts - THE GATE handles it).
   updateArrows(zombies);
 
   // Zombies gnaw through structures they're pressing (GDD 7.4). After
@@ -553,9 +555,8 @@ function renderLoop(): void {
   // VS-1 T5: precipitation overlay + always-on weather/temperature readout (GDD 10).
   drawWeather(ctx);
   // v0.8 playtest K: selection box that tracks the role-menu's survivor.
+  // (Guard arrows draw inside renderer.render() - the streak pass over bodies.)
   drawSelectionHighlight(ctx, getSelectedSurvivor());
-  // Round 11: guard arrows in flight, camera-tracked.
-  drawArrows(ctx);
   drawNeedsBars(ctx, survivors);
   drawEdgeArrows(ctx, zombies, camera, vpW, vpH);
   // task 11-4: off-screen breach alert (GDD 12.1 / 7.4).

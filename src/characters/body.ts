@@ -95,6 +95,14 @@ export interface Body {
   // downed"). Seeded false here; Task-4 progression sets it. Locomotion/AI can
   // query it cheaply to stop work/fight and (optionally) slow-crawl.
   prone: boolean;
+  // True while a bitten body has DIED (alive=false, corpse=true) but is still
+  // scheduled to REANIMATE as a zombie (playtest fix: infected survivors "should
+  // die first and come back to life as a zombie"). updateInfection keeps ticking
+  // the clock for a reanimating corpse until TURN_DELAY_TICKS, then flips it back
+  // to a live zombie. The counterplay paths (dissolveBody / a quiet death via
+  // layDownCorpse) clear this so a headshot/burn on the twitching corpse - or a
+  // corpse that died a non-infection death - can never rise.
+  reanimating: boolean;
   // Consecutive ticks the head bone has sat in WATER (p4-t5, THE GATE gate
   // point 4). Incremented while ANY head cell is WATER, reset to 0 the instant
   // the head clears the surface; at DROWN_TICKS the body drowns and dissolves
@@ -275,6 +283,7 @@ export function createBody(x: number, y: number): Body {
     infected: false,
     infectionTicks: 0,
     prone: false,
+    reanimating: false,
     drownTicks: 0,
     lLegLost: false,
     rLegLost: false,

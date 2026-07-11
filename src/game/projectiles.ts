@@ -1,66 +1,91 @@
 /**
- * game/projectiles.ts - ballistic guard ARROWS (round 11, GDD 7.2).
+ * game/projectiles.ts - Guard arrows: visible, arcing, region-wounding shafts.
  *
- * Guards now shoot instead of only stabbing: an arrow is a point projectile
- * launched at ARROW_SPEED and pulled down by ARROW_GRAVITY every tick. It is
- * NOT a cell - arrows live in the body/AI layer beside bodies and hit-flashes,
- * so simulation.step() and chunk byte-equivalence are untouched. Flight is
- * swept in sub-cell samples each tick: the first SOLID terrain cell stops the
- * arrow dead, and the first ALIVE zombie bone pixel within ARROW_HIT_RADIUS
- * of the path takes the wound through THE GATE (applyDamage - real cells
- * released, capability loss emergent, same as melee).
+ * GDD 7.2: an armed guard no longer trades hand-to-hand blows - it looses an
+ * ARROW that flies a gravity ARC and, on impact, wounds whatever body region it
+ * strikes. Damage stays fully emergent: the arrow does NOT carry an HP number;
+ * it picks the bone under its impact cell and routes the wound through THE GATE
+ * (applyDamage) - the exact same release-pixels-into-the-sim handoff melee used,
+ * so head->dissolve, leg->crawl, arm->lose-reach, torso->bleed all fall out for
+ * free (characters/damage.ts). This module owns ONLY the flight + collision; it
+ * never drives a body.
  *
- * The AIMING is the round-11 point: solveArcs() returns BOTH ballistic
- * solutions for a target at fixed muzzle speed (the flat "low" arc and the
- * mortar-style "high" lob), and aimArrow() picks the first one whose swept
- * path is CLEAR of terrain - so a guard behind a wall automatically lobs OVER
- * it instead of thudding arrows into its own parapet. Range is limited only
- * by arrow velocity (max flat reach ~ SPEED^2/GRAVITY cells), not a hardcoded
- * engage vector.
+ * ROUND 11 AIMING - velocity-limited, wall-clearing: an arrow leaves the bow at
+ * a FIXED muzzle speed (ARROW_SPEED) and range falls out of physics (max flat
+ * reach ~ SPEED^2/GRAVITY cells), not a per-shot flight-time solve. For a given
+ * target there are up to TWO ballistic solutions - the flat LOW arc and the
+ * mortar-style HIGH lob. solveArcs() returns both, and aimArrow() picks the
+ * first whose swept path is CLEAR of terrain - so a guard behind a wall
+ * automatically lobs OVER it instead of thudding shafts into its own parapet
+ * ("not just one vector; smart enough to shoot over walls, limited by the
+ * velocity of the arrow").
  *
- * Everything here is deterministic (no RNG) and DOM-free; the arrow list is
- * module state + reset(), mirroring resources.ts / buildqueue.ts.
+ * DETERMINISM (GDD 13): the arc integrator uses no RNG and lives in the BODY/AI
+ * layer (updated from the game loop, NOT simulation.step()), so it can never
+ * perturb the chunked CA's byte-equivalence.
+ *
+ * DOM-free pure logic (bar the registerHit juice call, itself DOM-free) so it
+ * stays headless-testable.
  */
 
-import type { Body, BoneName } from '../characters/body';
-import type { Zombie } from '../characters/zombie';
-import { applyDamage } from '../characters/damage';
-import { get, inBounds } from '../engine/grid';
-import { isSolidForBody } from '../engine/materials';
-import { registerHit } from './ui';
 import {
   ARROW_SPEED,
   ARROW_GRAVITY,
-  ARROW_MAX_TICKS,
   ARROW_HIT_RADIUS,
-  BODY_H,
+  ARROW_MAX_TICKS,
+  MAX_ARROWS,
   BODY_W,
 } from '../config';
+import { get, inBounds } from '../engine/grid';
+import { isSolidForBody } from '../engine/materials';
+import { applyDamage } from '../characters/damage';
+import { pickBoneNear } from '../characters/pick';
+import type { Body } from '../characters/body';
+import type { Zombie } from '../characters/zombie';
+import { registerHit } from './ui';
 
-/** One arrow in flight. Position/velocity in world cells (& cells/tick). */
+/**
+ * One in-flight arrow. Position/velocity are in WORLD CELLS (float) and
+ * cells/tick; (prevX, prevY) is last tick's position so the renderer can draw
+ * the shaft as a short streak along its travel and updateArrows can sweep the
+ * segment for collisions (no tunnelling through a thin body/wall).
+ */
 export interface Arrow {
   x: number;
   y: number;
   vx: number;
   vy: number;
-  age: number;
+  prevX: number;
+  prevY: number;
+  alive: boolean;
+  age: number; // ticks in flight (retired past ARROW_MAX_TICKS)
 }
 
+// The live arrow pool. A single module-global list mirrors how the renderer and
+// game loop already share the zombies array by reference (GDD 13 data-oriented).
 const arrows: Arrow[] = [];
 
-/** Live arrows (read-only view for the renderer). */
-export function getArrows(): readonly Arrow[] {
+/** The live arrow list (renderer + tests read this by reference). */
+export function getArrows(): Arrow[] {
   return arrows;
 }
 
-/** Clear all arrows (new-game init / test harness). */
+/** Drop every arrow (called on world (re)init so none leak across a restart). */
 export function resetArrows(): void {
   arrows.length = 0;
 }
 
-/** Loose an arrow from (x, y) with velocity (vx, vy). */
+/**
+ * Loose an arrow from (x, y) with launch velocity (vx, vy) - callers get the
+ * velocity from solveArcs/aimArrow so every shaft leaves at ARROW_SPEED.
+ * Oldest arrow is evicted once the pool is full so the list is hard-bounded
+ * (GDD 13 perf).
+ */
 export function spawnArrow(x: number, y: number, vx: number, vy: number): void {
-  arrows.push({ x, y, vx, vy, age: 0 });
+  if (arrows.length >= MAX_ARROWS) {
+    arrows.shift(); // evict oldest - O(n), n <= MAX_ARROWS, negligible
+  }
+  arrows.push({ x, y, vx, vy, prevX: x, prevY: y, alive: true, age: 0 });
 }
 
 /**
@@ -68,8 +93,8 @@ export function spawnArrow(x: number, y: number, vx: number, vy: number): void {
  * on a target `dx` cells across and `dy` cells down (screen coords: +y is
  * DOWN) under per-tick gravity `g` - LOW (flat) arc first, HIGH lob second.
  * Empty when the target is out of range (discriminant < 0) or directly
- * above/below (|dx| too small for the tangent form - callers close in
- * instead). Pure closed-form solve, no iteration, no RNG.
+ * above/below (|dx| too small for the tangent form - that is melee range
+ * anyway). Pure closed-form solve, no iteration, no RNG.
  */
 export function solveArcs(
   dx: number,
@@ -78,7 +103,7 @@ export function solveArcs(
   g: number = ARROW_GRAVITY,
 ): { vx: number; vy: number }[] {
   const adx = Math.abs(dx);
-  if (adx < 1) return []; // straight up/down - no tangent solution; melee range anyway
+  if (adx < 1) return []; // straight up/down - no tangent solution
   const v2 = speed * speed;
   const h = -dy; // convert to up-positive height for the standard form
   const disc = v2 * v2 - g * (g * adx * adx + 2 * h * v2);
@@ -96,12 +121,11 @@ export function solveArcs(
 }
 
 /**
- * Sweep the flight from (sx, sy) at (vx, vy) and report whether it reaches
- * the neighbourhood of (tx, ty) without striking solid terrain first. The
- * first ~body-width of flight is muzzle clearance (the shooter's own cells /
- * the parapet lip it stands behind never count), and arriving within
- * ARROW_HIT_RADIUS + 1 of the target is a hit - the same tolerance the live
- * flight uses against bone pixels.
+ * Sweep the flight from (sx, sy) at (vx, vy) - the same integrator updateArrows
+ * uses - and report whether it reaches the neighbourhood of (tx, ty) without
+ * striking solid terrain first. The first ~body-width of flight is muzzle
+ * clearance (the shooter's own cells / the parapet lip it stands behind never
+ * count), and arriving within ARROW_HIT_RADIUS + 1 of the target is a hit.
  */
 export function clearShot(
   sx: number,
@@ -154,77 +178,97 @@ export function aimArrow(
 }
 
 /**
- * Nearest non-destroyed bone of `body` within `radius` cells of (x, y), or
- * null. pickBone with a caller-chosen radius (the Shoot tool's fixed
- * SHOOT_PICK_RADIUS is too forgiving for a flying arrow).
+ * Which non-destroyed bone of any ALIVE zombie sits at world cell (cx, cy)?
+ * Broad-phase by anchor bounding box (cheap integer compares) before the precise
+ * pixel scan, so a distant zombie costs almost nothing. Returns the first match
+ * in list order (arrows are point strikes; overlap is effectively unique).
  */
-function boneNear(body: Body, x: number, y: number, radius: number): BoneName | null {
-  const rx = Math.round(body.x);
-  const ry = Math.round(body.y);
-  let bestName: BoneName | null = null;
-  let bestD = radius * radius;
-  for (const bone of body.rig) {
-    if (bone.destroyed) continue;
-    for (const p of bone.pixels) {
-      const ddx = rx + bone.offset.dx + p.dx - x;
-      const ddy = ry + bone.offset.dy + p.dy - y;
-      const d = ddx * ddx + ddy * ddy;
-      if (d <= bestD) {
-        bestD = d;
-        bestName = bone.name;
-      }
-    }
+function zombieRegionAt(
+  cx: number,
+  cy: number,
+  zombies: Zombie[],
+): { body: Body; region: ReturnType<typeof pickBoneNear> } | null {
+  for (const z of zombies) {
+    const b = z.body;
+    if (!b.alive) continue;
+    const bx = Math.round(b.x);
+    const by = Math.round(b.y);
+    // Bounding box around the authored figure (BODY_W wide, BODY_H tall above
+    // the feet anchor) with a 1-cell margin for the pick radius. Skip the pixel
+    // scan entirely when the cell is nowhere near this body.
+    if (cx < bx - 5 || cx > bx + 5) continue;
+    if (cy < by - 13 || cy > by + 1) continue;
+    const region = pickBoneNear(b, cx, cy, ARROW_HIT_RADIUS);
+    if (region) return { body: b, region };
   }
-  return bestName;
+  return null;
 }
 
 /**
- * Advance every arrow one tick: integrate gravity, sweep sub-cell samples,
- * stop on the first solid cell, and wound the first ALIVE zombie whose bone
- * pixels lie within ARROW_HIT_RADIUS of the path (applyDamage through THE
- * GATE + hit-flash). Call once per sim tick from main, after the zombie and
- * survivor updates (arrows loosed this tick fly from next tick).
+ * Advance every live arrow one tick and resolve collisions (call once per sim
+ * tick from the game loop, AFTER survivors have fired this tick's shots). For
+ * each arrow:
+ *   1. apply gravity to vy, then sweep from the old position to the new one in
+ *      integer sub-steps (so a fast shaft cannot tunnel through a body/wall);
+ *   2. at each swept cell: out-of-bounds or body-solid terrain -> the arrow
+ *      embeds and dies; a zombie body region -> wound that region through THE
+ *      GATE (applyDamage) and die;
+ *   3. otherwise it flies on, retiring after ARROW_MAX_TICKS.
+ * Only ZOMBIES are tested for body hits - a guard's arrow never wounds the
+ * colony (no friendly fire). Dead arrows are pruned in place afterwards.
  */
 export function updateArrows(zombies: Zombie[]): void {
-  for (let i = arrows.length - 1; i >= 0; i--) {
-    const a = arrows[i];
-    a.age++;
-    if (a.age > ARROW_MAX_TICKS) {
-      arrows.splice(i, 1);
-      continue;
-    }
+  for (const a of arrows) {
+    if (!a.alive) continue;
+
+    a.prevX = a.x;
+    a.prevY = a.y;
     a.vy += ARROW_GRAVITY;
+
+    // Sweep the segment this tick in integer sub-steps sized to the faster axis
+    // so we never skip a cell the shaft passes through.
     const steps = Math.max(1, Math.ceil(Math.max(Math.abs(a.vx), Math.abs(a.vy))));
-    let dead = false;
-    for (let s = 0; s < steps && !dead; s++) {
-      a.x += a.vx / steps;
-      a.y += a.vy / steps;
+    const sx = a.vx / steps;
+    const sy = a.vy / steps;
+    let lastCx = Math.round(a.x);
+    let lastCy = Math.round(a.y);
+
+    let struck = false;
+    for (let i = 0; i < steps; i++) {
+      a.x += sx;
+      a.y += sy;
       const cx = Math.round(a.x);
       const cy = Math.round(a.y);
-      if (!inBounds(cx, cy)) {
-        dead = true;
+      // Only test a cell once as we cross into it.
+      if (cx === lastCx && cy === lastCy) continue;
+      lastCx = cx;
+      lastCy = cy;
+
+      // Left the world, or buried into terrain a body could not pass -> stop.
+      if (!inBounds(cx, cy) || isSolidForBody(get(cx, cy))) {
+        a.alive = false;
+        struck = true;
         break;
       }
-      // Zombie hit? Coarse anchor box first, exact bone-pixel test second.
-      for (const z of zombies) {
-        if (!z.body.alive) continue;
-        const zx = Math.round(z.body.x);
-        const zy = Math.round(z.body.y);
-        if (Math.abs(zx - a.x) > BODY_W || a.y < zy - BODY_H - 1 || a.y > zy + 2) {
-          continue;
-        }
-        const bone = boneNear(z.body, cx, cy, ARROW_HIT_RADIUS);
-        if (bone) {
-          applyDamage(z.body, bone);
-          registerHit(z.body.x, z.body.y);
-          dead = true;
-          break;
-        }
-      }
-      if (!dead && isSolidForBody(get(cx, cy))) {
-        dead = true; // thuds into terrain
+
+      // Hit a zombie's body region -> emergent wound through THE GATE.
+      const hit = zombieRegionAt(cx, cy, zombies);
+      if (hit && hit.region) {
+        applyDamage(hit.body, hit.region);
+        registerHit(cx, cy);
+        a.alive = false;
+        struck = true;
+        break;
       }
     }
-    if (dead) arrows.splice(i, 1);
+    if (struck) continue;
+
+    a.age++;
+    if (a.age >= ARROW_MAX_TICKS) a.alive = false;
+  }
+
+  // Prune retired arrows in place (the renderer holds this same reference).
+  for (let i = arrows.length - 1; i >= 0; i--) {
+    if (!arrows[i].alive) arrows.splice(i, 1);
   }
 }

@@ -415,6 +415,19 @@ export const SURVIVOR_SPAWN_SPREAD = 12;
 // (GDD 13 navgrid - avoids repathing every tick on mutable terrain).
 export const PATH_REPATH_COOLDOWN = 30;
 
+// Hard cap on the number of coarse-cell EXPANSIONS a single A* search may make
+// before it gives up and reports the goal unreachable (GDD 13 perf). Without
+// this, a pathfind to an UNREACHABLE goal (e.g. a survivor sealed behind a
+// wall/barrier the horde is chasing) explores the ENTIRE connected navgrid
+// (~NAV_W*NAV_H cells, each scanning both neighbour columns) - tens of millions
+// of ops. When several freshly-spawned zombies do that on the same tick the
+// frame time spikes to a multi-second freeze ("framerate drops to 0 when
+// zombies spawn"). Bounding the search caps the worst case: a reachable route
+// (even clear across the ~320-column map) settles in far fewer expansions than
+// this, so legitimate paths are unaffected; a hopeless search bails early and
+// the caller (zombie/survivor) falls back to straight-line steering.
+export const PATHFIND_MAX_EXPANSIONS = 6000;
+
 // ---------------------------------------------------------------------------
 // Phase 6 - Roles, resources & tools (GDD 6.2, 6.3, 9)
 // ---------------------------------------------------------------------------
@@ -430,6 +443,15 @@ export const GATHER_TICKS = 45;
 // a fresh tool survives before it breaks and is discarded. MVP = wood tier only;
 // iron/stone tiers and the upgrade path are vertical-slice (GDD 14).
 export const WOOD_TOOL_DURABILITY = 5;
+
+// Tool breakage master switch (playtest: disabled by request). When false, tools
+// never wear out mid-play: the role/builder loops skip the useTool() wear tick
+// entirely, so a survivor keeps its axe/pickaxe/hammer for good and never silently
+// drops to idle - the biggest reason camp walls "stopped rising after a few
+// blocks" was builders losing their hammer after HAMMER_DURABILITY placements. The
+// durability mechanic itself (makeTool/useTool) is left intact so it can be
+// re-enabled by flipping this back to true.
+export const TOOL_BREAKAGE = false;
 
 // Yield per completed work action (GDD 6.2 outputs -> stockpile 8).
 export const WOOD_PER_CHOP = 1;   // lumberjack: FOLIAGE -> wood
@@ -520,6 +542,27 @@ export const ZOMBIE_SIGHT_RADIUS = 140;
 export const ZOMBIE_SIGHT_BIAS = 0.7;
 export const ZOMBIE_SIGHT_PULL_MAX = 30;
 
+// 7.1 - Colony-ward drift (playtest fix: "they tend to stay at the left edge of
+// the screen and never leave"). The R9 meander rework removed the fixed
+// colony-ward march, which left EDGE-spawned zombies with no survivor in sight
+// (the colony sits SPAWN_ZONE_MARGIN ~360 cells away, well beyond
+// ZOMBIE_SIGHT_RADIUS) aimlessly shuffling at the spawn edge forever. This adds
+// a GENTLE bias in every idle retarget goal toward the colony column (passed to
+// updateZombie), so the horde still meanders unpredictably but NET-migrates
+// across the map and eventually threatens the base. It naturally pulls from
+// either side of the colony (burrow spawns included) and stops pulling once a
+// zombie is on the colony. Same capped-and-scaled shape as the herd/sight pulls;
+// sampled only at retarget time (never per tick). With no colony anchor passed
+// (headless tests) the pull is 0, preserving the pure-local meander they assert.
+//   ZOMBIE_ADVANCE_BIAS   : fraction of the (capped) colony-ward distance mixed
+//                           into each new idle goal. Kept a bias, not a command,
+//                           so the drift reads as a shamble, not a charge.
+//   ZOMBIE_ADVANCE_PULL_MAX: cap (cells) on the colony-ward distance fed in, so
+//                           a distant colony can't fling a goal across the map;
+//                           the per-retarget step stays local and readable.
+export const ZOMBIE_ADVANCE_BIAS = 0.6;
+export const ZOMBIE_ADVANCE_PULL_MAX = 30;
+
 // 7.1 - Intermittent spawning (playtest R9 "instead of waves could they spawn
 // more intermittently"). A wave's roster no longer lands as a 30-tick-stagger
 // block: it is DRIPPED across ~ZOMBIE_SPAWN_SPREAD_FRAC of the wave interval
@@ -556,25 +599,104 @@ export const ATTACK_COOLDOWN = 45;
 // this Math.random() lives in the BODY/AI layer, never inside the chunked CA.
 export const TURN_FROM_BITE = 1.0;
 
-// 7.2 - Ticks after a bite during which the infected survivor KEEPS ACTING
-// before it drops to a prone/downed state. (Seeded for Task 4 progression; the
-// bite itself only sets `infected` + `infectionTicks=0`.)
-export const INFECTION_ACTING_TICKS = 120;
+// 7.2 - Bite -> DEATH -> reanimation timeline (playtest fix: "when they are
+// infected they change too quickly, they should DIE FIRST and come back to life
+// as a zombie"). The whole arc is stretched (was 120 -> 300, ~5 s) so the turn
+// reads as a real, legible death rather than a flicker, and it now passes
+// through a genuine DEATH stage: the infected survivor collapses to a corpse and
+// LIES DEAD for a beat before clawing back up as a zombie. Ordering invariant:
+//   INFECTION_ACTING_TICKS < INFECTION_DEATH_TICKS < TURN_DELAY_TICKS.
+//
+//   INFECTION_ACTING_TICKS: ticks the bitten survivor keeps ACTING (walking,
+//     working, fleeing) before it drops to a prone/downed convulsing state.
+export const INFECTION_ACTING_TICKS = 240;
+
+// 7.2 - Ticks after the bite at which the infected body DIES: it stops being a
+// living survivor and lies down as a (twitching) corpse - alive=false,
+// corpse=true - flagged to reanimate. This is the "die first" beat the player
+// sees before the turn. Must sit between the acting drop and the reanimation.
+export const INFECTION_DEATH_TICKS = 420;
 
 // 7.2 - Total ticks from bite to REANIMATION as a zombie (same body, controller
-// swapped). Must exceed INFECTION_ACTING_TICKS (act, then lie prone, then turn).
-// (Seeded for Task 4 progression; unused by the bite itself.)
-export const TURN_DELAY_TICKS = 300;
+// swapped). The corpse lies dead from INFECTION_DEATH_TICKS until here, then
+// rises. Must exceed INFECTION_DEATH_TICKS (act, collapse, die, THEN turn).
+export const TURN_DELAY_TICKS = 660;
 
 // 7.2 - Radius (cells) from a guard's assigned hold point within which it
 // will leave position to engage a zombie. Beyond this radius it returns home.
 export const GUARD_ENGAGE_RADIUS = 40;
+
+// 6.1 / 7.2 - Flee-zombie avoidance (playtest fix: "the survivors stupidly
+// don't avoid the zombies"). A non-guard survivor with an ALIVE zombie within
+// this many cells drops whatever it is doing and steers directly away from the
+// nearest one (like fleeFire). Set a touch WIDER than the zombie's own bite
+// reach + a margin so a survivor starts backing off BEFORE the zombie closes to
+// striking range, buying time and drawing the horde toward the colony's guards.
+// Armed guards never flee (they engage); a survivor already infected/prone/
+// turned no longer flees (it is doomed / driven elsewhere).
+export const ZOMBIE_FLEE_RADIUS = 44;
 
 // NOTE - ATTACK_DAMAGE: the damage model is fully emergent (GDD 7.2).
 // A successful strike releases body-region cells (flesh/bone/blood) into the
 // sim - there is NO HP subtraction and NO HP bar. This constant is therefore
 // intentionally absent; any per-hit output is determined by the
 // damage->cells handoff logic (GDD 5.1 / 7.2, see expensive_coder scope).
+
+// ---------------------------------------------------------------------------
+// Guard archery (GDD 7.2) - an armed guard no longer trades hand-to-hand blows;
+// it looses VISIBLE ARROWS that fly a gravity ARC and wound whatever body region
+// they strike (the same emergent damage->cells handoff, routed through the bone
+// the arrow lands on). These knobs live here so balance is a one-file job.
+// ---------------------------------------------------------------------------
+
+// Ticks between successive arrow shots for a guard (the bow's draw + loose
+// cadence). Separate from the melee ATTACK_COOLDOWN so archery can be tuned on
+// its own; a touch slower than a knife so a volley reads as a deliberate shot.
+export const ARROW_COOLDOWN = 40;
+
+// Muzzle speed of an arrow in cells/tick (round 11 - "limited by the velocity
+// of the arrow"). Every shaft leaves the bow at THIS speed regardless of the
+// target, so range falls out of physics: max flat reach ~ SPEED^2/GRAVITY
+// (~135 cells at 2.6 / 0.05) and the aim solver (projectiles.solveArcs) picks
+// the launch ANGLE - flat arc, or the high over-the-wall lob - not the speed.
+export const ARROW_SPEED = 2.6;
+
+// How far (cells, Euclidean) a guard scans for a zombie to volley at (round
+// 11 "guards shoot further" - the old radius was the melee-era 40). Kept a
+// comfortable margin under the physical max range so firing solutions exist
+// across the whole engage ring even onto higher ground.
+export const GUARD_ARROW_RANGE = 100;
+
+// Per-tick downward acceleration on an arrow in cells/tick^2 (the arc's droop).
+// Deliberately gentle so the shaft lofts a few cells at apex rather than
+// plunging. Lives in the BODY/AI layer (projectiles), never inside the chunked
+// CA, so it can never perturb chunk byte-equivalence (GDD 13 determinism).
+export const ARROW_GRAVITY = 0.05;
+
+// Aim heights above a target's feet-centre (cells). BODY = torso mass (the
+// default volley); HEAD = a finishing shot at a crawler that has already lost a
+// leg. These only choose where the guard AIMS; the region actually wounded is
+// resolved from the arrow's true impact cell (GDD 7.2 "where they hit").
+export const ARROW_AIM_BODY_UP = 6;
+export const ARROW_AIM_HEAD_UP = 10;
+
+// Muzzle offset from the guard's feet-centre where the arrow is nocked: forward
+// by the guard's facing (so it leaves the bow hand, not the chest) and up to
+// roughly shoulder height.
+export const ARROW_MUZZLE_FWD = 2;
+export const ARROW_MUZZLE_UP = 7;
+
+// Radius (cells) around an arrow's impact cell within which a body pixel counts
+// as struck. Small - an arrow is a point strike, not a splash - but >0 so a
+// shaft that clips the edge of a limb still bites rather than sailing through a
+// 1-cell seam between bones.
+export const ARROW_HIT_RADIUS = 1.5;
+
+// Hard cap on live arrows (oldest evicted past this) and each arrow's lifetime
+// in ticks before it is retired if it never strikes anything - keeps the array
+// bounded and cheap (GDD 13 perf) and stops a stray shaft flying forever.
+export const MAX_ARROWS = 64;
+export const ARROW_MAX_TICKS = 240;
 
 // 7.4 - Breaching: per-tick probability that a single zombie blocked by
 // a WOOD barrier chips 1 point of its integrity. Kept sub-0.2 so a lone
@@ -1100,6 +1222,14 @@ export const BUILDER_REACH_UP = SHELTER_WALL_HEIGHT;
 // no builder ever idles for want of a claimable cell.
 export const MAX_BUILD_CLAIMS = 6;
 
+// Anti-deadlock (VS-3 T3): how many ticks a builder may spend walking to its
+// claimed cell WITHOUT its feet advancing before it gives the claim up. A builder
+// wedged against the very walls it is raising (its stand sealed off) would
+// otherwise hold the reserved cell forever - stranding it so the shell never
+// encloses and the hut stalls. ~2.5 s at SIM_HZ=60: long enough to round a hut,
+// short enough that a genuine dead-end frees the cell for a better-placed builder.
+export const BUILD_STUCK_TICKS = 150;
+
 // Camp flag (playtest R9, game/camp.ts): horizontal spacing (cells) between
 // adjacent groups' hut sites when more than one group builds at the flag -
 // huts go up side-by-side (rank * spacing to the right of the flag) instead
@@ -1446,34 +1576,5 @@ export const SPIKE_COST: Partial<Record<ResourceKind, number>> = { wood: 1 };
 // simulation.step(), so chunk byte-equivalence is untouched.
 export const SPIKE_LEG_CHANCE = 0.04;
 
-// ---------------------------------------------------------------------------
-// v0.11 playtest round 11 - guard ARROWS (GDD 7.2 ranged defense)
-// ---------------------------------------------------------------------------
-// Guards now SHOOT: arrows are ballistic projectiles integrated in the body/AI
-// layer (game/projectiles.ts) - launched at ARROW_SPEED, pulled down by
-// ARROW_GRAVITY each tick, stopped by the first solid cell, wounding the first
-// zombie they pass through (nearest bone -> applyDamage, THE GATE). The guard
-// solves the launch angle for the target (low arc preferred, HIGH LOB when
-// terrain blocks the flat shot - "smart enough to shoot over walls") so range
-// is limited only by arrow velocity: max flat reach ~= SPEED^2/GRAVITY cells.
-
-// Muzzle speed (cells/tick) and per-tick gravity on an arrow in flight.
-export const ARROW_SPEED = 3.2;
-export const ARROW_GRAVITY = 0.09;
-
-// How far (cells, Euclidean) a guard scans for a zombie to shoot at. Kept a
-// touch under the theoretical max range (SPEED^2/GRAVITY ~= 114) so solvable
-// firing solutions exist across the whole engage ring.
-export const GUARD_ARROW_RANGE = 100;
-
-// Ticks between guard shots (independent of the melee ATTACK_COOLDOWN=45 -
-// nocking + drawing a bow is slower than swinging).
-export const ARROW_COOLDOWN = 70;
-
-// An arrow that has flown this many ticks without hitting anything is retired
-// (bounded projectile list; also the off-world cull backstop).
-export const ARROW_MAX_TICKS = 240;
-
-// A zombie bone pixel within this many cells of the arrow's path counts as a
-// hit (arrows are fast; this is the swept-collision tolerance).
-export const ARROW_HIT_RADIUS = 1.6;
+// (Round-11 guard-arrow knobs - ARROW_SPEED, GUARD_ARROW_RANGE - live in the
+// "Guard archery" block up beside the other ARROW_* constants.)
