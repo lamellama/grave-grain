@@ -210,14 +210,17 @@
   <!-- GDD §12.3: persistent, thumb-reachable toolbar. GDD §12.4: big, no hover dependence -->
   <div id="toolbar">
     <button class="tool-btn" data-tool="pan" title="Pan mode: drag to scroll. Tap a survivor to assign a role.">Pan</button>
-    <button class="tool-btn" data-tool="flag" title="Plant the camp flag — survivors only build camp at (and after) the flag; move it and they relocate">&#9873; Flag</button>
+    <!-- Flag removed (round 11): camp is designated by BUYING A HUT, not a flag. -->
     <button class="tool-btn" data-tool="paint" data-material="1" title="Paint sand (free terraforming)">Sand</button>
     <button class="tool-btn" data-tool="paint" data-material="3" title="Paint water (free terraforming)">Water</button>
     <button class="tool-btn" data-tool="paint" data-material="4" title="Paint dirt (free terraforming)">Dirt</button>
     <button class="tool-btn" data-tool="paint" data-material="15" title="Plant a seed — grows into foliage">Plant</button>
     <!-- Wood/Stone are NOT free paints: place them as costed, breachable structures (playtest #6/#7). -->
     <button class="tool-btn" data-tool="build" data-structure="fence" title="Place wood (costs 1 wood/cell; a flammable fence, zombies breach it fast)">Wood</button>
-    <button class="tool-btn" data-tool="build" data-structure="stone" title="Place a stone block (costs 1 stone/cell; blocks fall under gravity and stack - pile them into walls)">Stone</button>
+    <button class="tool-btn" data-tool="build" data-structure="stone" title="Place a stone block (costs 1 stone/cell; blocks fall under gravity and stack - pile them into walls; zombies can slowly gnaw loose blocks down)">Stone</button>
+    <button class="tool-btn" data-tool="build" data-structure="spike" title="Place spikes (costs 1 wood/cell; zombies climbing over them may lose a leg or two - line a pit floor for a deadfall)">Trap</button>
+    <button class="tool-btn" data-tool="prefab" data-prefab="hut" title="Buy a pre-built hut with a lit campfire inside - the hut IS the camp; survivors move in for warmth and shelter">&#8962; Hut</button>
+    <button class="tool-btn" data-tool="prefab" data-prefab="well" title="Buy a stone-lined, capped well - its water never soaks away or dries up, and nobody can fall in">Well</button>
     <button class="tool-btn" data-tool="paint" data-material="0" title="Erase (paint air)">Erase</button>
     <button class="tool-btn" id="debug-toggle" title="Show / hide developer tools (Shoot, Ignite, Plan, Campfire, Door)">Debug</button>
     <button class="tool-btn" id="speed-btn" title="Cycle simulation speed (1× 2× 3×)">1×</button>
@@ -243,7 +246,8 @@
       <button class="tool-btn role-menu-btn" data-role="guard">Guard</button>
       <button class="tool-btn role-menu-btn" data-role="builder">Builder</button>
       <button class="tool-btn role-menu-btn" data-role="diggerDown" title="Tunnel diagonally down (needs a shovel); stops at stone/ore or after a set distance">Dig Down</button>
-      <button class="tool-btn role-menu-btn" data-role="diggerUp" title="Tunnel diagonally up - ramps and escape routes (needs a shovel)">Dig Up</button>
+      <!-- Dig Up removed from the menu (round 11): the diggerUp role still exists
+           in code (tests/legacy) but is no longer player-assignable. -->
       <button class="tool-btn role-menu-btn" data-role="fisherman" title="Fish at water for food (needs a rod); slow but the water never runs out">Fisherman</button>
       <button class="tool-btn role-menu-btn" data-role="none">Unassign</button>
     </div>

@@ -20,7 +20,7 @@
  *   Ignite     - drag-ignite: acts on every pointermove while pressed
  *   Build      - drag-build: acts on every pointermove while pressed
  *   Shoot      - fires on TAP (not on raw pointerdown, so dragging doesn't shoot)
- *   Flag       - fires on TAP (plants/moves the camp flag)
+ *   Prefab     - fires on TAP (buys + places a pre-built hut/well, round 11)
  */
 
 import { camera, panCamera, clampCamera, screenToWorld, jumpCameraTo, setZoom, effectiveCellPx } from './camera';
@@ -32,7 +32,8 @@ import { AIR, SAND, STONE, WATER, DIRT, FOLIAGE, SAPLING, isFlammable } from './
 import { ignite } from './engine/simulation';
 import { placeStructure, canPlace, type StructureKind } from './game/building';
 import { addBlueprint, blueprintAt, cancelBlueprintAt } from './game/buildqueue';
-import { plantCampFlagAt } from './game/camp';
+import { placePrefabAt, canPlacePrefab, prefabCost } from './game/prefabs';
+import type { PrefabKind } from './game/prefabs';
 import { BRUSH_RADIUS, TAP_MAX_MOVE_PX, LONG_PRESS_MS, ZOOM_STEP, ZOOM_MIN, ZOOM_MAX, SELECT_TAP_RADIUS, TAP_CYCLE_RESET_MS } from './config';
 import type { Body } from './characters/body';
 import { pickBone } from './characters/pick';
@@ -54,12 +55,13 @@ export { pickBone } from './characters/pick';
  * paints), 'Ignite' (drag ignites flammable cells - GDD 8 ignite verb), etc.
  * GDD 12.3: the currently selected tool defines what a drag does.
  */
-type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Build' | 'Plan' | 'Flag';
+type ToolMode = 'Pan' | 'Paint' | 'Ignite' | 'Shoot' | 'Build' | 'Plan' | 'Prefab';
 
 const toolState = {
   mode: 'Pan' as ToolMode,
   paintMaterialId: SAND, // which material to paint when in Paint mode
   buildStructure: 'fence' as StructureKind, // which structure to place in Build mode (task 8-3)
+  prefabKind: 'hut' as PrefabKind, // which prefab a Prefab-mode tap purchases (round 11)
 };
 
 // ---------------------------------------------------------------------------
@@ -755,7 +757,7 @@ function onPointerMove(event: PointerEvent): void {
 }
 
 /**
- * Perform the tap-classified action for Shoot / Pan-select / Flag modes.
+ * Perform the tap-classified action for Shoot / Pan-select / Prefab modes.
  * Called from onPointerUp when the gesture classifies as a tap.
  * Uses pickCycling for forgiving, tap-cycle survivor selection (GDD 12.4,
  * task 10-6). State (_lastPickedSurvivor, _lastTapW*, _lastTapTime) is
@@ -821,13 +823,24 @@ function handleTapAction(event: PointerEvent, canvas: HTMLCanvasElement): void {
     } else {
       closeRoleMenu();
     }
-  } else if (toolState.mode === 'Flag') {
-    // Flag on TAP (playtest R9 base assignment): plant/move the camp flag,
-    // snapped to the local surface. Survivors build camp ONLY at (and after)
-    // the flag - main re-homes the colony on the version bump and coopbuild
-    // re-plans at the new site.
-    plantCampFlagAt(Math.floor(wx), Math.floor(wy));
-    pushToast('Camp flag planted - survivors will build camp here');
+  } else if (toolState.mode === 'Prefab') {
+    // Prefab on TAP (round 11): buy + place the whole pre-built structure at
+    // the tap, paid atomically from the stockpile. A hut IS the camp - main
+    // re-homes the colony on the hut-version bump.
+    const kind = toolState.prefabKind;
+    if (placePrefabAt(kind, Math.floor(wx), Math.floor(wy))) {
+      pushToast(
+        kind === 'hut'
+          ? 'Hut built - survivors will make camp here'
+          : 'Well built - fresh water, forever',
+      );
+    } else {
+      const cost = prefabCost(kind);
+      const price = (Object.keys(cost) as (keyof typeof cost)[])
+        .map((k) => `${cost[k]} ${k}`)
+        .join(', ');
+      pushToast(`Can't build the ${kind} here (needs ${price} and open ground)`);
+    }
   }
 }
 
@@ -916,15 +929,20 @@ export function setToolMode(mode: 'Pan'): void;
 export function setToolMode(mode: 'Paint', materialId: number): void;
 export function setToolMode(mode: 'Ignite'): void;
 export function setToolMode(mode: 'Shoot'): void;
-export function setToolMode(mode: 'Flag'): void;
 export function setToolMode(mode: 'Build', structure: StructureKind): void;
 export function setToolMode(mode: 'Plan', structure: StructureKind): void;
-export function setToolMode(mode: ToolMode, materialIdOrStructure?: number | StructureKind): void {
+export function setToolMode(mode: 'Prefab', prefab: PrefabKind): void;
+export function setToolMode(
+  mode: ToolMode,
+  materialIdOrStructure?: number | StructureKind | PrefabKind,
+): void {
   toolState.mode = mode;
   if (mode === 'Paint' && typeof materialIdOrStructure === 'number') {
     toolState.paintMaterialId = materialIdOrStructure;
   } else if ((mode === 'Build' || mode === 'Plan') && typeof materialIdOrStructure === 'string') {
     toolState.buildStructure = materialIdOrStructure as StructureKind;
+  } else if (mode === 'Prefab' && typeof materialIdOrStructure === 'string') {
+    toolState.prefabKind = materialIdOrStructure as PrefabKind;
   }
   updateToolbarUI();
 }
@@ -960,8 +978,9 @@ function updateToolbarUI(): void {
       isActive = toolState.mode === 'Ignite';
     } else if (btnMode === 'shoot') {
       isActive = toolState.mode === 'Shoot';
-    } else if (btnMode === 'flag') {
-      isActive = toolState.mode === 'Flag';
+    } else if (btnMode === 'prefab') {
+      const btnPrefab = btn.getAttribute('data-prefab');
+      isActive = toolState.mode === 'Prefab' && btnPrefab === toolState.prefabKind;
     } else if (btnMode === 'build') {
       const btnStructure = btn.getAttribute('data-structure');
       isActive = toolState.mode === 'Build' && btnStructure === toolState.buildStructure;
@@ -985,14 +1004,26 @@ function updateToolbarUI(): void {
  */
 export function refreshBuildButtons(): void {
   const btns = document.querySelectorAll('[data-tool="build"]') as NodeListOf<HTMLButtonElement>;
-  if (!btns || btns.length === 0) return;
-  btns.forEach((btn) => {
-    const structure = btn.getAttribute('data-structure') as StructureKind | null;
-    if (!structure) return;
-    const affordable = canPlace(structure);
-    btn.disabled = !affordable;
-    btn.style.opacity = affordable ? '1' : '0.4';
-  });
+  if (btns && btns.length > 0) {
+    btns.forEach((btn) => {
+      const structure = btn.getAttribute('data-structure') as StructureKind | null;
+      if (!structure) return;
+      const affordable = canPlace(structure);
+      btn.disabled = !affordable;
+      btn.style.opacity = affordable ? '1' : '0.4';
+    });
+  }
+  // Prefab verbs grey out the same way (round 11): fixed whole-structure price.
+  const prefabBtns = document.querySelectorAll('[data-tool="prefab"]') as NodeListOf<HTMLButtonElement>;
+  if (prefabBtns && prefabBtns.length > 0) {
+    prefabBtns.forEach((btn) => {
+      const kind = btn.getAttribute('data-prefab') as PrefabKind | null;
+      if (!kind) return;
+      const affordable = canPlacePrefab(kind);
+      btn.disabled = !affordable;
+      btn.style.opacity = affordable ? '1' : '0.4';
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1055,8 +1086,11 @@ export function initInput(canvas: HTMLCanvasElement): void {
         setToolMode('Ignite');
       } else if (mode === 'shoot') {
         setToolMode('Shoot');
-      } else if (mode === 'flag') {
-        setToolMode('Flag');
+      } else if (mode === 'prefab') {
+        const prefab = button.getAttribute('data-prefab');
+        if (prefab) {
+          setToolMode('Prefab', prefab as PrefabKind);
+        }
       } else if (mode === 'build') {
         const structure = button.getAttribute('data-structure');
         if (structure) {

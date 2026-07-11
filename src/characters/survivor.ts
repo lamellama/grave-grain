@@ -36,6 +36,7 @@ import { updateBody } from './locomotion';
 import { layDownCorpse } from './damage';
 import type { Zombie } from './zombie';
 import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
+import { aimArrow, spawnArrow } from '../game/projectiles';
 import { get, set } from '../engine/grid';
 import { FIRE, CAMPFIRE, WATER, SNOW, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
@@ -107,7 +108,8 @@ import {
   FLEE_FIRE_RADIUS,
   SHELTER_ROOF_SCAN,
   PATH_REPATH_COOLDOWN,
-  GUARD_ENGAGE_RADIUS,
+  GUARD_ARROW_RANGE,
+  ARROW_COOLDOWN,
   ATTACK_COOLDOWN,
   WORLD_W,
   BODY_W,
@@ -1188,19 +1190,28 @@ function nearestZombie(
 }
 
 /**
- * Guard combat (p7-t4, GDD 7.2 / 6.2): an armed guard engages the nearest
- * ALIVE zombie within GUARD_ENGAGE_RADIUS - close the distance, then strike on
- * cooldown. The aim is the same emergent model both ways: LEG the front rank to
- * SLOW it (intact target -> 'leg'), and HEADSHOT crawlers to FINISH them (target
- * already missing a leg -> 'head'). No zombie in range -> fall back to holding the
- * stockpile point. Only called when the role is 'guard' and a weapon is held.
+ * Guard combat (p7-t4 + round 11 arrows, GDD 7.2 / 6.2): an armed guard
+ * engages the nearest ALIVE zombie within GUARD_ARROW_RANGE.
+ *
+ * RANGED FIRST (round 11 "guards shoot further, not just one vector"): out of
+ * melee reach, the guard solves a ballistic firing solution for its bow
+ * (projectiles.aimArrow - flat arc preferred, high LOB when terrain blocks
+ * it, so a guard behind the colony wall arcs arrows OVER it) and, when one
+ * exists, stands its ground and looses an arrow every ARROW_COOLDOWN ticks.
+ * Range is limited only by arrow velocity. The arrow wounds through THE GATE
+ * exactly like melee (nearest bone at the impact point).
+ *
+ * MELEE stays for anything that reaches it: adjacent targets get the old LEG
+ * then HEADSHOT routine on the melee cooldown. With NO firing solution at all
+ * (target straight above/fully entombed), the guard closes the distance as
+ * before. No zombie in range -> hold the stockpile point.
  */
 function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
   const body = s.body;
   const bx = Math.round(body.x);
   const by = Math.round(body.y);
 
-  const z = nearestZombie(bx, by, zombies, GUARD_ENGAGE_RADIUS);
+  const z = nearestZombie(bx, by, zombies, GUARD_ARROW_RANGE);
 
   // No target in range -> hold the assigned point (the MVP guard default).
   if (z === null) {
@@ -1212,8 +1223,24 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
     return;
   }
 
-  // In range but out of reach -> close the distance toward the zombie's cell.
+  // Out of melee reach -> try the bow before walking (round 11).
   if (!bodiesAdjacent(body, z.body)) {
+    const tx = Math.round(z.body.x);
+    const ty = Math.round(z.body.y) - Math.floor(BODY_H / 2); // centre mass
+    const sx = bx;
+    const sy = by - BODY_H + 3; // loosed from chest height
+    const aim = aimArrow(sx, sy, tx, ty);
+    if (aim) {
+      // A clear shot exists: stand, face the target, loose on cooldown.
+      body.moveDir = 0;
+      body.facing = tx >= bx ? 1 : -1;
+      if (s.attackCooldown <= 0) {
+        spawnArrow(sx, sy, aim.vx, aim.vy);
+        s.attackCooldown = ARROW_COOLDOWN;
+      }
+      return;
+    }
+    // No firing solution -> close the distance toward the zombie's cell.
     s.path = null; // chasing a moving target: don't reuse a stale resource route
     steerToCell(s, Math.round(z.body.x), Math.round(z.body.y), Math.round(z.body.x));
     return;

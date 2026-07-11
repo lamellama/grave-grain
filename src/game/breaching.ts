@@ -7,8 +7,9 @@
  * body can push in next step. Crowd PRESSURE scales the chip rate: the more
  * zombies pressing the SAME cell, the faster it falls (GDD 7.4 "pressure scales
  * with numbers"). Material matters falls out for free - WOOD has low integrity
- * (baseIntegrity 60), FOLIAGE lower (10), and raw STONE has NO integrity yet
- * (hasIntegrity=false until Phase 8 gives walls integrity) so it is skipped.
+ * (baseIntegrity 60), FOLIAGE lower (10). NATIVE stone (integrity slot 0,
+ * hasIntegrity=false) is skipped forever; a LOOSE stone block (round 11)
+ * carries a real gnaw durability in its slot and is chipped like a structure.
  * Fire burning wood is handled by the fire sim, not here.
  *
  * This is a per-tick PASS over the zombie list, NOT a world scan (GDD 13):
@@ -24,7 +25,7 @@
 import type { Body } from '../characters/body';
 import type { Zombie } from '../characters/zombie';
 import { get, set, getIntegrity, setIntegrity, idx } from '../engine/grid';
-import { MATERIALS, AIR, DOOR, isSolidForBody } from '../engine/materials';
+import { MATERIALS, AIR, DOOR, STONE, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
 import { BREACH_CHANCE, BREACH_PRESSURE_MULT, CHIP_FLASH_TICKS } from '../config';
 
@@ -108,9 +109,14 @@ export function findBlockingStructureCell(
     // A DOOR is not solid-for-body in general (the living walk through), but
     // every presser HERE is a zombie, to whom it IS a wall (v0.10 R8) - so it
     // counts as a blocking, chippable structure like fence/wall.
+    //
+    // LOOSE STONE BLOCKS are chippable too (round 11): STONE hasIntegrity is
+    // false, but a placed/fallen block carries its gnaw durability in the
+    // integrity slot (STONE_LOOSE seed - see config). NATIVE rock keeps slot 0
+    // and stays un-gnawable, so mined galleries and worldgen strata are safe.
     if (
       (isSolidForBody(m) || m === DOOR) &&
-      MATERIALS[m]?.hasIntegrity &&
+      (MATERIALS[m]?.hasIntegrity || m === STONE) &&
       getIntegrity(x, y) > 0
     ) {
       return { x, y };

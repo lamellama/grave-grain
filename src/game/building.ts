@@ -23,13 +23,14 @@ import type { ResourceKind } from './resources';
 import * as resources from './resources';
 import { inBounds, get, placeMaterial } from '../engine/grid';
 import { markTerrainEdit } from '../engine/navgrid';
-import { WOOD, WALL, CAMPFIRE, DOOR, STONE } from '../engine/materials';
+import { WOOD, WALL, CAMPFIRE, DOOR, STONE, SPIKE } from '../engine/materials';
 import {
   FENCE_COST,
   WALL_COST,
   CAMPFIRE_COST,
   DOOR_COST,
   STONE_BLOCK_COST,
+  SPIKE_COST,
 } from '../config';
 
 // ---------------------------------------------------------------------------
@@ -45,7 +46,10 @@ import {
 // STONE_LOOSE marker, so the placed cell FALLS under gravity and STACKS
 // (build walls by piling from the ground). The toolbar Stone verb places this;
 // WALL remains the precise breachable structure (Plan Wall / coop builders).
-export type StructureKind = 'fence' | 'wall' | 'campfire' | 'door' | 'stone';
+// 'spike' (round 11): a sharpened-stake TRAP cell - solid and standable, so a
+// zombie climbing over it (or dropped into a spiked pit) is in contact and may
+// lose a leg or two (game/traps.ts). Placed like fence: drag a strip.
+export type StructureKind = 'fence' | 'wall' | 'campfire' | 'door' | 'stone' | 'spike';
 
 export const STRUCTURES: Record<
   StructureKind,
@@ -56,6 +60,7 @@ export const STRUCTURES: Record<
   campfire: { material: CAMPFIRE, cost: CAMPFIRE_COST },
   door: { material: DOOR, cost: DOOR_COST },
   stone: { material: STONE, cost: STONE_BLOCK_COST },
+  spike: { material: SPIKE, cost: SPIKE_COST },
 };
 
 /** The per-cell cost of a structure kind (drops into resources.canAfford/spend). */

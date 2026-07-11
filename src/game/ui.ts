@@ -21,6 +21,7 @@ import type { GameState } from './state';
 import { worldToScreen, effectiveCellPx } from '../camera';
 import { stockpilePoint } from './resources';
 import { getCampFlag } from './camp';
+import { getArrows } from './projectiles';
 import { recentChips, getBreachTick } from './breaching';
 import { getWeather, getTemperature, type WeatherState } from '../engine/weather';
 import {
@@ -488,6 +489,43 @@ export function drawCampFlag(ctx: CanvasRenderingContext2D): void {
   ctx.lineTo(sc.x + cell / 3, sc.y - poleH + cell * 2);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
+}
+
+// ---------------------------------------------------------------------------
+// Guard arrows in flight (round 11, game/projectiles.ts)
+// ---------------------------------------------------------------------------
+
+/**
+ * Draw every arrow in flight as a short shaft along its velocity, camera-
+ * tracked. Pure ctx overlay (never the ImageData path); guard-safe for a
+ * stub/zero-size canvas. No-op with no arrows airborne.
+ */
+export function drawArrows(ctx: CanvasRenderingContext2D): void {
+  const arrows = getArrows();
+  if (arrows.length === 0) return;
+  const canvas = ctx.canvas;
+  if (!canvas) return;
+  const cw = canvas.width;
+  const ch = canvas.height;
+  if (cw === 0 || ch === 0) return;
+
+  const cell = effectiveCellPx();
+  ctx.save();
+  ctx.strokeStyle = '#e8dcb8';
+  ctx.lineWidth = Math.max(1, cell / 4);
+  for (const a of arrows) {
+    const sc = worldToScreen(a.x, a.y);
+    if (sc.x < -20 || sc.x > cw + 20 || sc.y < -20 || sc.y > ch + 20) continue;
+    // Shaft: ~1.5 cells long, trailing opposite the velocity.
+    const mag = Math.hypot(a.vx, a.vy) || 1;
+    const tx = (a.vx / mag) * cell * 1.5;
+    const ty = (a.vy / mag) * cell * 1.5;
+    ctx.beginPath();
+    ctx.moveTo(sc.x - tx, sc.y - ty);
+    ctx.lineTo(sc.x, sc.y);
+    ctx.stroke();
+  }
   ctx.restore();
 }
 

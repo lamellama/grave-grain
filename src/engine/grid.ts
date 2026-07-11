@@ -4,8 +4,8 @@
  * One Uint8Array for material, one for integrity (unused until Phase 2).
  */
 
-import { WORLD_W, WORLD_H, STONE_LOOSE } from '../config';
-import { MATERIALS, STONE } from './materials';
+import { WORLD_W, WORLD_H, STONE_LOOSE, DIRT_LOOSE } from '../config';
+import { MATERIALS, STONE, DIRT } from './materials';
 import { markCellActive } from './chunks';
 
 /**
@@ -91,7 +91,12 @@ export function setIntegrity(x: number, y: number, value: number): void {
  * routes through here, and painted stone must fall-and-stack (below-support)
  * rather than hang off lateral contact like NATIVE worldgen rock. STONE has
  * hasIntegrity=false, so its integrity slot is free to carry the marker
- * (worldgen's own put() and raw grid.set leave it 0 = native).
+ * (worldgen's own put() and raw grid.set leave it 0 = native). Since round 11
+ * the STONE_LOOSE seed doubles as the block's GNAW DURABILITY (breaching).
+ *
+ * PLACED DIRT is likewise LOOSE (round 11, DIRT_LOOSE): painted dirt keeps the
+ * old powder fall+spill feel, while unmarked NATIVE worldgen dirt is cohesive
+ * (falls straight down only - see simulation.updateDirt).
  */
 export function placeMaterial(x: number, y: number, id: number): void {
   if (!inBounds(x, y)) {
@@ -102,6 +107,12 @@ export function placeMaterial(x: number, y: number, id: number): void {
   setIntegrity(
     x,
     y,
-    mat?.hasIntegrity ? mat.baseIntegrity : id === STONE ? STONE_LOOSE : 0,
+    mat?.hasIntegrity
+      ? mat.baseIntegrity
+      : id === STONE
+        ? STONE_LOOSE
+        : id === DIRT
+          ? DIRT_LOOSE
+          : 0,
   );
 }

@@ -4,8 +4,10 @@
  * Four assertions over real modules (no mocks):
  *   A1  Scarcity: placeStructure('fence') drains wood until empty, then fails;
  *       stockpile never negative; placed cells are WOOD (id 6) with integrity 60.
- *   A2  Wall ≠ raw stone under breaching: WALL (hasIntegrity=true) chips over
- *       time; raw STONE (hasIntegrity=false) is NEVER chipped.
+ *   A2  Wall vs stone under breaching: WALL (hasIntegrity=true) chips over
+ *       time; PLACED loose stone blocks are gnawable too (round 11 - the
+ *       STONE_LOOSE slot is a real durability); NATIVE stone (slot 0) is
+ *       NEVER chipped.
  *   A3  Fence weaker than wall: WOOD fence (integrity 60) breaches in fewer ticks
  *       than WALL (integrity 200) under equal pursuit pressure.
  *   A4  Fire-as-tool: igniting one fence cell → fire spreads to an adjacent fence
@@ -33,7 +35,7 @@ function seedRandom(seed: number): void {
 // ---- imports ----------------------------------------------------------------
 import { placeStructure }                    from '../src/game/building';
 import { addResource, resetStockpile, getStockpile } from '../src/game/resources';
-import { material, set, get, getIntegrity, placeMaterial, integrity } from '../src/engine/grid';
+import { material, set, get, getIntegrity, setIntegrity, placeMaterial, integrity } from '../src/engine/grid';
 import { rebuildNavgrid }                    from '../src/engine/navgrid';
 import { WOOD, STONE, WALL, AIR, FIRE }      from '../src/engine/materials';
 import { WORLD_W, WOOD_INTEGRITY, WALL_INTEGRITY, P3_GROUND_Y, STONE_LOOSE } from '../src/config';
@@ -183,25 +185,45 @@ for (let y = FENCE_TOP; y <= FLOOR - 1; y++) {
 console.log(`  WALL min integrity after ${wallTicksTaken} ticks: ${wallMinInteg} (started ${WALL_INTEGRITY})`);
 ok(wallChipped, `WALL integrity decreased (chipped at tick ${wallTicksTaken})`);
 
-// --- sub-test: raw STONE is never chipped ---
+// --- sub-test: PLACED loose stone blocks ARE gnawable (round 11) ---
+// placeMaterial(STONE) seeds the STONE_LOOSE durability, and breaching now
+// chips marked stone exactly like a structure.
 seedRandom(7);
 const { zombies: stoneZombies, target: stoneTarget } = buildScene(3, STONE);
-// Run same number of ticks
+let looseChipped = false;
+let looseTicksTaken = 0;
 for (let t = 1; t <= WALL_TICK_LIMIT; t++) {
   tickBreaching(stoneZombies, stoneTarget);
+  for (let y = FENCE_TOP; y <= FLOOR - 1; y++) {
+    const mat = get(BARRIER_X, y);
+    const integ = getIntegrity(BARRIER_X, y);
+    if (mat === AIR || (mat === STONE && integ < STONE_LOOSE)) looseChipped = true;
+  }
+  if (looseChipped) { looseTicksTaken = t; break; }
 }
-// Verify: all stone cells still STONE and their integrity slot UNTOUCHED by
-// breaching. Since v0.11 R the slot on PLACED stone holds the loose-block
-// marker (STONE_LOOSE) - breaching gates on hasIntegrity(false for STONE), so
-// the marker surviving at its seeded value IS the never-chipped proof.
+console.log(`  loose STONE block first chipped at tick ${looseTicksTaken}`);
+ok(looseChipped, `PLACED loose stone blocks are gnawable (round 11 - durability chipped)`);
+
+// --- sub-test: NATIVE stone (integrity slot 0) is never chipped ---
+seedRandom(7);
+const { zombies: nativeZombies, target: nativeTarget } = buildScene(3, STONE);
+// Re-write the barrier as NATIVE rock: material STONE with a ZEROED slot
+// (worldgen strata shape) - the forever-un-gnawable population.
+for (let y = FENCE_TOP; y <= FLOOR - 1; y++) {
+  set(BARRIER_X, y, STONE);
+  setIntegrity(BARRIER_X, y, 0);
+}
+for (let t = 1; t <= WALL_TICK_LIMIT; t++) {
+  tickBreaching(nativeZombies, nativeTarget);
+}
 let stoneIntact = true;
 for (let y = FENCE_TOP; y <= FLOOR - 1; y++) {
-  if (get(BARRIER_X, y) !== STONE)                stoneIntact = false;
-  if (getIntegrity(BARRIER_X, y) !== STONE_LOOSE) stoneIntact = false;
+  if (get(BARRIER_X, y) !== STONE)      stoneIntact = false;
+  if (getIntegrity(BARRIER_X, y) !== 0) stoneIntact = false;
 }
-console.log(`  STONE column intact after ${WALL_TICK_LIMIT} ticks: ${stoneIntact}`);
-ok(stoneIntact, `raw STONE never chipped (hasIntegrity=false, loose marker untouched, cell always STONE)`);
-const a2Pass = wallChipped && stoneIntact;
+console.log(`  NATIVE stone column intact after ${WALL_TICK_LIMIT} ticks: ${stoneIntact}`);
+ok(stoneIntact, `NATIVE stone never chipped (integrity slot 0, cell always STONE)`);
+const a2Pass = wallChipped && looseChipped && stoneIntact;
 
 // ============================================================
 // A3 — Fence weaker than wall: fence breaches in fewer ticks
