@@ -36,7 +36,6 @@ import * as simulation from './engine/simulation';
 import { createSurvivor, updateSurvivor, assignRole } from './characters/survivor';
 import type { Survivor } from './characters/survivor';
 import { updateZombie } from './characters/zombie';
-import { rebuildZombieFooting } from './characters/zombieFooting';
 import type { Zombie } from './characters/zombie';
 import { updateInfection } from './characters/infection';
 import { resolveBreaching } from './game/breaching';
@@ -48,6 +47,7 @@ import { resetQueue } from './game/buildqueue';
 import { updateGroups, resetGroups } from './game/groups';
 import { resetShelters } from './game/shelter';
 import { resetHuts, getHutVersion, latestHut } from './game/prefabs';
+import { updateChildren, resetChildren } from './game/children';
 import { updateArrows, resetArrows } from './game/projectiles';
 import { updateSpikeContact } from './game/traps';
 import { generateWorld } from './game/worldgen';
@@ -188,6 +188,7 @@ resetShelters();
 // shaft leaks across a restart/hot-reload), and prompt the player once.
 resetHuts();
 resetArrows();
+resetChildren();
 pushToast('Buy a \u2302 Hut to set up camp - survivors move in for warmth');
 
 // Starting resources so the first tool/wall can be crafted/built on load
@@ -217,9 +218,12 @@ for (let i = 0; i < SURVIVOR_COUNT; i++) {
 
 // Register all survivor bodies with per-role tints so they are drawn each frame
 // (p11-5, GDD 12 readability). 'none' role -> null tint (authored colours kept).
+// Round 11: the role rides along so the renderer can dress the figure
+// (checkered lumberjack shirt / guard helmet / forager gloves).
 setSurvivorRender(survivors.map((s) => ({
   body: s.body,
   tint: s.role === 'none' ? null : ROLE_TINT[s.role],
+  role: s.role,
 })));
 
 // Wire the Shoot tool to survivors[0] (keeps the Phase-4 hand-test functional).
@@ -325,12 +329,6 @@ function simulationTick(): void {
   const survivorBodies = survivors.map((s) => s.body);
   const zombieBodiesNow = zombies.map((z) => z.body);
 
-  // Rebuild the ephemeral zombie "body footing" set (post-MVP ladder-climb,
-  // playtest v0.5 #A) from the tick-start positions BEFORE any zombie moves, so
-  // every zombie's climb check this tick reads the same order-independent
-  // snapshot of where ally bodies are piled (GDD 7.1 funnel / 13 perf).
-  rebuildZombieFooting(zombies);
-
   // Drive zombies FIRST so survivor combat + breaching read fresh zombie state.
   // The full zombie list is passed as the herd (GDD 7.1 herd behaviour): idle
   // zombies bias their meander goals toward nearby allies and clump up.
@@ -389,6 +387,15 @@ function simulationTick(): void {
 
   updateGroups(survivors, tickCount);
 
+  // Round 11 colony growth: huts raise CHILDREN - small survivors born at the
+  // hearth that quickly grow into assignable adults (game/children.ts). The
+  // module returns this tick's newborns; push them onto the LIVE array (the
+  // renderer/input/needs-bars all hold this same reference).
+  for (const kid of updateChildren(survivors)) {
+    survivors.push(kid);
+    pushToast('A child was born at the hut');
+  }
+
   // Round 11 spike traps: each alive zombie in contact with SPIKE cells may
   // lose a leg this tick (game/traps.ts, THE GATE). Survivors are exempt -
   // they pick their way between their own stakes.
@@ -441,6 +448,7 @@ function simulationTick(): void {
   setSurvivorRender(survivors.filter((s) => !s.turned).map((s) => ({
     body: s.body,
     tint: s.role === 'none' ? null : ROLE_TINT[s.role],
+    role: s.role,
   })));
 
   // Advance the win/lose state machine + death watcher (GDD 11/12.2).

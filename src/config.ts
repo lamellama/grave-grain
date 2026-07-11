@@ -1578,3 +1578,28 @@ export const SPIKE_LEG_CHANCE = 0.04;
 
 // (Round-11 guard-arrow knobs - ARROW_SPEED, GUARD_ARROW_RANGE - live in the
 // "Guard archery" block up beside the other ARROW_* constants.)
+
+// ---------------------------------------------------------------------------
+// Round 11 - CHILDREN (GDD 6.1 colony growth): "when there is a hut and more
+// than one survivor, it should create children over time - smaller sprites
+// that quickly grow into normal survivors." Births and growth run in the
+// body/AI layer (game/children.ts, called from main) - never inside
+// simulation.step(), so chunk byte-equivalence is untouched.
+// ---------------------------------------------------------------------------
+
+// Ticks between births while the conditions hold (a placed hut + at least
+// CHILD_MIN_ADULTS living adult survivors). 60 Hz -> one birth every ~45 s.
+export const CHILD_BIRTH_TICKS = 2700;
+
+// Living ADULTS (alive, not turned, fully grown) required before the colony
+// starts raising children ("more than one survivor").
+export const CHILD_MIN_ADULTS = 2;
+
+// Ticks from birth to full size ("quickly grow into normal survivors"):
+// 60 Hz -> ~40 s as a small sprite, then the rig swaps to the adult figure.
+export const CHILD_GROW_TICKS = 2400;
+
+// Population ceiling per placed hut (living survivors, children included):
+// births pause while the colony is at capacity, resume when someone dies or
+// another hut is bought. Keeps the colony bounded (GDD 13).
+export const CHILD_CAP_PER_HUT = 6;

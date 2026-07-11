@@ -162,6 +162,11 @@ export interface Survivor {
   // a survivor (main.ts). Lives on the controller because the hand-off is a
   // controller-swap concept; the Body stays alive===true throughout.
   turned: boolean;
+  // Round 11 children (game/children.ts): true while this survivor is a CHILD
+  // (small childRig body, unassignable); growTicks counts down to the grow-up
+  // rig swap. Adults are child:false / growTicks:0.
+  child: boolean;
+  growTicks: number;
   needs: { hunger: number; thirst: number; warmth: number };
   // Wetness in [0, NEED_MAX] (VS-2 Task T-A, GDD 6.1). NOT a killing need - kept
   // OUT of `needs` so the need-at-zero death loop never reads it. Rises in rain /
@@ -270,6 +275,8 @@ export function createSurvivor(x: number, y: number): Survivor {
   return {
     body,
     turned: false,
+    child: false,
+    growTicks: 0,
     needs: { hunger: NEED_MAX, thirst: NEED_MAX, warmth: NEED_MAX },
     wetness: 0, // start bone dry (VS-2 Task T-A)
     // Warmth sample cache (VS-2 Task T-B): unsampled (-1) -> sampled on the first
@@ -1124,6 +1131,9 @@ function driveConsume(s: Survivor): void {
  * On success the role/tool are set and the loop restarts at 'toTarget'.
  */
 export function assignRole(s: Survivor, role: RoleName): boolean {
+  // Round 11: a CHILD can't take a working role - it has to grow up first
+  // (game/children.ts swaps in the adult rig and clears the flag).
+  if (s.child && role !== 'none') return false;
   // A reassigned/cleared builder hands its claimed blueprint back to the queue,
   // else the Blueprint stays reserved=true forever and no builder can re-claim it
   // (orphaned job). Death/turn bypass assignRole, so they release via

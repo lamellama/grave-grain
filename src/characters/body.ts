@@ -144,6 +144,39 @@ export interface Body {
   // rising out of the soil shows only its above-ground part. Never read by
   // locomotion/damage/sim - purely a draw gate; undefined = draw everything.
   clipBelowY?: number;
+  // Round 11 zombie stacking: true while this body is HUNCHED OVER carrying
+  // another zombie on its back (setHunched below folds the head down into the
+  // shoulders, shortening the figure). Real bone-offset change - collision,
+  // render and the rider's standing height all agree.
+  hunched: boolean;
+}
+
+// Authored head offset (createBody) and its hunched-over counterpart. The
+// hunched head tucks forward-and-down beside the torso top so the figure reads
+// as bent over, and its top drops from row -11 to -8 - HUNCHED_HEIGHT rows
+// remain, which is where a rider's feet rest (see characters/zombie.ts).
+const HEAD_OFFSET_UPRIGHT = { dx: 0, dy: -10 };
+const HEAD_OFFSET_HUNCHED_DY = -7;
+
+/** Total height (rows) of a hunched figure - feet row to hunched crown. */
+export const HUNCHED_HEIGHT = 9;
+
+/**
+ * Fold a body over (or straighten it back up): while hunched the HEAD bone
+ * tucks forward (toward `facing`) and down beside the shoulders, so the whole
+ * figure is HUNCHED_HEIGHT tall and an ally can stand on its back (round 11
+ * zombie stacking - "the bottom one should be hunched over"). This is a REAL
+ * rig change (offsets), so locomotion collision, the renderer and any pixel
+ * release all see the same folded pose. Idempotent; no-op on a missing head.
+ */
+export function setHunched(body: Body, hunched: boolean): void {
+  if (body.hunched === hunched) return;
+  body.hunched = hunched;
+  const head = body.rig.find((b) => b.name === 'head');
+  if (!head) return;
+  head.offset = hunched
+    ? { dx: body.facing, dy: HEAD_OFFSET_HUNCHED_DY }
+    : { dx: HEAD_OFFSET_UPRIGHT.dx, dy: HEAD_OFFSET_UPRIGHT.dy };
 }
 
 /**
@@ -212,6 +245,47 @@ function paint(
  * Regions are disjoint by construction, so when every offset+pixel is summed no
  * two body pixels share a world cell. Bounding box = BODY_WxBODY_H.
  */
+/**
+ * Author one CHILD-sized humanoid rig (round 11 colony growth): the same six
+ * named bones as the adult figure, in the same silhouette, at roughly half
+ * scale - 4 wide x 7 tall (adult is 6x12). Same FLESH/BONE material scheme,
+ * so THE GATE, locomotion, renderer and pick all handle a child body with no
+ * special cases; it is simply smaller. game/children.ts swaps this rig for
+ * the full createBody rig when the child grows up.
+ *
+ *   row col: -2 -1  0  1        (dy = row up from the feet at 0)
+ *    -6       .  H  H  .   head  (2x2, skull-cap BONE on top)
+ *    -5       .  H  H  .
+ *    -4       L  T  T  R   torso (2x3, spine BONE) + arms (1x2 each)
+ *    -3       L  T  T  R
+ *    -2       .  T  T  .
+ *    -1       .  a  b  .   legs  (1x2 each, BONE column)
+ *     0       .  a  b  .
+ */
+export function childRig(): Bone[] {
+  const head = rect(2, 2, -1, -1, FLESH);
+  paint(head, BONE, (p) => p.dy === -1); // skull cap
+  const torso = rect(2, 3, -1, -1, FLESH);
+  paint(torso, BONE, (p) => p.dx === -1); // spine column
+  const lLeg = rect(1, 2, 0, -1, FLESH);
+  paint(lLeg, BONE, () => true); // little legs are mostly bone column
+  const rLeg = rect(1, 2, 0, -1, FLESH);
+
+  return [
+    { name: 'head', offset: { dx: 0, dy: -5 }, pixels: head, destroyed: false },
+    { name: 'torso', offset: { dx: 0, dy: -3 }, pixels: torso, destroyed: false },
+    { name: 'lArm', offset: { dx: -2, dy: -3 }, pixels: rect(1, 2, 0, -1, FLESH), destroyed: false },
+    { name: 'rArm', offset: { dx: 1, dy: -3 }, pixels: rect(1, 2, 0, -1, FLESH), destroyed: false },
+    { name: 'lLeg', offset: { dx: -1, dy: -1 }, pixels: lLeg, destroyed: false },
+    { name: 'rLeg', offset: { dx: 0, dy: -1 }, pixels: rLeg, destroyed: false },
+  ];
+}
+
+/** The adult rig, as authored by createBody (exported for the grow-up swap). */
+export function adultRig(): Bone[] {
+  return createBody(0, 0).rig;
+}
+
 export function createBody(x: number, y: number): Body {
   // Body matter (GDD 5.2): mostly FLESH, with a chunky BONE structure (skull
   // cap, torso spine column, one bone column per leg). No BLOOD is authored -
@@ -298,5 +372,6 @@ export function createBody(x: number, y: number): Body {
     buoyant: false,
     breathes: true,
     undead: false, // living by default; zombie creators flip it
+    hunched: false,
   };
 }

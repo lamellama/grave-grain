@@ -12,6 +12,8 @@ import { MATERIALS } from '../engine/materials';
 import { type Body } from '../characters/body';
 import { recentChips, getBreachTick } from '../game/breaching';
 import { getArrows } from '../game/projectiles';
+import { clothingPixelColor } from '../game/roles';
+import type { RoleName } from '../game/roles';
 
 /**
  * Pre-parsed material colours: RGB[material_id] = [r, g, b] tuple.
@@ -114,7 +116,14 @@ class Renderer {
 
   // p11-5: survivor bodies with per-body role tints (render-only, GDD 12 readability).
   // Each entry pairs a Body with a nullable RGB tint; null = draw with authored colours.
-  private survivorRenderList: { body: Body; tint: [number, number, number] | null }[] = [];
+  // Round 11 adds an optional `role` per entry: when set, clothingPixelColor
+  // dresses specific authored pixels (checkered shirt / helmet / gloves) and
+  // those pixels skip the tint entirely.
+  private survivorRenderList: {
+    body: Body;
+    tint: [number, number, number] | null;
+    role?: string;
+  }[] = [];
 
   // Cache tint functions keyed by 'r,g,b' so we never rebuild the same closure twice
   // (bodies share a tiny fixed pixel palette, so these caches warm up quickly).
@@ -177,10 +186,14 @@ class Renderer {
 
   /**
    * Register survivor bodies with per-body role tints (p11-5, GDD 12 readability).
-   * Pass an array of {body, tint} pairs; null tint = drawn with authored colours.
+   * Pass an array of {body, tint, role?} entries; null tint = drawn with
+   * authored colours; `role` (round 11) dresses the figure via
+   * clothingPixelColor (checkered shirt / helmet / gloves).
    * Draw-time only - body.rig pixels and the grid are NEVER mutated here.
    */
-  setSurvivorRender(list: { body: Body; tint: [number, number, number] | null }[]): void {
+  setSurvivorRender(
+    list: { body: Body; tint: [number, number, number] | null; role?: string }[],
+  ): void {
     this.survivorRenderList = [...list];
   }
 
@@ -343,10 +356,11 @@ class Renderer {
     // for shims / tests that still call setBodies directly).
     // Zombies (p7-t7) are always drawn with the fixed green tint.
     if (this.survivorRenderList.length > 0) {
-      // Per-body tint path: each survivor gets its role colour blended in.
+      // Per-body tint path: each survivor gets its role colour blended in, and
+      // (round 11) its role's CLOTHING drawn over specific authored pixels.
       for (const item of this.survivorRenderList) {
         const tintFn = item.tint ? this.makeTintFn(item.tint) : null;
-        this.drawBodyList([item.body], tintFn);
+        this.drawBodyList([item.body], tintFn, false, item.role);
       }
     } else {
       // Fallback: draw this.bodies with no tint (pre-p11-5 callers).
@@ -387,6 +401,7 @@ class Renderer {
     bodies: Body[],
     tint: ((color: string) => string) | null,
     bypassAlive = false,
+    clothingRole?: string,
   ): void {
     const vw = this.viewportWidthPx;
     const vh = this.viewportHeightPx;
@@ -424,7 +439,12 @@ class Renderer {
           if (sx1 <= 0 || sx0 >= vw) continue;
           if (sy1 <= 0 || sy0 >= vh) continue;
 
-          ctx.fillStyle = tint ? tint(pixel.color) : pixel.color;
+          // Round 11 clothing: a dressed pixel (shirt/helmet/glove) uses its
+          // garment colour outright; bare pixels keep the tint/authored path.
+          const cloth = clothingRole
+            ? clothingPixelColor(clothingRole as RoleName, bone.name, pixel.dx, pixel.dy)
+            : null;
+          ctx.fillStyle = cloth ?? (tint ? tint(pixel.color) : pixel.color);
           ctx.fillRect(sx0, sy0, sx1 - sx0, sy1 - sy0);
         }
       }

@@ -90,6 +90,61 @@ export const ROLE_TINT: Record<RoleName, [number, number, number]> = {
   fisherman:  FISHERMAN_TINT,   // teal (GDD 6.2 fisherman)
 };
 
+// ---------------------------------------------------------------------------
+// Role CLOTHING (round 11 "improve the colouring of the survivors by role") -
+// render-only, per-pixel garments layered over the authored figure. Where a
+// role has no garment for a pixel this returns null and the ordinary
+// tint/authored colour shows through. Damage stays honest: clothing is a draw
+// concern only - a shed pixel still enters the sim as FLESH/BONE in material
+// colours (the clothes stay on the figure, not on the gore).
+// ---------------------------------------------------------------------------
+
+// Buffalo-plaid shirt for the lumberjack (alternating red/black check).
+const PLAID_RED = '#a83226';
+const PLAID_DARK = '#4a1410';
+// Steel helmet for the guard.
+const HELMET_STEEL = '#aeb6bf';
+// Work gloves for the forager.
+const GLOVE_TAN = '#d1a24a';
+
+/**
+ * The garment colour for one authored body pixel, or null when this role
+ * leaves that pixel bare (fall through to tint/authored colours).
+ *
+ *   lumberjack - a CHECKERED SHIRT across the torso and both arm sleeves
+ *                (local-parity checker, so the pattern is stable as it walks);
+ *   guard      - a HELMET over the top of the head;
+ *   forager    - GLOVES on both hands (the lowest arm pixels).
+ *
+ * Coordinates are the pixel's AUTHORED bone-local (dx, dy) - stable for the
+ * body's whole life, so garments never swim over the figure. Pure and
+ * per-pixel-safe (no allocation, no globals).
+ */
+export function clothingPixelColor(
+  role: RoleName,
+  bone: string,
+  dx: number,
+  dy: number,
+): string | null {
+  switch (role) {
+    case 'lumberjack':
+      if (bone === 'torso' || bone === 'lArm' || bone === 'rArm') {
+        return ((dx + dy) & 1) === 0 ? PLAID_RED : PLAID_DARK;
+      }
+      return null;
+    case 'guard':
+      // Head rows run dy -1..1; the top two rows wear the steel.
+      if (bone === 'head' && dy <= 0) return HELMET_STEEL;
+      return null;
+    case 'forager':
+      // Arm pixels run dy -2..2; the bottom two rows are the gloved hands.
+      if ((bone === 'lArm' || bone === 'rArm') && dy >= 1) return GLOVE_TAN;
+      return null;
+    default:
+      return null;
+  }
+}
+
 /**
  * Blend `rgb` toward the role's tint by ROLE_TINT_MIX (render-only helper).
  * 'none' returns `rgb` unchanged (no tint).
