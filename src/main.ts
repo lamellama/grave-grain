@@ -26,7 +26,6 @@ import {
   STARTING_STONE,
   STARTING_AMMO,
   SURFACE_BASE_Y,
-  GROUP_RECHECK_TICKS,
 } from './config';
 import { initInput, setTargetBody, setSurvivors, setZombies, refreshBuildButtons, getSelectedSurvivor } from './input';
 import { initRenderer, getRenderer, setBodies, setZombieBodies, setSurvivorRender, setCorpseBodies } from './render/renderer';
@@ -37,20 +36,20 @@ import * as simulation from './engine/simulation';
 import { createSurvivor, updateSurvivor, assignRole } from './characters/survivor';
 import type { Survivor } from './characters/survivor';
 import { updateZombie } from './characters/zombie';
-import { rebuildZombieFooting } from './characters/zombieFooting';
 import type { Zombie } from './characters/zombie';
 import { updateInfection } from './characters/infection';
 import { resolveBreaching } from './game/breaching';
-import { updateArrows, resetArrows } from './game/projectiles';
 import { createWaveState, updateWaves } from './game/waves';
 import { makeTool, ROLE_TINT } from './game/roles';
 import { rebuildNavgrid } from './engine/navgrid';
 import { addResource, setStockpilePoint, getStockpile, setAmmo, getAmmo } from './game/resources';
 import { resetQueue } from './game/buildqueue';
 import { updateGroups, resetGroups } from './game/groups';
-import { updateCoopBuild } from './game/coopbuild';
 import { resetShelters } from './game/shelter';
-import { resetCampFlag, getCampFlag, getFlagVersion } from './game/camp';
+import { resetHuts, getHutVersion, latestHut } from './game/prefabs';
+import { updateChildren, resetChildren } from './game/children';
+import { updateArrows, resetArrows } from './game/projectiles';
+import { updateSpikeContact } from './game/traps';
 import { generateWorld } from './game/worldgen';
 import { createGameState, updateGameState } from './game/state';
 import {
@@ -67,7 +66,6 @@ import {
   drawWeather,
   advanceHitFlashes,
   drawSelectionHighlight,
-  drawCampFlag,
 } from './game/ui';
 
 // ============================================================================
@@ -179,18 +177,19 @@ resetQueue();
 
 // VS-3 T5 (GDD 6.2): fresh grouping + shelter-project state on world (re)init,
 // mirroring resetQueue above - no stale group edges or planned huts leak across
-// a restart/hot-reload. updateGroups/updateCoopBuild below repopulate both.
+// a restart/hot-reload. (Autonomous coop CAMP-building is retired in round 11 -
+// updateCoopBuild is no longer called - but groups still steer warmth-seeking
+// and shelter.ts still backs the headless suites, so both get a clean reset.)
 resetGroups();
 resetShelters();
 
-// Guard archery (GDD 7.2): clear any in-flight arrows on world (re)init so no
-// stale shaft leaks across a restart/hot-reload (mirrors resetQueue above).
+// Round 11: the camp flag is retired - the player designates camp by BUYING A
+// HUT (game/prefabs.ts). Fresh registries for huts and guard arrows (no stale
+// shaft leaks across a restart/hot-reload), and prompt the player once.
+resetHuts();
 resetArrows();
-
-// Playtest R9: no camp flag at the start of a run - survivors build NOTHING
-// until the player plants it (Flag tool). Prompt the player once.
-resetCampFlag();
-pushToast('Plant the \u2691 Flag to choose where camp is built');
+resetChildren();
+pushToast('Buy a \u2302 Hut to set up camp - survivors move in for warmth');
 
 // Starting resources so the first tool/wall can be crafted/built on load
 // (GDD 6.2 tool-gating, 8 build affordability).
@@ -219,9 +218,12 @@ for (let i = 0; i < SURVIVOR_COUNT; i++) {
 
 // Register all survivor bodies with per-role tints so they are drawn each frame
 // (p11-5, GDD 12 readability). 'none' role -> null tint (authored colours kept).
+// Round 11: the role rides along so the renderer can dress the figure
+// (checkered lumberjack shirt / guard helmet / forager gloves).
 setSurvivorRender(survivors.map((s) => ({
   body: s.body,
   tint: s.role === 'none' ? null : ROLE_TINT[s.role],
+  role: s.role,
 })));
 
 // Wire the Shoot tool to survivors[0] (keeps the Phase-4 hand-test functional).
@@ -273,9 +275,9 @@ const stockpileReadoutEl = document.getElementById('stockpile-readout') as HTMLE
 let leftArrowHeld = false;
 let rightArrowHeld = false;
 
-// Last camp-flag version we re-homed the colony for (playtest R9). 0 = the
-// never-planted state, so the first placement always triggers the re-home.
-let lastFlagVersion = 0;
+// Last hut version we re-homed the colony for (round 11 - huts ARE the camp).
+// 0 = no hut yet, so the first purchase always triggers the re-home.
+let lastHutVersion = 0;
 
 // ============================================================================
 // Fixed-timestep game loop
@@ -327,12 +329,6 @@ function simulationTick(): void {
   const survivorBodies = survivors.map((s) => s.body);
   const zombieBodiesNow = zombies.map((z) => z.body);
 
-  // Rebuild the ephemeral zombie "body footing" set (post-MVP ladder-climb,
-  // playtest v0.5 #A) from the tick-start positions BEFORE any zombie moves, so
-  // every zombie's climb check this tick reads the same order-independent
-  // snapshot of where ally bodies are piled (GDD 7.1 funnel / 13 perf).
-  rebuildZombieFooting(zombies);
-
   // Drive zombies FIRST so survivor combat + breaching read fresh zombie state.
   // The full zombie list is passed as the herd (GDD 7.1 herd behaviour): idle
   // zombies bias their meander goals toward nearby allies and clump up.
@@ -369,32 +365,43 @@ function simulationTick(): void {
   // prune/state pass so a freshly reanimated zombie is counted/rendered.
   updateInfection(survivors, zombies, tickCount);
 
-  // VS-3 T5 (GDD 6.2/8): survivor grouping + cooperative shelter building, on
-  // the group recheck cadence. updateGroups self-gates on GROUP_RECHECK_TICKS
-  // (and stamps each survivor's groupId - seekWarmth's way home to the group's
-  // hut); updateCoopBuild (reconcile abandoned projects -> ensure one per group
-  // -> stream cells into the blueprint queue) runs on the SAME cadence - it only
-  // tops up the queue, the builder role does the actual building. Runs after
-  // updateInfection so a survivor downed/turned this tick is already excluded
-  // from grouping and its project maths.
-  // Camp-flag relocation (playtest R9): when the flag is planted or moved,
-  // RE-HOME every living survivor to it so the colony walks over (idle wander
-  // orbits `home`; builders follow the re-planned blueprints; seekWarmth
-  // follows the group's new hut once it stands).
-  if (getFlagVersion() !== lastFlagVersion) {
-    lastFlagVersion = getFlagVersion();
-    const flag = getCampFlag();
-    if (flag) {
+  // Round 11: survivors NO LONGER build their own camp (updateCoopBuild is
+  // retired from the live loop - "leaving the survivors to create their own
+  // camp is not working"). The player buys pre-built HUTS instead: when a hut
+  // is purchased (game/prefabs.ts bumps the hut version), RE-HOME every living
+  // survivor to its interior so the colony walks over - idle wander orbits
+  // `home`, and the hut's roof + lit hearth feed the warmth need directly.
+  // updateGroups keeps running: groupIds still steer warmth-seeking and the
+  // split/merge debounce.
+  if (getHutVersion() !== lastHutVersion) {
+    lastHutVersion = getHutVersion();
+    const hut = latestHut();
+    if (hut) {
       for (const s of survivors) {
         if (!s.body.alive || s.turned) continue;
-        s.home.x = flag.x;
-        s.home.y = flag.y;
+        s.home.x = hut.x;
+        s.home.y = hut.y;
       }
     }
   }
 
   updateGroups(survivors, tickCount);
-  if (tickCount % GROUP_RECHECK_TICKS === 0) updateCoopBuild(survivors);
+
+  // Round 11 colony growth: huts raise CHILDREN - small survivors born at the
+  // hearth that quickly grow into assignable adults (game/children.ts). The
+  // module returns this tick's newborns; push them onto the LIVE array (the
+  // renderer/input/needs-bars all hold this same reference).
+  for (const kid of updateChildren(survivors)) {
+    survivors.push(kid);
+    pushToast('A child was born at the hut');
+  }
+
+  // Round 11 spike traps: each alive zombie in contact with SPIKE cells may
+  // lose a leg this tick (game/traps.ts, THE GATE). Survivors are exempt -
+  // they pick their way between their own stakes.
+  for (const z of zombies) {
+    if (z.body.alive) updateSpikeContact(z.body);
+  }
 
   // Guard archery (GDD 7.2): advance every in-flight arrow one tick and resolve
   // its arc/impact. Runs AFTER the survivor loop so this tick's freshly-loosed
@@ -441,6 +448,7 @@ function simulationTick(): void {
   setSurvivorRender(survivors.filter((s) => !s.turned).map((s) => ({
     body: s.body,
     tint: s.role === 'none' ? null : ROLE_TINT[s.role],
+    role: s.role,
   })));
 
   // Advance the win/lose state machine + death watcher (GDD 11/12.2).
@@ -555,9 +563,8 @@ function renderLoop(): void {
   // VS-1 T5: precipitation overlay + always-on weather/temperature readout (GDD 10).
   drawWeather(ctx);
   // v0.8 playtest K: selection box that tracks the role-menu's survivor.
+  // (Guard arrows draw inside renderer.render() - the streak pass over bodies.)
   drawSelectionHighlight(ctx, getSelectedSurvivor());
-  // Playtest R9: the planted camp flag (pole + green pennant), camera-tracked.
-  drawCampFlag(ctx);
   drawNeedsBars(ctx, survivors);
   drawEdgeArrows(ctx, zombies, camera, vpW, vpH);
   // task 11-4: off-screen breach alert (GDD 12.1 / 7.4).

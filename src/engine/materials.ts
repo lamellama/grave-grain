@@ -67,6 +67,8 @@ export const SNOW = 16;
 export const CAMPFIRE = 17;
 // Material ID - v0.10 playtest R8 zombie-proof DOOR (GDD 8; do NOT renumber)
 export const DOOR = 18;
+// Material ID - round 11 SPIKE trap (GDD 8 defenses; do NOT renumber)
+export const SPIKE = 19;
 
 /**
  * MATERIALS - indexed lookup table of material properties.
@@ -336,6 +338,26 @@ export const MATERIALS: Material[] = [
     permeableToBodies: true, // LIVING pass; undead blocked in locomotion
     hasIntegrity: true,
     baseIntegrity: DOOR_INTEGRITY,
+  },
+  // SPIKE (id=19) - round 11 trap: sharpened wooden stakes (GDD 8 defenses).
+  // Solid and standable (a 1-cell stake row is stepped ONTO, not blocked by -
+  // STEP_UP_MAX=2), so a zombie climbing over a spike strip, or dropping into
+  // a spiked pit deadfall, is IN CONTACT with the stakes - and each contact
+  // tick rolls SPIKE_LEG_CHANCE to tear a leg off (game/traps.ts, THE GATE).
+  // Survivors pick their way between their own stakes (no friendly damage).
+  // Static like wood, non-displaceable; flammable - stakes are timber, fire
+  // still eats them. No breach integrity: zombies never target spikes (they
+  // walk over them - that is the trap), so the slot stays free.
+  {
+    name: 'spike',
+    color: '#c4a35a', // pale sharpened timber, lighter than door/wood browns
+    density: DENSITY_STONE,
+    isFluid: false,
+    isStatic: true,
+    flammable: true,
+    permeableToBodies: false,
+    hasIntegrity: false,
+    baseIntegrity: 0,
   },
 ];
 

@@ -48,6 +48,7 @@ import {
   SOAK_CHANCE,
   SOAK_MAX_DEPTH,
   STONE_LOOSE,
+  DIRT_LOOSE,
   SNOW_SPAWN_CHANCE,
   SNOW_MAX_DEPTH,
   SNOW_MELT_WATER_FRACTION,
@@ -907,7 +908,7 @@ function updateStone(x: number, y: number): void {
   // NATIVE rock (integrity slot 0 - worldgen strata / raw grid.set): mortared
   // while ANY 4-neighbour is STONE/WALL, so mined galleries, aquifer roofs and
   // natural overhangs keep standing exactly as under the v0.9 N rule.
-  if (integrity[i] !== STONE_LOOSE) {
+  if (integrity[i] === 0) {
     if (
       (x > 0 && isMortar(material[idx(x - 1, y)])) ||
       (x < WORLD_W - 1 && isMortar(material[idx(x + 1, y)])) ||
@@ -920,17 +921,19 @@ function updateStone(x: number, y: number): void {
     // once rock has broken loose it behaves as a block for the rest of its
     // life - in particular it can never re-hang off a lateral contact after
     // landing (the old rule let a fallen stone glue itself to the SIDE of a
-    // pile and float there).
+    // pile and float there). The seed is also its gnaw durability (round 11).
     integrity[i] = STONE_LOOSE;
   }
-  // LOOSE BLOCK (placed by the player, or fallen rubble): rests ONLY on
-  // support from BELOW - blocks fall under gravity and STACK into columns and
-  // walls; lateral contact never defies gravity (playtest v0.11 R "stone
-  // blocks"). Straight-down block fall, no powder spill/repose; displaces
-  // AIR/fluids only (trySwap), rests on anything else. trySwap does not carry
-  // the integrity slot, so the loose marker is moved by hand with the block.
+  // LOOSE BLOCK (placed by the player, or fallen rubble - any NON-ZERO slot):
+  // rests ONLY on support from BELOW - blocks fall under gravity and STACK
+  // into columns and walls; lateral contact never defies gravity (playtest
+  // v0.11 R "stone blocks"). Straight-down block fall, no powder spill/repose;
+  // displaces AIR/fluids only (trySwap), rests on anything else. trySwap does
+  // not carry the integrity slot, so the block's remaining gnaw durability
+  // (round 11 - a half-chewed block stays half-chewed) travels by hand.
+  const durability = integrity[i];
   if (trySwap(x, y, x, y + 1)) {
-    integrity[idx(x, y + 1)] = STONE_LOOSE;
+    integrity[idx(x, y + 1)] = durability;
     integrity[i] = 0;
   }
 }
@@ -1187,24 +1190,51 @@ function updateSand(x: number, y: number): void {
 }
 
 /**
- * DIRT rule (GDD 5.2: "dirt piles steeper than sand").
- * Identical to sand for the straight-down fall (unconditional - sinks through
- * anything lighter and non-static via the same density swap, so dirt still falls
- * through air and sinks through water). The difference is the diagonal spill: it
- * is only ATTEMPTED with probability DIRT_SPILL_CHANCE this tick. When the spill
- * is skipped the grain simply rests this tick. Fewer diagonal moves over time
- * means grains stack up more before sliding sideways, so the mound holds a
- * steeper angle of repose and a narrower base than a sand pile of equal mass.
+ * DIRT rule (GDD 5.2 + round 11 "dirt should react less like sand").
+ *
+ * TWO POPULATIONS, exactly the stone loose/native pattern (integrity slot as
+ * the marker - DIRT hasIntegrity=false so the slot is free):
+ *
+ *   NATIVE dirt (slot 0 - worldgen strata / raw grid.set): COHESIVE soil. It
+ *   falls STRAIGHT DOWN when its support is removed - and NOTHING else: no
+ *   diagonal spill, no angle of repose, no sideways crumble. Digging a
+ *   vertical shaft leaves clean standing walls (each wall cell keeps dirt
+ *   below it), while digging a horizontal tunnel leaves its ceiling
+ *   unsupported - so the ceiling column collapses straight down into the cut
+ *   (and the cells above follow), which is the round-11 intent: "it shouldn't
+ *   crumble, unless you try to dig horizontally, then it should collapse."
+ *
+ *   LOOSE dirt (slot DIRT_LOOSE - it has FALLEN at least once, or was painted
+ *   via placeMaterial): the old powder - unconditional straight-down fall plus
+ *   the DIRT_SPILL_CHANCE diagonal spill, so collapse rubble and painted
+ *   mounds still pile at a steep-but-natural angle instead of freezing into
+ *   1-wide columns.
+ *
+ * Any native grain that moves becomes loose at its destination (soil that has
+ * broken from the stratum never re-knits). trySwap does not carry the
+ * integrity slot, so the marker travels by hand - and the vacated cell is
+ * zeroed so the swapped-in fluid/air never inherits a stale marker.
+ * DETERMINISM: same simRand salts as before, per-cell + tick-pure, so the
+ * chunked and full-scan paths stay byte-identical.
  */
 function updateDirt(x: number, y: number): void {
+  const i = idx(x, y);
   const below = y + 1;
+  const loose = integrity[i] !== 0;
 
   // 1) Fall straight down through any lighter, non-static cell (AIR or WATER).
+  //    Both populations do this; a grain that moves is LOOSE from here on.
   if (trySwap(x, y, x, below)) {
+    integrity[idx(x, below)] = DIRT_LOOSE;
+    integrity[i] = 0;
     return;
   }
 
-  // 2) Blocked below -> only spill diagonally with DIRT_SPILL_CHANCE (steepness).
+  // NATIVE dirt is cohesive: supported -> holds. Never spills sideways.
+  if (!loose) return;
+
+  // 2) LOOSE dirt blocked below -> only spill diagonally with
+  //    DIRT_SPILL_CHANCE (steepness).
   if (simRand(x, y, SALT_SPILL) >= DIRT_SPILL_CHANCE) {
     return;
   }
@@ -1215,9 +1245,14 @@ function updateDirt(x: number, y: number): void {
   const secondDx = leftFirst ? 1 : -1;
 
   if (trySwap(x, y, x + firstDx, below)) {
+    integrity[idx(x + firstDx, below)] = DIRT_LOOSE;
+    integrity[i] = 0;
     return;
   }
-  trySwap(x, y, x + secondDx, below);
+  if (trySwap(x, y, x + secondDx, below)) {
+    integrity[idx(x + secondDx, below)] = DIRT_LOOSE;
+    integrity[i] = 0;
+  }
 }
 
 /**

@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>sprite preview (throwaway)</title>
+<style>body{background:#1a1a1a;color:#ddd;font:14px monospace} canvas{image-rendering:pixelated}</style>
+</head>
+<body>
+<h3>round-11 sprite preview (throwaway dev page - not part of the game)</h3>
+<canvas id="c" width="1200" height="300"></canvas>
+<script type="module">
+import { createBody, childRig, setHunched } from '/src/characters/body.ts';
+import { clothingPixelColor, ROLE_TINT } from '/src/game/roles.ts';
+
+const ctx = document.getElementById('c').getContext('2d');
+const PX = 10;
+const MIX = 0.45;
+
+function tint(hex, rgb) {
+  const r = parseInt(hex.slice(1,3),16), g = parseInt(hex.slice(3,5),16), b = parseInt(hex.slice(5,7),16);
+  return `rgb(${Math.round(r*(1-MIX)+rgb[0]*MIX)},${Math.round(g*(1-MIX)+rgb[1]*MIX)},${Math.round(b*(1-MIX)+rgb[2]*MIX)})`;
+}
+
+function draw(body, role, ox, oy, label) {
+  for (const bone of body.rig) {
+    for (const p of bone.pixels) {
+      const wx = bone.offset.dx + p.dx;
+      const wy = bone.offset.dy + p.dy;
+      const cloth = role ? clothingPixelColor(role, bone.name, p.dx, p.dy) : null;
+      ctx.fillStyle = cloth ?? (role && role !== 'none' ? tint(p.color, ROLE_TINT[role]) : p.color);
+      ctx.fillRect(ox + wx*PX, oy + wy*PX, PX, PX);
+    }
+  }
+  ctx.fillStyle = '#ddd';
+  ctx.fillText(label, ox - 20, oy + 24);
+}
+
+let x = 60;
+for (const role of ['none','lumberjack','guard','forager','miner']) {
+  draw(createBody(0,0), role, x, 180, role);
+  x += 150;
+}
+// child
+const kid = createBody(0,0); kid.rig = childRig();
+draw(kid, null, x, 180, 'child'); x += 150;
+// hunched zombie pose (green-ish left as authored colours)
+const hz = createBody(0,0); setHunched(hz, true);
+draw(hz, null, x, 180, 'hunched'); x += 150;
+const up = createBody(0,0);
+draw(up, null, x, 180, 'upright');
+</script>
+</body>
+</html>

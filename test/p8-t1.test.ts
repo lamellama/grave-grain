@@ -49,8 +49,8 @@ assert(isFlammable(WALL) === false, 'isFlammable(WALL) === false');
 
 // Table shape / spot-checks of existing rows. Length grew past Phase 8's 15:
 // VS-1 added SNOW (id 16) and VS-2 added CAMPFIRE (id 17) -> length 18; WALL
-// stays id 14.
-assert(MATERIALS.length === 19, 'MATERIALS.length === 19 (Phase 8 + SNOW + CAMPFIRE + v0.10 DOOR)');
+// stays id 14. Round 11 added SPIKE (id 19) -> length 20.
+assert(MATERIALS.length === 20, 'MATERIALS.length === 20 (Phase 8 + SNOW + CAMPFIRE + v0.10 DOOR + round-11 SPIKE)');
 assert(WALL === 14, 'WALL id === 14');
 assert(MATERIALS[STONE].hasIntegrity === false, 'STONE.hasIntegrity === false (unchanged)');
 assert(MATERIALS[WOOD].baseIntegrity === 60, 'WOOD.baseIntegrity === 60 (unchanged)');

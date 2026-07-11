@@ -48,7 +48,6 @@ import {
   getShelterProject,
   ensureShelterProject,
   resetShelters,
-  type ShelterProject,
 } from '../src/game/shelter';
 import {
   updateCoopBuild,
@@ -56,6 +55,7 @@ import {
   queuedCellCount,
 } from '../src/game/coopbuild';
 import { resetCampFlag, plantCampFlagAt } from '../src/game/camp';
+import { placePrefabAt, prefabCost, getHutVersion } from '../src/game/prefabs';
 
 let failures = 0;
 function check(cond: boolean, msg: string): void {
@@ -131,11 +131,12 @@ try {
 check(!threw, 'main.ts bootstraps with the T5 wiring (no throw)' + (threw ? ' - ' + (threw.message || threw) : ''));
 check(rafCb !== null, 'main started the render loop');
 
-// R9 camp flag: main starts with NO flag and builds nothing until the player
-// plants it. Simulate the player's Flag tap just right of the spawn cluster
-// (WORLDGEN_SEED is fixed; spawnX=920, starter-camp canopy spans ~+/-6 - 950
-// is open ground, so the tap snaps to the real surface, not the camp roof).
-plantCampFlagAt(950, 0);
+// ROUND 11: the camp flag is retired and survivors NEVER plan their own camp
+// on the live path (updateCoopBuild is no longer wired into simulationTick -
+// "leaving the survivors to create their own camp is not working"). The
+// player designates camp by BUYING A HUT (game/prefabs.ts). Section A now
+// locks in: grouping still runs live; NO shelter project / blueprint ever
+// appears autonomously; and a hut purchase works on the live world.
 
 // Drive enough frames for two full recheck periods (1 sim tick per frame).
 const FRAMES = GROUP_RECHECK_TICKS * 2 + 5;
@@ -148,34 +149,50 @@ for (let f = 0; f < FRAMES && rafCb; f++) {
 
 const liveGroups = groupIds();
 check(liveGroups.length >= 1, `spawn cluster grouped on the live path (${liveGroups.length} group(s))`);
-const liveProjects: ShelterProject[] = [];
-for (const gid of liveGroups) {
-  const p = getShelterProject(gid);
-  if (p) liveProjects.push(p);
-}
-check(liveProjects.length >= 1, 'a shelter project exists for the spawn group (updateCoopBuild ran)');
-const liveQueue = getBlueprints();
-check(liveQueue.length > 0, `project cells are streaming into the blueprint queue (${liveQueue.length} queued)`);
-check(
-  liveQueue.length <= MAX_BUILD_CLAIMS * Math.max(1, liveProjects.length),
-  `queued cells respect the per-project cap (${liveQueue.length} <= ${MAX_BUILD_CLAIMS}/project)`,
-);
 {
-  // Every queued blueprint belongs to some group's project (walls/roof/campfire)
-  // - main queued them, not a phantom player.
-  let foreign = 0;
-  for (const bp of liveQueue) {
-    let owned = false;
-    for (const p of liveProjects) {
-      if (p.campfire.x === bp.x && p.campfire.y === bp.y) owned = true;
-      for (const c of p.cells) {
-        if (c.x === bp.x && c.y === bp.y) { owned = true; break; }
-      }
-      if (owned) break;
-    }
-    if (!owned) foreign++;
+  let liveProjects = 0;
+  for (const gid of liveGroups) {
+    if (getShelterProject(gid)) liveProjects++;
   }
-  check(foreign === 0, 'every queued blueprint is a shelter-project cell (no strays)');
+  check(
+    liveProjects === 0,
+    'NO autonomous shelter project on the live path (round 11: coop camp retired)',
+  );
+  check(
+    getBlueprints().length === 0,
+    'the blueprint queue stays EMPTY (nothing streamed autonomously)',
+  );
+}
+{
+  // The round-11 replacement: buying a hut on the live generated world works
+  // end to end (the tap snaps to the real surface just right of the spawn
+  // cluster - WORLDGEN_SEED is fixed, 950 is open ground) and bumps the hut
+  // version main watches to re-home the colony.
+  const hv0 = getHutVersion();
+  const hc = prefabCost('hut');
+  addResource('wood', hc.wood ?? 0);
+  addResource('stone', hc.stone ?? 0);
+  check(placePrefabAt('hut', 950, 0), 'a hut purchase succeeds on the live world');
+  check(getHutVersion() === hv0 + 1, 'the hut version bumped (main re-homes the colony off this)');
+  // A few more live frames: the loop keeps ticking with the hut placed (the
+  // re-home branch, spike pass and arrow pass all execute without throwing).
+  let liveThrew: any = null;
+  try {
+    for (let f = 0; f < 5 && rafCb; f++) {
+      fakeTime += 1000 / SIM_HZ;
+      const cb = rafCb;
+      rafCb = null;
+      cb();
+    }
+  } catch (e) {
+    liveThrew = e;
+  }
+  check(
+    !liveThrew,
+    'the live loop keeps ticking after the purchase' +
+      (liveThrew ? ' - ' + (liveThrew.message || liveThrew) : ''),
+  );
+  check(getBlueprints().length === 0, 'still no autonomous blueprints after the purchase');
 }
 
 // ===========================================================================

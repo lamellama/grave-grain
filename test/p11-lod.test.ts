@@ -30,6 +30,7 @@ import {
   survivorShouldRun,
   zombieShouldRun,
 } from '../src/game/lod';
+import { updateArrows, resetArrows } from '../src/game/projectiles';
 import { createSurvivor, updateSurvivor, assignRole } from '../src/characters/survivor';
 import { createZombie, updateZombie } from '../src/characters/zombie';
 import { makeTool } from '../src/game/roles';
@@ -164,6 +165,7 @@ let guardRan = 0;
 let zomRan = 0;
 const combatSurvBodies = [cguard.body];
 const combatZomBodies = [czom.body];
+resetArrows();
 for (let t = 1; t <= 1500; t++) {
   if (zombieShouldRun(czom, 0, win, combatSurvBodies, t)) {
     updateZombie(czom, [cguard]);
@@ -173,7 +175,15 @@ for (let t = 1; t <= 1500; t++) {
     updateSurvivor(cguard, [czom]);
     guardRan++;
   }
-  if (legLossTick < 0 && (czom.body.lLegLost || czom.body.rLegLost)) {
+  // Guards are ARCHERS now: fly this tick's arrows exactly like the main loop
+  // does (updateArrows is not LOD-gated - shafts are cheap and few).
+  updateArrows([czom]);
+  // Archer guards volley at torso mass, so the wound that actually lands is
+  // whatever region the arc strikes (often a one-shot torso kill) - any bone
+  // loss or a kill proves combat carried through the LOD gate.
+  const wounded =
+    !czom.body.alive || czom.body.rig.some((b) => b.destroyed);
+  if (legLossTick < 0 && wounded) {
     legLossTick = t;
     break;
   }
@@ -182,8 +192,8 @@ console.log(
   `far combat: guardRan=${guardRan} zomRan=${zomRan} legLossTick=${legLossTick} ` +
     `lLeg=${czom.body.lLegLost} rLeg=${czom.body.rLegLost}`,
 );
-if (legLossTick < 0) fail('far-off-screen combat through the LOD gate missed (no leg loss)');
-ok(`far combat through the gate lands hits — zombie legged @t${legLossTick}`);
+if (legLossTick < 0) fail('far-off-screen combat through the LOD gate missed (no wound landed)');
+ok(`far combat through the gate lands hits — zombie wounded @t${legLossTick}`);
 
 // ===========================================================================
 // 3. GORE TRICKLE-FADE — old debris ages out under the cap; no premature fade.

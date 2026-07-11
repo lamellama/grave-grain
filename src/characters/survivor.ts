@@ -35,7 +35,7 @@ import { createBody } from './body';
 import { updateBody } from './locomotion';
 import { layDownCorpse } from './damage';
 import type { Zombie } from './zombie';
-import { launchArrow } from '../game/projectiles';
+import { aimArrow, spawnArrow } from '../game/projectiles';
 import { get, set } from '../engine/grid';
 import { FIRE, CAMPFIRE, WATER, SNOW, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
@@ -107,7 +107,7 @@ import {
   FLEE_FIRE_RADIUS,
   SHELTER_ROOF_SCAN,
   PATH_REPATH_COOLDOWN,
-  GUARD_ENGAGE_RADIUS,
+  GUARD_ARROW_RANGE,
   ZOMBIE_FLEE_RADIUS,
   ARROW_COOLDOWN,
   ARROW_AIM_BODY_UP,
@@ -162,6 +162,11 @@ export interface Survivor {
   // a survivor (main.ts). Lives on the controller because the hand-off is a
   // controller-swap concept; the Body stays alive===true throughout.
   turned: boolean;
+  // Round 11 children (game/children.ts): true while this survivor is a CHILD
+  // (small childRig body, unassignable); growTicks counts down to the grow-up
+  // rig swap. Adults are child:false / growTicks:0.
+  child: boolean;
+  growTicks: number;
   needs: { hunger: number; thirst: number; warmth: number };
   // Wetness in [0, NEED_MAX] (VS-2 Task T-A, GDD 6.1). NOT a killing need - kept
   // OUT of `needs` so the need-at-zero death loop never reads it. Rises in rain /
@@ -270,6 +275,8 @@ export function createSurvivor(x: number, y: number): Survivor {
   return {
     body,
     turned: false,
+    child: false,
+    growTicks: 0,
     needs: { hunger: NEED_MAX, thirst: NEED_MAX, warmth: NEED_MAX },
     wetness: 0, // start bone dry (VS-2 Task T-A)
     // Warmth sample cache (VS-2 Task T-B): unsampled (-1) -> sampled on the first
@@ -1124,6 +1131,9 @@ function driveConsume(s: Survivor): void {
  * On success the role/tool are set and the loop restarts at 'toTarget'.
  */
 export function assignRole(s: Survivor, role: RoleName): boolean {
+  // Round 11: a CHILD can't take a working role - it has to grow up first
+  // (game/children.ts swaps in the adult rig and clears the flag).
+  if (s.child && role !== 'none') return false;
   // A reassigned/cleared builder hands its claimed blueprint back to the queue,
   // else the Blueprint stays reserved=true forever and no builder can re-claim it
   // (orphaned job). Death/turn bypass assignRole, so they release via
@@ -1209,16 +1219,23 @@ function nearestZombie(
 }
 
 /**
- * Guard combat (GDD 7.2 / 6.2): an armed guard is an ARCHER, not a brawler. It
- * holds its assigned defensive point (the stockpile) and, whenever an ALIVE
- * zombie is within GUARD_ENGAGE_RADIUS, looses a VISIBLE ARROW that flies a
- * gravity ARC and wounds whatever body region it lands on (launchArrow ->
- * updateArrows -> THE GATE). It never closes to melee - it volleys from range as
- * the horde advances. The AIM only nudges where the shaft is sent: a crawler
- * (already down a leg) gets a finishing head shot; everything else a torso-mass
- * shot. WHICH region is actually wounded is decided by the arrow's true impact
- * cell, so a shot at an advancing zombie naturally scatters across head/torso/
- * legs (GDD 7.2 "body region specific damage depending on where they hit").
+ * Guard combat (GDD 7.2 / 6.2 + round 11): an armed guard is an ARCHER, not a
+ * brawler. It holds its assigned defensive point (the stockpile) and, whenever
+ * an ALIVE zombie is within GUARD_ARROW_RANGE, looses a VISIBLE ARROW that
+ * flies a gravity ARC and wounds whatever body region it lands on (spawnArrow
+ * -> updateArrows -> THE GATE). It never closes to melee - it volleys from
+ * range as the horde advances.
+ *
+ * ROUND 11 AIMING ("guards shoot further and not just one vector"): every
+ * shaft leaves at the fixed ARROW_SPEED, so range is limited only by arrow
+ * velocity, and aimArrow solves BOTH ballistic arcs - the flat shot when the
+ * lane is open, the high LOB when terrain (the colony's own wall) blocks it,
+ * dropping the arrow onto the target from above. With no clear solution at
+ * all the guard holds and waits rather than wasting shafts. The AIM only
+ * nudges where the shaft is sent: a crawler (already down a leg) gets a
+ * finishing head shot; everything else a torso-mass shot. WHICH region is
+ * actually wounded is decided by the arrow's true impact cell (GDD 7.2 "body
+ * region specific damage depending on where they hit").
  * Only called when the role is 'guard' and a weapon (the bow) is held.
  */
 function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
@@ -1233,7 +1250,7 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
     steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
   }
 
-  const z = nearestZombie(bx, by, zombies, GUARD_ENGAGE_RADIUS);
+  const z = nearestZombie(bx, by, zombies, GUARD_ARROW_RANGE);
   if (z === null) return; // nothing in range -> just hold the line
 
   // Turn to face the target so the volley reads as aimed (locomotion keeps
@@ -1242,8 +1259,9 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
 
   // Loose an arrow on the bow's cadence. Nock it at shoulder height, forward of
   // the guard's bow hand; aim at the target's torso mass, or its head to finish
-  // a crawler. The arc + the horde's advance do the rest (impact picks region).
-  // An IRON weapon looses on a shorter cooldown (GDD 6.2 "stronger combat" -
+  // a crawler. aimArrow picks the flat arc or the over-the-wall lob; the arc +
+  // the horde's advance do the rest (impact picks the region). An IRON weapon
+  // looses on a shorter cooldown (GDD 6.2 "stronger combat" -
   // cadence, not a bigger hit, so the emergent damage model is untouched).
   if (s.attackCooldown <= 0) {
     const crawling = z.body.lLegLost || z.body.rLegLost;
@@ -1251,7 +1269,9 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
     const sy = body.y - ARROW_MUZZLE_UP;
     const tx = z.body.x;
     const ty = z.body.y - (crawling ? ARROW_AIM_HEAD_UP : ARROW_AIM_BODY_UP);
-    launchArrow(sx, sy, tx, ty);
+    const aim = aimArrow(sx, sy, tx, ty);
+    if (aim === null) return; // no clear arc this tick - hold, don't waste shafts
+    spawnArrow(sx, sy, aim.vx, aim.vy);
     s.attackCooldown =
       s.tool !== null && s.tool.tier === 'iron'
         ? Math.max(1, Math.round(ARROW_COOLDOWN * IRON_ATTACK_COOLDOWN_MULT))

@@ -118,10 +118,22 @@ export const DENSITY_FIRE = 0;   // fire behaves like air to the density swap
 export const DENSITY_SMOKE = 0;  // gas, bubbles up
 
 // DIRT spill chance (GDD 5.2: "dirt piles steeper than sand").
-// Dirt falls straight down unconditionally (like sand), but only attempts its
-// diagonal spill with this probability per tick. Fewer diagonal moves than sand
-// -> a narrower, steeper mound (steeper angle of repose). 1.0 would equal sand.
+// LOOSE dirt falls straight down unconditionally (like sand), but only attempts
+// its diagonal spill with this probability per tick. Fewer diagonal moves than
+// sand -> a narrower, steeper mound (steeper angle of repose). 1.0 would equal
+// sand. NATIVE dirt (see DIRT_LOOSE) never spills at all.
 export const DIRT_SPILL_CHANCE = 0.3;
+
+// Integrity-slot marker for LOOSE dirt (v0.11 playtest round 11: "dirt should
+// react less like sand when dug into"). Same two-population pattern as
+// STONE_LOOSE: NATIVE dirt (worldgen strata, integrity slot 0) is COHESIVE -
+// it only ever falls STRAIGHT DOWN when its support is removed and NEVER
+// spills sideways, so a dug vertical shaft keeps clean standing walls, while
+// a horizontal tunnel's unsupported ceiling still collapses straight down.
+// Dirt that has MOVED (fallen spoil) and player-PAINTED dirt carry this marker
+// and behave as the old powder (fall + DIRT_SPILL_CHANCE diagonal spill), so
+// collapse rubble and painted mounds still pile naturally.
+export const DIRT_LOOSE = 1;
 
 // Phase 2 structural integrity baselines (GDD 5.2)
 export const WOOD_INTEGRITY = 60;
@@ -642,13 +654,18 @@ export const ZOMBIE_FLEE_RADIUS = 44;
 // its own; a touch slower than a knife so a volley reads as a deliberate shot.
 export const ARROW_COOLDOWN = 40;
 
-// Nominal time-of-flight (ticks) an arrow is launched to travel to its aim
-// point. The launch velocity is solved from this + ARROW_GRAVITY so the arrow
-// arcs UP and comes back down onto the target (a longer flight = a lazier, more
-// visible arc). The arrow lands ON the aim cell only if unobstructed and the
-// target hasn't moved - drift as the horde advances is the intended variance
-// (it is WHERE the arrow lands, not the aim, that picks the wounded region).
-export const ARROW_FLIGHT_TICKS = 26;
+// Muzzle speed of an arrow in cells/tick (round 11 - "limited by the velocity
+// of the arrow"). Every shaft leaves the bow at THIS speed regardless of the
+// target, so range falls out of physics: max flat reach ~ SPEED^2/GRAVITY
+// (~135 cells at 2.6 / 0.05) and the aim solver (projectiles.solveArcs) picks
+// the launch ANGLE - flat arc, or the high over-the-wall lob - not the speed.
+export const ARROW_SPEED = 2.6;
+
+// How far (cells, Euclidean) a guard scans for a zombie to volley at (round
+// 11 "guards shoot further" - the old radius was the melee-era 40). Kept a
+// comfortable margin under the physical max range so firing solutions exist
+// across the whole engage ring even onto higher ground.
+export const GUARD_ARROW_RANGE = 100;
 
 // Per-tick downward acceleration on an arrow in cells/tick^2 (the arc's droop).
 // Deliberately gentle so the shaft lofts a few cells at apex rather than
@@ -1516,21 +1533,73 @@ export const SOAK_MAX_DEPTH = 6;
 // v0.11 playtest R - stone-block physics (GDD 5.2)
 // ---------------------------------------------------------------------------
 
-// Integrity-slot marker for a LOOSE stone BLOCK (STONE hasIntegrity=false, so
+// Integrity-slot seed for a LOOSE stone BLOCK (STONE hasIntegrity=false, so
 // its slot is free - the FIRE-lifetime / CAMPFIRE-fuel / SAPLING-timer reuse
-// pattern; breaching and the breach-visual both gate on hasIntegrity first,
-// so a marked stone stays non-breachable). PLACED stone (player paint) and
-// FALLEN stone (rubble) carry the marker: a loose block rests ONLY on support
-// from BELOW and stacks into columns/walls - lateral contact never defies
-// gravity. UNMARKED stone is NATIVE rock (worldgen strata, grid.set in tests):
-// it keeps the v0.9 N 4-neighbour mortar rule, so mined galleries, aquifer
-// roofs and natural overhangs stay standing.
-export const STONE_LOOSE = 1;
+// pattern). PLACED stone (player paint) and FALLEN stone (rubble) carry a
+// NON-ZERO integrity slot: a loose block rests ONLY on support from BELOW and
+// stacks into columns/walls - lateral contact never defies gravity. UNMARKED
+// (slot 0) stone is NATIVE rock (worldgen strata, grid.set in tests): it keeps
+// the v0.9 N 4-neighbour mortar rule, so mined galleries, aquifer roofs and
+// natural overhangs stay standing.
+//
+// Playtest round 11 "loose stone blocks gnawable": the slot is now a real GNAW
+// DURABILITY, not a 0/1 flag - zombies pressing a loose block chip it down
+// exactly like a fence/wall/door (breaching.ts special-cases marked STONE),
+// and at 0 the block is destroyed. A block keeps its remaining durability as
+// it falls. Tougher than a DOOR (80), softer than a mortared WALL (200) -
+// piled rubble is a real barrier but not an unbreachable one. NATIVE rock
+// (slot 0) remains permanently un-gnawable.
+export const STONE_LOOSE = 150;
 
 // Cost of one placed loose STONE BLOCK (v0.11 playtest R - the toolbar Stone
 // verb): same stone price as a WALL cell, but a different verb entirely - a
 // block FALLS and STACKS (build walls by piling from the ground; climbable by
-// zombie ladders, never breachable like all raw stone), while WALL is the
-// precise, breachable structure that can span roofs/bridges (Plan Wall + coop
-// builders keep placing it).
+// zombie ladders, gnawable since round 11), while WALL is the precise,
+// breachable structure that can span roofs/bridges (Plan Wall + coop builders
+// keep placing it).
 export const STONE_BLOCK_COST: Partial<Record<ResourceKind, number>> = { stone: 1 };
+
+// ---------------------------------------------------------------------------
+// v0.11 playtest round 11 - SPIKE traps (GDD 8 defenses)
+// ---------------------------------------------------------------------------
+
+// Cost of one placed SPIKE cell (toolbar Trap verb - sharpened stakes).
+export const SPIKE_COST: Partial<Record<ResourceKind, number>> = { wood: 1 };
+
+// Per-tick chance that a ZOMBIE overlapping/standing on a SPIKE cell has an
+// intact leg torn off (applyDamage through THE GATE - real cells released, the
+// zombie drops to a crawl; a second unlucky roll takes the other leg: "they
+// may lose a leg or two"). Spikes ONLY ever take legs - a legless crawler
+// dragging itself over the stakes is not finished off by them, and survivors
+// know to step between their own stakes (no friendly damage). The roll lives
+// in the body/AI layer (game/traps.ts, called from main), never inside
+// simulation.step(), so chunk byte-equivalence is untouched.
+export const SPIKE_LEG_CHANCE = 0.04;
+
+// (Round-11 guard-arrow knobs - ARROW_SPEED, GUARD_ARROW_RANGE - live in the
+// "Guard archery" block up beside the other ARROW_* constants.)
+
+// ---------------------------------------------------------------------------
+// Round 11 - CHILDREN (GDD 6.1 colony growth): "when there is a hut and more
+// than one survivor, it should create children over time - smaller sprites
+// that quickly grow into normal survivors." Births and growth run in the
+// body/AI layer (game/children.ts, called from main) - never inside
+// simulation.step(), so chunk byte-equivalence is untouched.
+// ---------------------------------------------------------------------------
+
+// Ticks between births while the conditions hold (a placed hut + at least
+// CHILD_MIN_ADULTS living adult survivors). 60 Hz -> one birth every ~45 s.
+export const CHILD_BIRTH_TICKS = 2700;
+
+// Living ADULTS (alive, not turned, fully grown) required before the colony
+// starts raising children ("more than one survivor").
+export const CHILD_MIN_ADULTS = 2;
+
+// Ticks from birth to full size ("quickly grow into normal survivors"):
+// 60 Hz -> ~40 s as a small sprite, then the rig swaps to the adult figure.
+export const CHILD_GROW_TICKS = 2400;
+
+// Population ceiling per placed hut (living survivors, children included):
+// births pause while the colony is at capacity, resume when someone dies or
+// another hut is bought. Keeps the colony bounded (GDD 13).
+export const CHILD_CAP_PER_HUT = 6;

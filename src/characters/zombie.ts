@@ -44,14 +44,12 @@
  */
 
 import type { Body } from './body';
-import { createBody } from './body';
+import { createBody, setHunched, HUNCHED_HEIGHT } from './body';
 import { updateBody, bodyCellsSolidAt } from './locomotion';
-import { zombieFooting } from './zombieFooting';
 import type { Survivor } from './survivor';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
 import { bodiesAdjacent, biteAttack, barrierBetween } from '../game/combat';
-import { idx } from '../engine/grid';
 import {
   SENSE_RADIUS,
   ATTACK_COOLDOWN,
@@ -70,6 +68,7 @@ import {
   ZOMBIE_ADVANCE_PULL_MAX,
   ZOMBIE_EMERGE_TICKS,
   BODY_H,
+  BODY_W,
   WANDER_ARRIVE_DIST,
   ATTACK_REACH,
   // NOTE: ZOMBIE_SPAWN_EDGE is no longer imported - the R9 meander rework
@@ -78,7 +77,6 @@ import {
   WALK_SPEED,
   WORLD_W,
   STEP_UP_MAX,
-  ZOMBIE_CLIMB_MAX,
   ZOMBIE_CLIMB_ENABLED,
 } from '../config';
 
@@ -116,6 +114,16 @@ export interface Zombie {
   // feet row) and skips all detection/movement/combat/locomotion. 0 = normal.
   emergeTicks: number;
   emergeTargetY: number;
+  // Round 11 zombie STACKING ("moved over each other, not overlapping"):
+  //   carrier - the zombie THIS one is standing on (its feet ride the
+  //             carrier's hunched back), or null when on the ground.
+  //   rider   - the zombie standing on THIS one's back (the carrier is
+  //             hunched over and holds still as a step), or null.
+  // A carrier is always itself ground-standing (a rider can never be mounted
+  // - max tower is TWO), so 3+ zombies at a wall form a STAIRCASE: hunched
+  // carrier + rider at the face, the rest queueing behind at ground level.
+  carrier: Zombie | null;
+  rider: Zombie | null;
 }
 
 /**
@@ -145,6 +153,8 @@ export function createZombie(x: number, y: number): Zombie {
     moveAccum: 0,
     emergeTicks: 0,
     emergeTargetY: 0,
+    carrier: null,
+    rider: null,
   };
 }
 
@@ -203,6 +213,8 @@ export function reanimateAsZombie(body: Body): Zombie {
     moveAccum: 0,
     emergeTicks: 0,
     emergeTargetY: 0,
+    carrier: null,
+    rider: null,
   };
 }
 
@@ -440,83 +452,37 @@ function driveAttack(z: Zombie, target: Body): void {
 }
 
 // ===========================================================================
-// Zombie ladder-climb (post-MVP backlog, playtest v0.5 #A; GDD 7.1 funnel).
+// Zombie STACKING (round 11; replaces the v0.5 #A ally-footing ladder-climb).
 //
-// ADDITIVE behaviour layered on top of the shared GATE locomotion: updateBody is
-// NEVER changed. When an ATTACKING zombie is blocked by a wall taller than
-// STEP_UP_MAX AND ally zombie bodies are piled at it, the blocked zombie steps UP
-// onto an ally body (treating the ally's occupied cells - the per-tick
-// `zombieFooting` map - as standable footing) and over the wall. A LONE zombie
-// has no ally footing (the map holds only its own cells, which are excluded), so
-// it can never climb and breaches instead. No-tunnel is non-negotiable: the
-// climbing zombie never overlaps a GRID solid (every raised position is rejected
-// via bodyCellsSolidAt against the grid); it may visually overlap ally sprites
-// (that's the pile - bodies aren't grid-collided with each other).
+// "They can't overlap, but when a zombie is on top of another zombie, the
+// bottom one should be hunched over. A zombie can't climb on top of a zombie
+// on another zombie, but they can create a kind of zombie staircase when
+// there are 3 or more."
+//
+// The model is EXPLICIT carrier/rider links instead of ghost-overlap piles:
+//   - Walkers never overlap: a zombie whose next step would push it into
+//     another zombie's space QUEUES behind it (blockedByAlly).
+//   - A blocked attacker MOUNTS the ally in front of it instead: it steps up
+//     onto the ally's back (tryMount), the ally HUNCHES OVER (setHunched -
+//     the visible tell) and holds still as a living step. Max tower = TWO:
+//     a rider can never be mounted and a carrier can never ride.
+//   - With 3+ zombies the crowd forms a STAIRCASE at the wall: hunched
+//     carrier + rider at the face (gnawing high), the rest queueing at ground
+//     level behind - and once the rider can clear the top (normal step-up
+//     from its raised feet) it dismounts over the wall and the next queuer
+//     mounts in its place.
+// ADDITIVE over the shared GATE locomotion: updateBody is never changed; a
+// carried/carrying zombie simply skips it for the hold. No-tunnel holds: every
+// mount position is grid-clear (bodyCellsSolidAt) before it is taken.
 // ===========================================================================
 
-/**
- * Build the set of world-cell indices this body occupies at the given rounded
- * anchor (ox, oy), over its non-destroyed bones. Cheap (<= rig pixels). Used to
- * exclude the climber's OWN cells from the ally-footing test (a zombie can't
- * stand on itself) - see allyFootingUnder.
- */
-function ownCellSet(body: Body, ox: number, oy: number): Set<number> {
-  const out = new Set<number>();
-  for (const bone of body.rig) {
-    if (bone.destroyed) continue;
-    for (const p of bone.pixels) {
-      out.add(idx(ox + bone.offset.dx + p.dx, oy + bone.offset.dy + p.dy));
-    }
-  }
-  return out;
-}
+/** Feet row of a rider standing on a carrier's hunched back, relative to the
+ *  carrier's own feet row (see body.HUNCHED_HEIGHT). */
+const STACK_RIDE_DY = HUNCHED_HEIGHT;
 
-/**
- * Is there ALLY-BODY footing directly below the body's CONTACT pixels when it is
- * translated by (dxCells, dyCells) whole cells? "Footing" here is deliberately
- * ALLY-ONLY (an ally cell in the per-tick `zombieFooting` map) - NOT grid solid.
- *
- * Why ally-only: a GRID-footing allowance would let a LONE zombie scale a sheer
- * wall by standing on the wall's own cells (defeating "a lone zombie can't
- * climb"). The climb only needs to ride the ALLY pile UPward; once a zombie is
- * high enough that the wall no longer blocks it, the shared updateBody's normal
- * step-up/walk carries it over the top and down the far side. So grid footing is
- * never needed by the climb itself.
- *
- * For each pixel we look at the cell directly below it; we SKIP pixels whose
- * below-cell is one of the body's own (translated) cells - those are internal,
- * not a contact face, so only genuine bottom-edge feet are tested. The footing
- * MAP was built from the bodies' CURRENT positions, so its count at a cell
- * INCLUDES this body's own current contribution; we subtract that one
- * (ownCurrent) and treat the cell as ally footing only if SOMEONE ELSE is still
- * there (count - self > 0). That lets a PERFECTLY-overlapping ally count (a crowd
- * pressing a wall stops at the same x) while stopping a lone zombie from treating
- * itself as footing (no allies -> nothing left after subtraction).
- */
-function allyFootingUnder(
-  body: Body,
-  dxCells: number,
-  dyCells: number,
-  ownCurrent: Set<number>,
-): boolean {
-  const cx = Math.round(body.x);
-  const cy = Math.round(body.y);
-  const tx = cx + dxCells;
-  const ty = cy + dyCells;
-  const ownTranslated = ownCellSet(body, tx, ty);
-  for (const bone of body.rig) {
-    if (bone.destroyed) continue;
-    for (const p of bone.pixels) {
-      const bx = tx + bone.offset.dx + p.dx;
-      const by = ty + bone.offset.dy + p.dy + 1; // cell directly below
-      const bi = idx(bx, by);
-      if (ownTranslated.has(bi)) continue; // internal pixel -> not a contact face
-      const allies = (zombieFooting.get(bi) ?? 0) - (ownCurrent.has(bi) ? 1 : 0);
-      if (allies > 0) return true; // ally-body footing (excluding self's own cell)
-    }
-  }
-  return false;
-}
+/** Minimum horizontal anchor gap (cells) between two unlinked same-level
+ *  zombies before the deep-overlap repair stops pushing them apart. */
+export const STACK_MIN_GAP = 3;
 
 /** Would a normal walk/step-up (1..STEP_UP_MAX) succeed in direction `step`? */
 function normalStepClear(body: Body, step: 1 | -1): boolean {
@@ -527,71 +493,202 @@ function normalStepClear(body: Body, step: 1 | -1): boolean {
   return false;
 }
 
+/** Unlink a carrier/rider pair from the CARRIER side and straighten it up. */
+function dropRider(c: Zombie): void {
+  if (c.rider && c.rider.carrier === c) c.rider.carrier = null;
+  c.rider = null;
+  setHunched(c.body, false);
+}
+
+/** Unlink a carrier/rider pair from the RIDER side. */
+function dismount(r: Zombie): void {
+  const c = r.carrier;
+  r.carrier = null;
+  if (c && c.rider === r) {
+    c.rider = null;
+    setHunched(c.body, false);
+  }
+}
+
 /**
- * Attempt the ladder-climb for one ATTACKING zombie this tick. Returns true iff
- * it HANDLED the zombie's locomotion (climbed a step, or is holding on the pile)
- * - in which case the caller must NOT also run updateBody (that would undo the
- * climb by falling through the ally sprites). Returns false to defer to the
- * normal shared locomotion (walk/step-up/fall) - including walking forward and
- * falling down the FAR side once the zombie is up over the wall top.
- *
- * Rules:
- *   - Climb direction is toward the target (the pursuit direction).
- *   - Only when BLOCKED beyond STEP_UP_MAX (a normal step-up would've handled a
- *     gentle slope; we don't interfere there).
- *   - Climb STEP (rise up to ZOMBIE_CLIMB_MAX onto the pile) is paced by the
- *     speed gate (only on a tick the zombie actually wants to step, moveDir==step)
- *     and requires (a) the raised position is grid-clear (no-tunnel) AND (b) ally
- *     /grid footing under the raised feet.
- *   - If it can't climb yet but IS already up on the pile (supported only by ally
- *     footing, no grid below), it HOLDS - so the pile doesn't collapse between
- *     steps while it waits for more allies to climb past it.
+ * Is another live, non-emerging zombie occupying the space one step toward
+ * `step` (round 11 "they can't overlap")? Two zombies at the same level within
+ * a body width of each other may not close the gap further - the follower
+ * queues. Moves that OPEN the gap are always allowed so an accidentally
+ * overlapped pair (e.g. a burrow spawn) can separate. Stack partners are
+ * exempt (a rider legitimately shares its carrier's column).
  */
-function zombieClimb(z: Zombie): boolean {
+function blockedByAlly(z: Zombie, step: 1 | -1, herd: readonly Zombie[]): Zombie | null {
+  const body = z.body;
+  const x = Math.round(body.x);
+  const y = Math.round(body.y);
+  for (const o of herd) {
+    if (o === z || !o.body.alive || o.emergeTicks > 0) continue;
+    if (o === z.carrier || o === z.rider) continue;
+    const ox = Math.round(o.body.x);
+    const oy = Math.round(o.body.y);
+    // Same TIER only (feet within a step): walkers on the flat queue behind
+    // each other; a zombie up on a wall/back descending past a ground zombie
+    // is a different tier and passes (it lands and the deep-overlap repair
+    // staggers them) - blocking across tiers gridlocked wall crossings.
+    if (Math.abs(oy - y) > STEP_UP_MAX + 1) continue;
+    const cur = Math.abs(ox - x);
+    const next = Math.abs(ox - (x + step));
+    if (next < BODY_W && next < cur) return o; // would close in -> blocked
+  }
+  return null;
+}
+
+/**
+ * Try to MOUNT `c` (the ally blocking us): step up onto its back, hunching it
+ * over. Requirements (round 11):
+ *   - c stands on REAL ground (a rider can never be mounted - max tower 2)
+ *     and carries nobody yet;
+ *   - the raised position is grid-clear (no-tunnel is non-negotiable) and no
+ *     third zombie already overlaps it;
+ *   - we only mount on a tick the speed gate released a step (the caller
+ *     checks moveDir), so the climb cadence matches the walk.
+ * On success the climber is placed feet-on-back and the pair is linked.
+ */
+function tryMount(z: Zombie, c: Zombie, herd: readonly Zombie[]): boolean {
   if (!ZOMBIE_CLIMB_ENABLED) return false;
   const body = z.body;
-  const target = z.target;
-  if (!target) return false;
+  if (z.rider) return false; // someone is standing on US - we hold for them
+  if (c.rider || c.carrier) return false; // occupied, or itself riding (max 2)
+  if (!c.body.alive || c.emergeTicks > 0) return false;
+  if (!bodyCellsSolidAt(c.body, 0, 1)) return false; // carrier must stand on grid
 
-  const step: 1 | -1 = Math.round(target.x) >= Math.round(body.x) ? 1 : -1;
+  const mx = Math.round(c.body.x);
+  const my = Math.round(c.body.y) - STACK_RIDE_DY;
+  const dx = mx - Math.round(body.x);
+  const dy = my - Math.round(body.y);
+  if (bodyCellsSolidAt(body, dx, dy)) return false; // raised spot inside terrain
 
-  const ownCurrent = ownCellSet(body, Math.round(body.x), Math.round(body.y));
-  const gridGrounded = bodyCellsSolidAt(body, 0, 1);
-  const onPile = !gridGrounded && allyFootingUnder(body, 0, 0, ownCurrent);
-
-  // Not blocked by a tall wall -> let normal locomotion run. (If we're on the
-  // pile this is the walk-over-the-top / fall-down-the-far-side case - updateBody
-  // correctly carries the zombie across and down.)
-  if (normalStepClear(body, step)) {
-    return false;
-  }
-
-  // Blocked beyond STEP_UP_MAX. Try to mount the pile this tick - but only on a
-  // tick the speed gate released a step in our pursuit direction, so the climb
-  // cadence matches the walk.
-  if (body.moveDir === step) {
-    for (let h = 1; h <= ZOMBIE_CLIMB_MAX; h++) {
-      if (bodyCellsSolidAt(body, step, -h)) continue; // would enter grid solid -> no-tunnel
-      if (allyFootingUnder(body, step, -h, ownCurrent)) {
-        body.x += step; // climb onto the pile and over
-        body.y -= h;
-        body.grounded = true;
-        body.vy = 0;
-        return true;
-      }
+  // A third zombie already up there (e.g. mid-dismount)? Then the spot is taken.
+  for (const o of herd) {
+    if (o === z || o === c || !o.body.alive || o.emergeTicks > 0) continue;
+    if (
+      Math.abs(Math.round(o.body.x) - mx) < BODY_W - 1 &&
+      Math.abs(Math.round(o.body.y) - my) < BODY_H - 2
+    ) {
+      return false;
     }
   }
 
-  // Couldn't climb this tick. If we're already up on the pile, HOLD (don't fall
-  // through the allies beneath us) so the pile persists for the next climber.
-  if (onPile) {
-    body.grounded = true;
-    body.vy = 0;
-    return true;
+  body.x = mx;
+  body.y = my;
+  body.grounded = true;
+  body.vy = 0;
+  z.carrier = c;
+  c.rider = z;
+  setHunched(c.body, true);
+  return true;
+}
+
+/**
+ * Per-tick stacking pass for one zombie (round 11). Returns true iff it HANDLED
+ * the zombie's locomotion this tick (carrying/riding hold, or a fresh mount) -
+ * the caller must then SKIP updateBody. Returns false to defer to the normal
+ * shared locomotion, including the rider's dismount step over the wall top.
+ */
+function zombieStackTick(z: Zombie, herd: readonly Zombie[]): boolean {
+  const body = z.body;
+
+  // --- CARRYING: hunch over and hold still as a living step. -----------------
+  if (z.rider) {
+    if (!z.rider.body.alive || z.rider.carrier !== z) {
+      dropRider(z); // rider died/left - straighten up and resume next tick
+    } else {
+      setHunched(body, true);
+      body.moveDir = 0;
+      body.grounded = true;
+      body.vy = 0;
+      return true; // hold (still gnaws - breaching reads state+facing)
+    }
   }
 
-  // At the wall base on real ground -> defer: updateBody presses the wall (and
-  // breaching/biting proceed as normal). The crowd piles as later arrivals climb.
+  // --- RIDING: feet pinned to the carrier's back. -----------------------------
+  if (z.carrier) {
+    const c = z.carrier;
+    if (!c.body.alive || c.rider !== z || !c.body.hunched) {
+      dismount(z);
+      return false; // lost the step - normal locomotion takes over (falls)
+    }
+    body.x = c.body.x;
+    body.y = Math.round(c.body.y) - STACK_RIDE_DY;
+    body.grounded = true;
+    body.vy = 0;
+    // Can we clear the obstacle from up here? Step OFF the back and over.
+    if (body.moveDir !== 0 && normalStepClear(body, body.moveDir as 1 | -1)) {
+      dismount(z);
+      return false; // updateBody walks/steps off the back this tick
+    }
+    return true; // hold on the back (gnawing the high rows)
+  }
+
+  // --- DEEP OVERLAP repair: step away until visibly separated. ---------------
+  // Landings (a rider dropping off the far side of a wall onto a queued ally)
+  // and burrow spawns can still put two bodies on top of each other; walkers
+  // themselves never close in (blockedByAlly). Whoever finds itself deeply
+  // overlapped sidesteps until the pair is at least STACK_MIN_GAP apart -
+  // "they can't overlap". A direction is usable when the terrain allows the
+  // step AND it doesn't shove us deep into a THIRD same-tier zombie.
+  {
+    const x = Math.round(body.x);
+    const y = Math.round(body.y);
+    const stepOk = (dir: 1 | -1): boolean => {
+      if (!normalStepClear(body, dir)) return false;
+      for (const o of herd) {
+        if (o === z || !o.body.alive || o.emergeTicks > 0) continue;
+        if (o === z.carrier || o === z.rider) continue;
+        const ox = Math.round(o.body.x);
+        const oy = Math.round(o.body.y);
+        if (Math.abs(oy - y) > STEP_UP_MAX + 1) continue;
+        const cur = Math.abs(ox - x);
+        const next = Math.abs(ox - (x + dir));
+        if (next < STACK_MIN_GAP && next < cur) return false; // rams a third body
+      }
+      return true;
+    };
+    for (const o of herd) {
+      if (o === z || !o.body.alive || o.emergeTicks > 0) continue;
+      if (o === z.carrier || o === z.rider) continue;
+      const ox = Math.round(o.body.x);
+      const oy = Math.round(o.body.y);
+      // Truly side-by-side only (feet within a step): a rider stepping off a
+      // back sits ~HUNCHED_HEIGHT above its old carrier and must NOT be
+      // shoved backward off the wall by this repair.
+      if (Math.abs(oy - y) > STEP_UP_MAX + 1) continue;
+      if (Math.abs(ox - x) >= STACK_MIN_GAP) continue;
+      // Perfectly coincident pairs need a SYMMETRY BREAKER or they sidestep
+      // in lockstep forever: split by herd-list parity (stable, RNG-free).
+      const away: 1 | -1 =
+        x < ox ? -1 : x > ox ? 1 : (herd.indexOf(z) & 1) === 0 ? -1 : 1;
+      const dir = stepOk(away) ? away : stepOk(-away as 1 | -1) ? (-away as 1 | -1) : 0;
+      if (dir !== 0) {
+        body.moveDir = dir; // updateBody walks the separation step
+        return false;
+      }
+      // Hemmed in on both sides (wall on one flank, crowd on the other): an
+      // attacker CLAMBERS ONTO the body it overlaps instead - zombies move
+      // OVER each other, they never share a space.
+      if (z.state === 'attack' && tryMount(z, o, herd)) return true;
+      break; // truly stuck this tick - try again next
+    }
+  }
+
+  // --- WALKING: never overlap - queue, or mount the ally in the way. ---------
+  if (body.moveDir !== 0) {
+    const step = body.moveDir as 1 | -1;
+    const inWay = blockedByAlly(z, step, herd);
+    if (inWay) {
+      // An attacker blocked at the crowd climbs onto the ally's back instead.
+      if (z.state === 'attack' && tryMount(z, inWay, herd)) return true;
+      body.moveDir = 0; // queue behind - no ghost overlap
+      return false;
+    }
+  }
+
   return false;
 }
 
@@ -710,13 +807,11 @@ export function updateZombie(
     if (z.moveAccum > WALK_SPEED) z.moveAccum = WALK_SPEED;
   }
 
-  // 5b. Ladder-climb (post-MVP backlog, playtest v0.5 #A): an attacking zombie
-  //     blocked by a wall taller than STEP_UP_MAX with ally bodies piled at it
-  //     steps UP onto the pile (ally cells = footing) and over the wall. ADDITIVE
-  //     - gated on attack state + ally footing; never touches shared updateBody.
-  //     If it handled locomotion this tick (climbed/holding on the pile), skip
-  //     updateBody so the fall doesn't drop it back through the ally sprites.
-  if (z.state === 'attack' && z.target && zombieClimb(z)) {
+  // 5b. Stacking (round 11): carrier/rider holds, no-overlap queueing, and a
+  //     blocked attacker mounting the ally in front of it (the hunched-carrier
+  //     staircase). If it handled locomotion this tick, skip updateBody so the
+  //     fall doesn't drop a held zombie off its perch.
+  if (zombieStackTick(z, herd)) {
     return;
   }
 

@@ -10,6 +10,16 @@
  * free (characters/damage.ts). This module owns ONLY the flight + collision; it
  * never drives a body.
  *
+ * ROUND 11 AIMING - velocity-limited, wall-clearing: an arrow leaves the bow at
+ * a FIXED muzzle speed (ARROW_SPEED) and range falls out of physics (max flat
+ * reach ~ SPEED^2/GRAVITY cells), not a per-shot flight-time solve. For a given
+ * target there are up to TWO ballistic solutions - the flat LOW arc and the
+ * mortar-style HIGH lob. solveArcs() returns both, and aimArrow() picks the
+ * first whose swept path is CLEAR of terrain - so a guard behind a wall
+ * automatically lobs OVER it instead of thudding shafts into its own parapet
+ * ("not just one vector; smart enough to shoot over walls, limited by the
+ * velocity of the arrow").
+ *
  * DETERMINISM (GDD 13): the arc integrator uses no RNG and lives in the BODY/AI
  * layer (updated from the game loop, NOT simulation.step()), so it can never
  * perturb the chunked CA's byte-equivalence.
@@ -19,11 +29,12 @@
  */
 
 import {
-  ARROW_FLIGHT_TICKS,
+  ARROW_SPEED,
   ARROW_GRAVITY,
   ARROW_HIT_RADIUS,
   ARROW_MAX_TICKS,
   MAX_ARROWS,
+  BODY_W,
 } from '../config';
 import { get, inBounds } from '../engine/grid';
 import { isSolidForBody } from '../engine/materials';
@@ -65,28 +76,105 @@ export function resetArrows(): void {
 }
 
 /**
- * Launch an arrow from (sx, sy) so it ARCS to (tx, ty) over ARROW_FLIGHT_TICKS
- * under ARROW_GRAVITY. The launch velocity is solved to match the semi-implicit
- * Euler integrator updateArrows uses, so an unobstructed arrow lands exactly on
- * the aim cell at tick T:
- *
- *   x_T = sx + T*vx                        -> vx  = (tx - sx) / T
- *   y_T = sy + T*vy0 + g*T*(T+1)/2         -> vy0 = (ty - sy - g*T*(T+1)/2) / T
- *
- * vy0 comes out NEGATIVE (upward) for a level/near shot, so the shaft lofts up
- * then falls back down - the visible arc. Oldest arrow is evicted once the pool
- * is full so the list is hard-bounded (GDD 13 perf).
+ * Loose an arrow from (x, y) with launch velocity (vx, vy) - callers get the
+ * velocity from solveArcs/aimArrow so every shaft leaves at ARROW_SPEED.
+ * Oldest arrow is evicted once the pool is full so the list is hard-bounded
+ * (GDD 13 perf).
  */
-export function launchArrow(sx: number, sy: number, tx: number, ty: number): void {
-  const T = ARROW_FLIGHT_TICKS;
-  const g = ARROW_GRAVITY;
-  const vx = (tx - sx) / T;
-  const vy = (ty - sy - (g * T * (T + 1)) / 2) / T;
-
+export function spawnArrow(x: number, y: number, vx: number, vy: number): void {
   if (arrows.length >= MAX_ARROWS) {
     arrows.shift(); // evict oldest - O(n), n <= MAX_ARROWS, negligible
   }
-  arrows.push({ x: sx, y: sy, vx, vy, prevX: sx, prevY: sy, alive: true, age: 0 });
+  arrows.push({ x, y, vx, vy, prevX: x, prevY: y, alive: true, age: 0 });
+}
+
+/**
+ * The two ballistic launch velocities that land a projectile of speed `speed`
+ * on a target `dx` cells across and `dy` cells down (screen coords: +y is
+ * DOWN) under per-tick gravity `g` - LOW (flat) arc first, HIGH lob second.
+ * Empty when the target is out of range (discriminant < 0) or directly
+ * above/below (|dx| too small for the tangent form - that is melee range
+ * anyway). Pure closed-form solve, no iteration, no RNG.
+ */
+export function solveArcs(
+  dx: number,
+  dy: number,
+  speed: number = ARROW_SPEED,
+  g: number = ARROW_GRAVITY,
+): { vx: number; vy: number }[] {
+  const adx = Math.abs(dx);
+  if (adx < 1) return []; // straight up/down - no tangent solution
+  const v2 = speed * speed;
+  const h = -dy; // convert to up-positive height for the standard form
+  const disc = v2 * v2 - g * (g * adx * adx + 2 * h * v2);
+  if (disc < 0) return []; // out of range at this muzzle speed
+  const root = Math.sqrt(disc);
+  const out: { vx: number; vy: number }[] = [];
+  for (const tan of [(v2 - root) / (g * adx), (v2 + root) / (g * adx)]) {
+    const theta = Math.atan(tan); // elevation, up-positive
+    out.push({
+      vx: Math.sign(dx) * speed * Math.cos(theta),
+      vy: -speed * Math.sin(theta), // screen +y is down
+    });
+  }
+  return out;
+}
+
+/**
+ * Sweep the flight from (sx, sy) at (vx, vy) - the same integrator updateArrows
+ * uses - and report whether it reaches the neighbourhood of (tx, ty) without
+ * striking solid terrain first. The first ~body-width of flight is muzzle
+ * clearance (the shooter's own cells / the parapet lip it stands behind never
+ * count), and arriving within ARROW_HIT_RADIUS + 1 of the target is a hit.
+ */
+export function clearShot(
+  sx: number,
+  sy: number,
+  vx: number,
+  vy: number,
+  tx: number,
+  ty: number,
+): boolean {
+  let x = sx;
+  let y = sy;
+  let cvy = vy;
+  const arrive = (ARROW_HIT_RADIUS + 1) * (ARROW_HIT_RADIUS + 1);
+  for (let t = 0; t < ARROW_MAX_TICKS; t++) {
+    cvy += ARROW_GRAVITY;
+    const steps = Math.max(1, Math.ceil(Math.max(Math.abs(vx), Math.abs(cvy))));
+    for (let s = 0; s < steps; s++) {
+      x += vx / steps;
+      y += cvy / steps;
+      const ddx = x - tx;
+      const ddy = y - ty;
+      if (ddx * ddx + ddy * ddy <= arrive) return true; // reached the target
+      const cx = Math.round(x);
+      const cy = Math.round(y);
+      if (!inBounds(cx, cy)) return false; // flew off the world
+      const fromMuzzle = Math.abs(x - sx) + Math.abs(y - sy);
+      if (fromMuzzle <= BODY_W) continue; // muzzle clearance
+      if (isSolidForBody(get(cx, cy))) return false; // terrain in the way
+    }
+  }
+  return false;
+}
+
+/**
+ * A firing solution from (sx, sy) onto (tx, ty), or null. Tries the LOW arc
+ * first (flat, fast, hard to sidestep), then the HIGH lob - which is exactly
+ * "smart enough to shoot over walls": when a wall blots out the flat shot,
+ * the lob clears it and drops onto the target from above.
+ */
+export function aimArrow(
+  sx: number,
+  sy: number,
+  tx: number,
+  ty: number,
+): { vx: number; vy: number } | null {
+  for (const sol of solveArcs(tx - sx, ty - sy)) {
+    if (clearShot(sx, sy, sol.vx, sol.vy, tx, ty)) return sol;
+  }
+  return null;
 }
 
 /**
