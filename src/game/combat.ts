@@ -13,6 +13,8 @@
 import type { Body, BoneName } from '../characters/body';
 import { applyDamage } from '../characters/damage';
 import { registerHit } from './ui';
+import { get } from '../engine/grid';
+import { isSolidForBody } from '../engine/materials';
 import { ATTACK_REACH, BODY_W, BODY_H, TURN_FROM_BITE } from '../config';
 
 /**
@@ -35,6 +37,34 @@ export function bodiesAdjacent(a: Body, b: Body, reach = ATTACK_REACH): boolean 
   const dx = Math.abs(Math.round(a.x) - Math.round(b.x));
   const dy = Math.abs(Math.round(a.y) - Math.round(b.y));
   return dx <= reach + BODY_W && dy <= BODY_H;
+}
+
+/**
+ * Is a body-solid BARRIER standing between two bodies' anchors (playtest fix:
+ * "even when there is a barrier the zombies can infect the survivors")? The
+ * proximity test (bodiesAdjacent) is pure distance and does NOT see terrain, so
+ * a zombie one wall-thickness away registers as "adjacent" and would bite THROUGH
+ * a wall/door. This walks the columns strictly BETWEEN the two anchors at torso
+ * height and reports a barrier if any is body-solid (a wall, door, fence, or a
+ * hill) - i.e. something the striker could not simply step through to reach the
+ * target. Foliage and fluids are NOT barriers (permeable / passable), matching
+ * isSolidForBody. Same-column or immediately-adjacent bodies have no column
+ * strictly between them, so flush neighbours never read as barriered.
+ */
+export function barrierBetween(a: Body, b: Body): boolean {
+  const ax = Math.round(a.x);
+  const bx = Math.round(b.x);
+  const lo = Math.min(ax, bx);
+  const hi = Math.max(ax, bx);
+  if (hi - lo <= 1) return false; // nothing strictly between adjacent anchors
+  // Sample at torso height (midway up the figure from the feet anchor). A wall
+  // tall enough to block passage occupies this row; the floor row is excluded so
+  // the ground a body stands on is never mistaken for a barrier.
+  const torsoY = Math.round((a.y + b.y) / 2) - Math.floor(BODY_H / 2);
+  for (let x = lo + 1; x < hi; x++) {
+    if (isSolidForBody(get(x, torsoY))) return true;
+  }
+  return false;
 }
 
 /** Is `target`'s bone `name` present and not yet destroyed? */

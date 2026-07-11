@@ -197,7 +197,11 @@ function bleedAbove(body: Body, bone: Bone): void {
  * No-op if the body is already dead or the bone is already destroyed.
  */
 export function applyDamage(body: Body, boneName: BoneName): void {
-  if (!body.alive) {
+  // A living body takes damage; so does a REANIMATING corpse (playtest fix:
+  // headshot/burst the twitching corpse before it rises - counterplay to the
+  // die-first turn). An INERT corpse (quiet death, not reanimating) is already
+  // dead for good and absorbs no more damage.
+  if (!body.alive && !body.reanimating) {
     return;
   }
   const bone = body.rig.find((b) => b.name === boneName);
@@ -250,10 +254,13 @@ export function applyDamage(body: Body, boneName: BoneName): void {
 export function dissolveBody(body: Body): void {
   body.alive = false;
   // Counterplay (revised death model, GDD 5.1/7.2): an EXTREME hit that
-  // dissolves an infected/prone body before its turn timer kills it for good -
-  // clear the infection so updateInfection can never reanimate a dissolved body.
+  // dissolves an infected/prone/reanimating body before it turns kills it for
+  // good - clear the infection AND the reanimation flag so updateInfection can
+  // never raise a dissolved body (headshotting the twitching corpse works).
   body.infected = false;
   body.prone = false;
+  body.reanimating = false;
+  body.corpse = false; // a dissolved body is gore, not a lie-down corpse
   for (const bone of body.rig) {
     releaseBone(body, bone);
   }
@@ -285,7 +292,8 @@ export function layDownCorpse(body: Body, cause?: string): void {
   if (cause) body.deathCause = cause;
   body.corpseTicks = CORPSE_DECAY_TICKS;
   // A corpse from a quiet death must never reanimate (bite/turn is a separate
-  // outcome) - clear any infection/downed state (revised death model, GDD 5.1).
+  // outcome) - clear any infection/downed/reanimation state (GDD 5.1).
   body.infected = false;
   body.prone = false;
+  body.reanimating = false;
 }

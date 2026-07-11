@@ -22,7 +22,7 @@
  * DOM-free; uses flat typed arrays for the search (GDD 13, AGENTS 4).
  */
 
-import { NAV_CELL, STEP_UP_MAX } from '../config';
+import { NAV_CELL, STEP_UP_MAX, PATHFIND_MAX_EXPANSIONS } from '../config';
 import {
   NAV_W,
   NAV_H,
@@ -51,6 +51,18 @@ export interface Path {
 
 /** Step/drop penalty (world-cell units) added per unit of surface-height change. */
 const HEIGHT_PENALTY = 0.5;
+
+// Reusable A* scratch buffers (GDD 13 perf). findPath is synchronous and
+// non-reentrant, so a single set of module-level typed arrays is shared across
+// every call and re-initialised (fill) at the top of each search. This avoids
+// allocating ~400 KB of typed arrays PER pathfind - the churn that, under a
+// horde all repathing, produced GC pauses on top of the search cost itself. The
+// arrays are sized to the fixed navgrid (NAV_W*NAV_H) once at module load.
+const _NCELLS = NAV_W * NAV_H;
+const _gScore = new Float64Array(_NCELLS);
+const _fScore = new Float64Array(_NCELLS);
+const _cameFrom = new Int32Array(_NCELLS);
+const _closed = new Uint8Array(_NCELLS);
 
 /** Centre world-x of a coarse column (where we place that cell's waypoint). */
 function columnCenterX(cx: number): number {
@@ -149,11 +161,15 @@ export function findPath(
   const gx = goal % NAV_W;
   const gSurf = surfaceY(gx, Math.floor(goal / NAV_W));
 
-  const N = NAV_W * NAV_H;
-  const gScore = new Float64Array(N).fill(Infinity);
-  const fScore = new Float64Array(N).fill(Infinity);
-  const cameFrom = new Int32Array(N).fill(-1);
-  const closed = new Uint8Array(N);
+  // Re-initialise the shared scratch buffers for this search (see decls above).
+  const gScore = _gScore;
+  const fScore = _fScore;
+  const cameFrom = _cameFrom;
+  const closed = _closed;
+  gScore.fill(Infinity);
+  fScore.fill(Infinity);
+  cameFrom.fill(-1);
+  closed.fill(0);
 
   const heuristic = (cx: number, cy: number): number =>
     Math.abs(cx - gx) * NAV_CELL + Math.abs(surfaceY(cx, cy) - gSurf);
@@ -164,6 +180,11 @@ export function findPath(
   open.push(start);
 
   let found = false;
+  // Bound the search so a hopeless (unreachable-goal) A* can't explore the whole
+  // navgrid and freeze the frame (GDD 13 perf - PATHFIND_MAX_EXPANSIONS). A
+  // reachable route settles in far fewer expansions than the cap; on overrun we
+  // bail and return null so the caller falls back to straight-line steering.
+  let expansions = 0;
   while (open.size > 0) {
     const current = open.pop();
     if (current === goal) {
@@ -172,6 +193,7 @@ export function findPath(
     }
     if (closed[current]) continue;
     closed[current] = 1;
+    if (++expansions > PATHFIND_MAX_EXPANSIONS) break; // give up: treat as unreachable
 
     const cx = current % NAV_W;
     const cy = Math.floor(current / NAV_W);

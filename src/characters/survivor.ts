@@ -35,7 +35,7 @@ import { createBody } from './body';
 import { updateBody } from './locomotion';
 import { layDownCorpse } from './damage';
 import type { Zombie } from './zombie';
-import { bodiesAdjacent, pickAttackRegion, meleeAttack } from '../game/combat';
+import { launchArrow } from '../game/projectiles';
 import { get, set } from '../engine/grid';
 import { FIRE, CAMPFIRE, WATER, SNOW, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
@@ -108,7 +108,12 @@ import {
   SHELTER_ROOF_SCAN,
   PATH_REPATH_COOLDOWN,
   GUARD_ENGAGE_RADIUS,
-  ATTACK_COOLDOWN,
+  ZOMBIE_FLEE_RADIUS,
+  ARROW_COOLDOWN,
+  ARROW_AIM_BODY_UP,
+  ARROW_AIM_HEAD_UP,
+  ARROW_MUZZLE_FWD,
+  ARROW_MUZZLE_UP,
   WORLD_W,
   BODY_W,
   BODY_H,
@@ -117,6 +122,8 @@ import {
   DIG_DISTANCE,
   IRON_WORK_TICKS_MULT,
   IRON_ATTACK_COOLDOWN_MULT,
+  BUILD_STUCK_TICKS,
+  TOOL_BREAKAGE,
 } from '../config';
 
 /**
@@ -130,6 +137,7 @@ export type Behaviour =
   | 'seekFood'
   | 'seekWarmth'
   | 'fleeFire'
+  | 'fleeZombie'
   | 'consuming';
 
 /**
@@ -200,6 +208,15 @@ export interface Survivor {
   digX: number | null;
   digFloorY: number;
   digStepsLeft: number;
+  // Anti-deadlock (VS-3 T3): ticks a builder has spent walking to its claimed
+  // cell WITHOUT physically getting closer (feet position unchanged). A walking
+  // builder resets it every time it advances a cell; a builder wedged against the
+  // very walls it is raising (its stand sealed off) accrues it until it gives up
+  // the claim so a better-placed builder can take the cell. `buildStuckX/Y` is the
+  // feet position the counter was last reset at.
+  buildStuckTicks: number;
+  buildStuckX: number;
+  buildStuckY: number;
   workTarget: { x: number; y: number } | null;
   // Standable cell the role loop walks to to harvest `workTarget` (within reach
   // of it). Acquired together with a REACHABLE target so the miner/forager never
@@ -275,6 +292,9 @@ export function createSurvivor(x: number, y: number): Survivor {
     digX: null,
     digFloorY: 0,
     digStepsLeft: 0,
+    buildStuckTicks: 0,
+    buildStuckX: 0,
+    buildStuckY: 0,
     workTarget: null,
     workStand: null,
     workTicksLeft: 0,
@@ -1055,14 +1075,15 @@ function driveSeekWarmth(s: Survivor): void {
 }
 
 /**
- * Flee fire (GDD 6.1): steer directly AWAY from the nearest flame - no path
- * needed, just pick the horizontal direction that increases distance. If the
- * fire is gone (caller only enters this with fire present) we stand still.
+ * Flee a threat (GDD 6.1): steer directly AWAY from a point (the nearest flame,
+ * or the nearest zombie - playtest fix "survivors don't avoid the zombies") -
+ * no path needed, just pick the horizontal direction that increases distance.
+ * The caller only enters a flee behaviour with a threat present.
  */
-function driveFleeFire(s: Survivor, fire: { x: number; y: number }): void {
+function driveFleeFrom(s: Survivor, threat: { x: number; y: number }): void {
   const body = s.body;
-  const dx = Math.round(body.x) - fire.x;
-  body.moveDir = dx >= 0 ? 1 : -1; // fire to the left/under us -> go right, else left
+  const dx = Math.round(body.x) - threat.x;
+  body.moveDir = dx >= 0 ? 1 : -1; // threat to the left/under us -> go right, else left
 }
 
 /**
@@ -1188,36 +1209,36 @@ function nearestZombie(
 }
 
 /**
- * Guard combat (p7-t4, GDD 7.2 / 6.2): an armed guard engages the nearest
- * ALIVE zombie within GUARD_ENGAGE_RADIUS - close the distance, then strike on
- * cooldown. The aim is the same emergent model both ways: LEG the front rank to
- * SLOW it (intact target -> 'leg'), and HEADSHOT crawlers to FINISH them (target
- * already missing a leg -> 'head'). No zombie in range -> fall back to holding the
- * stockpile point. Only called when the role is 'guard' and a weapon is held.
+ * Guard combat (GDD 7.2 / 6.2): an armed guard is an ARCHER, not a brawler. It
+ * holds its assigned defensive point (the stockpile) and, whenever an ALIVE
+ * zombie is within GUARD_ENGAGE_RADIUS, looses a VISIBLE ARROW that flies a
+ * gravity ARC and wounds whatever body region it lands on (launchArrow ->
+ * updateArrows -> THE GATE). It never closes to melee - it volleys from range as
+ * the horde advances. The AIM only nudges where the shaft is sent: a crawler
+ * (already down a leg) gets a finishing head shot; everything else a torso-mass
+ * shot. WHICH region is actually wounded is decided by the arrow's true impact
+ * cell, so a shot at an advancing zombie naturally scatters across head/torso/
+ * legs (GDD 7.2 "body region specific damage depending on where they hit").
+ * Only called when the role is 'guard' and a weapon (the bow) is held.
  */
 function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
   const body = s.body;
   const bx = Math.round(body.x);
   const by = Math.round(body.y);
 
+  // Hold the defensive point: an archer volleys in place, it does NOT chase.
+  if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
+    body.moveDir = 0;
+  } else {
+    steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
+  }
+
   const z = nearestZombie(bx, by, zombies, GUARD_ENGAGE_RADIUS);
+  if (z === null) return; // nothing in range -> just hold the line
 
-  // No target in range -> hold the assigned point (the MVP guard default).
-  if (z === null) {
-    if (cellWithinReach(body, stockpilePoint.x, stockpilePoint.y)) {
-      body.moveDir = 0;
-    } else {
-      steerToCell(s, stockpilePoint.x, stockpilePoint.y, stockpilePoint.x);
-    }
-    return;
-  }
-
-  // In range but out of reach -> close the distance toward the zombie's cell.
-  if (!bodiesAdjacent(body, z.body)) {
-    s.path = null; // chasing a moving target: don't reuse a stale resource route
-    steerToCell(s, Math.round(z.body.x), Math.round(z.body.y), Math.round(z.body.x));
-    return;
-  }
+  // Turn to face the target so the volley reads as aimed (locomotion keeps
+  // facing while moveDir is 0). facing is +1 (right) / -1 (left).
+  body.facing = z.body.x >= body.x ? 1 : -1;
 
   // Adjacent -> hold position and strike on cooldown. LEG an intact zombie to
   // slow the front rank; HEADSHOT a crawler (already lost a leg) to finish it.
@@ -1233,6 +1254,17 @@ function driveGuardCombat(s: Survivor, zombies: Zombie[]): void {
       s.tool !== null && s.tool.tier === 'iron'
         ? Math.max(1, Math.round(ATTACK_COOLDOWN * IRON_ATTACK_COOLDOWN_MULT))
         : ATTACK_COOLDOWN;
+  // Loose an arrow on the bow's cadence. Nock it at shoulder height, forward of
+  // the guard's bow hand; aim at the target's torso mass, or its head to finish
+  // a crawler. The arc + the horde's advance do the rest (impact picks region).
+  if (s.attackCooldown <= 0) {
+    const crawling = z.body.lLegLost || z.body.rLegLost;
+    const sx = body.x + body.facing * ARROW_MUZZLE_FWD;
+    const sy = body.y - ARROW_MUZZLE_UP;
+    const tx = z.body.x;
+    const ty = z.body.y - (crawling ? ARROW_AIM_HEAD_UP : ARROW_AIM_BODY_UP);
+    launchArrow(sx, sy, tx, ty);
+    s.attackCooldown = ARROW_COOLDOWN;
   }
 }
 
@@ -1382,8 +1414,10 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
         s.roleState = 'toTarget';
         return;
       }
-      // GDD 6.3: the breaking use STILL did its work above - then discard.
-      if (useTool(s.tool!)) {
+      // GDD 6.3: the breaking use STILL did its work above - then discard. Tool
+      // breakage is a master-switched mechanic (config.TOOL_BREAKAGE); when off the
+      // wear tick is skipped entirely so the tool never breaks (playtest request).
+      if (TOOL_BREAKAGE && useTool(s.tool!)) {
         console.log(`Tool broke: ${role} axe/tool - returning to idle`);
         s.tool = null;
         s.role = 'none';
@@ -1453,6 +1487,32 @@ function reachableBlueprint(
       const path = findPath(bx, by, stand.x, stand.y);
       if (path) return { bp, standCell: stand, path };
     }
+  }
+  return null;
+}
+
+/**
+ * A currently-reachable stand + route for ONE already-claimed blueprint cell, or
+ * null if the builder can reach NO stand of it from where it is right now (VS-3
+ * T3 anti-deadlock). The inner loop of reachableBlueprint pinned to a single bp -
+ * used when a walking builder's ORIGINAL stand gets sealed off by the very walls
+ * the colony is raising: rather than cling to the dead route forever (which
+ * strands the reserved cell, so the shell never encloses and the hut stalls), the
+ * builder re-picks a live stand for the same cell, and if none exists releases
+ * the claim to re-scan.
+ */
+function reachStandFor(
+  s: Survivor,
+  bp: Blueprint,
+): { stand: { x: number; y: number }; path: Path } | null {
+  const bx = Math.round(s.body.x);
+  const by = Math.round(s.body.y);
+  let attempts = 0;
+  for (const stand of findBuildStands(bp.x, bp.y, bx)) {
+    if (attempts >= REACH_MAX_PATH_ATTEMPTS) return null;
+    attempts++;
+    const path = findPath(bx, by, stand.x, stand.y);
+    if (path) return { stand, path };
   }
   return null;
 }
@@ -1700,6 +1760,9 @@ function driveBuilder(s: Survivor): void {
         s.workStand = claim.standCell;
         s.path = claim.path;
         s.waypointIndex = 0;
+        s.buildStuckTicks = 0;
+        s.buildStuckX = Math.round(body.x);
+        s.buildStuckY = Math.round(body.y);
       }
       const bp = s.buildTarget;
       // Cancelled / built out from under us while walking -> drop & re-scan.
@@ -1713,7 +1776,51 @@ function driveBuilder(s: Survivor): void {
         s.workTicksLeft = tierWorkTicks(ROLES['builder'].workTicks, s.tool);
         s.path = null;
         body.moveDir = 0;
+        s.buildStuckTicks = 0;
         return;
+      }
+      // ANTI-DEADLOCK (VS-3 T3): a builder must never cling to an unreachable
+      // reserved cell forever - the reserved cell then never gets built, the shell
+      // never encloses (so the campfire is never queued), and a few such stuck
+      // claims clog the queue and stall the whole hut (playtest: walls stop
+      // rising, roofs/campfires never finish). Two escapes:
+      //   1. If our route to the stand is dead (stale / consumed without arriving),
+      //      re-pick a still-reachable stand for the SAME cell - the walls we are
+      //      raising routinely seal off the bank we first picked.
+      //   2. Track whether we are physically getting closer; a builder wedged
+      //      against a wall (feet not advancing) gives the claim up after
+      //      BUILD_STUCK_TICKS so a better-placed builder (or a later re-scan)
+      //      can take the cell.
+      const fx = Math.round(body.x);
+      const fy = Math.round(body.y);
+      if (fx !== s.buildStuckX || fy !== s.buildStuckY) {
+        s.buildStuckTicks = 0; // made real ground - not wedged
+        s.buildStuckX = fx;
+        s.buildStuckY = fy;
+      } else {
+        s.buildStuckTicks++;
+      }
+      if (s.buildStuckTicks > BUILD_STUCK_TICKS) {
+        release(bp);
+        clearBuildClaim(s);
+        s.buildStuckTicks = 0;
+        return;
+      }
+      const pathDone =
+        s.path === null ||
+        s.path.waypoints.length === 0 ||
+        s.waypointIndex >= s.path.waypoints.length;
+      if (
+        (s.workStand === null || s.path === null || isPathStale(s.path) || pathDone) &&
+        s.tick - s.lastRepath >= PATH_REPATH_COOLDOWN
+      ) {
+        s.lastRepath = s.tick;
+        const re = reachStandFor(s, bp);
+        if (re !== null) {
+          s.workStand = re.stand;
+          s.path = re.path;
+          s.waypointIndex = 0;
+        }
       }
       const stand = s.workStand;
       if (stand) {
@@ -1757,9 +1864,12 @@ function driveBuilder(s: Survivor): void {
       }
       removeBlueprint(bp);
       clearBuildClaim(s);
-      // GDD 6.3: the build consumed one hammer use; the breaking use still did
-      // its work above - then discard the tool and drop to idle.
-      if (useTool(s.tool!)) {
+      // GDD 6.3: the build consumed one hammer use; the breaking use still did its
+      // work above - then discard the tool and drop to idle. Gated by the tool-
+      // breakage master switch (config.TOOL_BREAKAGE); when off the hammer never
+      // wears, so a builder keeps building instead of silently going idle after
+      // HAMMER_DURABILITY placements (playtest: walls stopped rising).
+      if (TOOL_BREAKAGE && useTool(s.tool!)) {
         console.log('Tool broke: builder hammer - returning to idle');
         s.tool = null;
         s.role = 'none';
@@ -1775,19 +1885,44 @@ function driveBuilder(s: Survivor): void {
 /**
  * Pick this tick's behaviour by priority (GDD 6.1 auto-override). Full priority
  * including the Phase-6 role loop is:
- *   fleeFire > seekWater(thirst) > seekFood(hunger) > seekWarmth(cold) > role-loop > wander.
- * This picker resolves the need/fire layer; when it lands on 'wander',
+ *   fleeFire > fleeZombie > seekWater(thirst) > seekFood(hunger) >
+ *   seekWarmth(cold) > role-loop > wander.
+ * This picker resolves the need/danger layer; when it lands on 'wander',
  * updateSurvivor substitutes the role loop if a role + tool are present.
- * Fire interrupts ANYTHING (incl. consuming); otherwise an in-progress consume
- * runs to completion. Switching to a NEW behaviour drops any stale route so the
- * next seek replans fresh. Returns the nearest fire (for the flee driver) when
- * fleeing, else null.
+ * DANGER interrupts ANYTHING (incl. consuming): fire first, then a nearby
+ * zombie (playtest fix "survivors don't avoid the zombies") - an unarmed
+ * survivor steers away from the nearest ALIVE zombie within ZOMBIE_FLEE_RADIUS
+ * rather than standing there getting bitten. ARMED GUARDS never flee (they
+ * engage via the role loop). Otherwise an in-progress consume runs to
+ * completion. Switching to a NEW behaviour drops any stale route so the next
+ * seek replans fresh. Returns the point to flee FROM (fire or zombie) when a
+ * flee behaviour is chosen, else null.
  */
-function selectBehaviour(s: Survivor): { x: number; y: number } | null {
+function selectBehaviour(
+  s: Survivor,
+  zombies: Zombie[],
+): { x: number; y: number } | null {
   const fire = nearestFire(s.body);
+  // An armed guard holds the line (driveGuardCombat) instead of fleeing; every
+  // other survivor avoids the horde. Skip the (bounded) zombie scan for guards.
+  const isArmedGuard =
+    s.role === 'guard' && s.tool !== null && s.tool.kind === 'weapon';
+  const threat = isArmedGuard
+    ? null
+    : nearestZombie(
+        Math.round(s.body.x),
+        Math.round(s.body.y),
+        zombies,
+        ZOMBIE_FLEE_RADIUS,
+      );
+  let fleePoint: { x: number; y: number } | null = null;
   let next: Behaviour;
   if (fire) {
     next = 'fleeFire';
+    fleePoint = fire;
+  } else if (threat) {
+    next = 'fleeZombie';
+    fleePoint = { x: Math.round(threat.body.x), y: Math.round(threat.body.y) };
   } else if (s.behaviour === 'consuming') {
     next = 'consuming'; // stay until done
   } else if (s.needs.thirst < THIRST_THRESHOLD) {
@@ -1814,7 +1949,7 @@ function selectBehaviour(s: Survivor): { x: number; y: number } | null {
     s.waypointIndex = 0;
     s.seekTarget = null; // a new behaviour re-acquires its own reachable target
   }
-  return fire;
+  return fleePoint;
 }
 
 /**
@@ -1935,14 +2070,16 @@ export function updateSurvivor(s: Survivor, zombies: Zombie[] = []): void {
     return;
   }
 
-  // 4. Auto-override (GDD 6.1): crossing a need threshold (or fire nearby) drops
-  //    wander and self-preserves. Select the behaviour, then drive it - each
-  //    driver only ever sets body.moveDir (local steering); locomotion walks.
-  const fire = selectBehaviour(s);
+  // 4. Auto-override (GDD 6.1): crossing a need threshold, fire, OR a nearby
+  //    zombie drops wander and self-preserves. Select the behaviour, then drive
+  //    it - each driver only ever sets body.moveDir (local steering); locomotion
+  //    walks. `fleePoint` is the point to flee FROM for a flee behaviour.
+  const fleePoint = selectBehaviour(s, zombies);
   switch (s.behaviour) {
     case 'fleeFire':
-      // selectBehaviour only returns 'fleeFire' when `fire` is non-null.
-      driveFleeFire(s, fire!);
+    case 'fleeZombie':
+      // selectBehaviour only returns a flee behaviour when fleePoint is non-null.
+      driveFleeFrom(s, fleePoint!);
       break;
     case 'seekWater':
       driveSeek(s, WATER, 'water');

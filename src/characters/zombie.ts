@@ -50,7 +50,7 @@ import { zombieFooting } from './zombieFooting';
 import type { Survivor } from './survivor';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
-import { bodiesAdjacent, biteAttack } from '../game/combat';
+import { bodiesAdjacent, biteAttack, barrierBetween } from '../game/combat';
 import { idx } from '../engine/grid';
 import {
   SENSE_RADIUS,
@@ -66,6 +66,8 @@ import {
   ZOMBIE_SIGHT_RADIUS,
   ZOMBIE_SIGHT_BIAS,
   ZOMBIE_SIGHT_PULL_MAX,
+  ZOMBIE_ADVANCE_BIAS,
+  ZOMBIE_ADVANCE_PULL_MAX,
   ZOMBIE_EMERGE_TICKS,
   BODY_H,
   WANDER_ARRIVE_DIST,
@@ -346,6 +348,27 @@ export function sightPullX(z: Zombie, survivors: readonly Survivor[]): number {
 }
 
 /**
+ * Colony-ward pull (playtest fix: "they tend to stay at the left edge of the
+ * screen and never leave"). The gentle bias a new idle goal receives toward the
+ * colony column `colonyX`. Same capped-and-scaled shape as herdPullX/sightPullX:
+ * the signed distance to the colony, clamped to +/-ZOMBIE_ADVANCE_PULL_MAX and
+ * scaled by ZOMBIE_ADVANCE_BIAS. Returns 0 when no colony anchor is known
+ * (colonyX undefined - headless tests), so a lone zombie with no colony passed
+ * meanders exactly as the R9 rework left it. Pulls from EITHER side of the
+ * colony (edge and burrow spawns alike) and fades to 0 on arrival. Called only
+ * at retarget time (never per tick).
+ */
+export function colonyPullX(z: Zombie, colonyX: number | undefined): number {
+  if (colonyX === undefined) return 0;
+  const toColony = colonyX - z.body.x;
+  const capped = Math.max(
+    -ZOMBIE_ADVANCE_PULL_MAX,
+    Math.min(ZOMBIE_ADVANCE_PULL_MAX, toColony),
+  );
+  return capped * ZOMBIE_ADVANCE_BIAS;
+}
+
+/**
  * Idle meander (GDD 7.1 "meander randomly, slow" + playtest R9): pick a goal
  * column near the CURRENT x, shuffle toward it, and repick on a randomised
  * ZOMBIE_IDLE_RETARGET_MIN..MAX timer or on arrival. Sets moveDir only; the
@@ -356,14 +379,18 @@ export function sightPullX(z: Zombie, survivors: readonly Survivor[]): number {
  * ("rather than wandering in one direction, they should meander around
  * depending on what they can see and other zombies around them"). A goal is
  * now aimless wander +/- ZOMBIE_IDLE_RADIUS, plus the herd pull (follow the
- * crowd) plus the sight pull (drift toward a visible figure). Colony pressure
- * comes from burrow spawns surfacing NEAR the colony + sight-chained drift,
- * not from a scripted march.
+ * crowd), the sight pull (drift toward a visible figure), and a GENTLE
+ * colony-ward pull (colonyPullX) so the horde still net-migrates across the map
+ * toward the base instead of shuffling in place at the spawn edge forever
+ * (the R9 pure-local meander left edge spawns stranded - playtest fix). The
+ * colony pull is 0 when no colony anchor is passed, so the meander stays
+ * purely local for headless callers.
  */
 function driveIdle(
   z: Zombie,
   herd: readonly Zombie[],
   survivors: readonly Survivor[],
+  colonyX?: number,
 ): void {
   const body = z.body;
   const bx = Math.round(body.x);
@@ -373,7 +400,11 @@ function driveIdle(
     const wander = randInt(-ZOMBIE_IDLE_RADIUS, ZOMBIE_IDLE_RADIUS); // aimless
     const pull = Math.round(herdPullX(z, herd)); // toward nearby allies (0 if alone)
     const sight = Math.round(sightPullX(z, survivors)); // toward a seen figure
-    z.idleGoalX = Math.min(WORLD_W - 1, Math.max(0, bx + wander + pull + sight));
+    const advance = Math.round(colonyPullX(z, colonyX)); // gentle drift to the colony
+    z.idleGoalX = Math.min(
+      WORLD_W - 1,
+      Math.max(0, bx + wander + pull + sight + advance),
+    );
     z.idleTicks = randInt(ZOMBIE_IDLE_RETARGET_MIN, ZOMBIE_IDLE_RETARGET_MAX);
   }
   z.idleTicks--;
@@ -576,6 +607,7 @@ export function updateZombie(
   z: Zombie,
   survivors: Survivor[],
   herd: readonly Zombie[] = [],
+  colonyX?: number,
 ): void {
   // 1. Dead-body guard: a dissolved zombie's cells belong to the sim now.
   if (!z.body.alive) {
@@ -632,7 +664,7 @@ export function updateZombie(
     driveAttack(z, z.target);
     speed = ZOMBIE_ATTACK_SPEED;
   } else {
-    driveIdle(z, herd, survivors);
+    driveIdle(z, herd, survivors, colonyX);
     speed = ZOMBIE_IDLE_SPEED;
   }
 
@@ -650,7 +682,12 @@ export function updateZombie(
     z.state === 'attack' &&
     z.target &&
     z.target.alive &&
-    bodiesAdjacent(z.body, z.target)
+    bodiesAdjacent(z.body, z.target) &&
+    // A barrier (wall/door/fence/hill) between the two anchors blocks the bite
+    // (playtest fix: no infecting THROUGH a wall). When barriered we do NOT hold
+    // - the zombie keeps pressing so breaching (game/breaching) gnaws the
+    // structure down instead of gnawing the survivor on the far side.
+    !barrierBetween(z.body, z.target)
   ) {
     z.body.moveDir = 0; // hold position while in reach
     if (z.attackCooldown <= 0) {
