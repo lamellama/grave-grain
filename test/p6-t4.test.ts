@@ -14,7 +14,7 @@ import { material, set, get } from '../src/engine/grid';
 import {
   STONE,
   WATER,
-  FOLIAGE,
+  TRUNK,
   AIR,
   isSolidForBody,
 } from '../src/engine/materials';
@@ -79,9 +79,9 @@ function bodyInSolid(s: Survivor): boolean {
 // ===========================================================================
 clearGrid();
 floor(100, 400);
-// A woodland cluster (plenty of FOLIAGE cells for >5 chops) at columns 250..262.
-for (let x = 250; x <= 262; x++)
-  for (let y = 146; y <= 149; y++) set(x, y, FOLIAGE);
+// A stand of single-trunk TREES (one wood per fell; plenty for >5 fells) at
+// columns 250..262 - the lumberjack fells trees now, never bare foliage.
+for (let x = 250; x <= 262; x += 2) set(x, 149, TRUNK);
 rebuildNavgrid();
 resetStockpile();
 setStockpilePoint(180, 149);
@@ -93,11 +93,11 @@ addResource('wood', AXE_WOOD_COST);
   check(getStockpile().wood === 0, `1: craft spent the wood (wood → 0, got ${getStockpile().wood})`);
   check(s.tool !== null && s.tool.kind === 'axe', '1: survivor now holds an axe');
 
-  const foliageStart = countMat(FOLIAGE);
+  const trunkStart = countMat(TRUNK);
   let ticksToFirstDeposit = -1;
   let tunneled = false;
   let chops = 0;
-  let prevFoliage = foliageStart;
+  let prevTrunk = trunkStart;
   let brokeAtChop = -1;
   let woodAtFirstDeposit = 0;
 
@@ -109,10 +109,10 @@ addResource('wood', AXE_WOOD_COST);
     s.needs.hunger = NEED_MAX;
     updateSurvivor(s);
     if (bodyInSolid(s)) tunneled = true;
-    const f = countMat(FOLIAGE);
-    if (f < prevFoliage) {
-      chops += prevFoliage - f; // a FOLIAGE cell was chopped → AIR this tick
-      prevFoliage = f;
+    const f = countMat(TRUNK);
+    if (f < prevTrunk) {
+      chops += prevTrunk - f; // a TRUNK cell was felled → AIR this tick
+      prevTrunk = f;
     }
     if (ticksToFirstDeposit < 0 && getStockpile().wood > 0) {
       ticksToFirstDeposit = i;
@@ -155,8 +155,7 @@ addResource('wood', AXE_WOOD_COST);
 // ===========================================================================
 clearGrid();
 floor(100, 400);
-for (let x = 250; x <= 262; x++)
-  for (let y = 146; y <= 149; y++) set(x, y, FOLIAGE);
+for (let x = 250; x <= 262; x += 2) set(x, 149, TRUNK);
 // A small pool to the LEFT of spawn so the diversion is a clear detour.
 for (let x = 120; x <= 124; x++) for (let y = 146; y <= 149; y++) set(x, y, WATER);
 rebuildNavgrid();

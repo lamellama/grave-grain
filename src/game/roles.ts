@@ -12,8 +12,9 @@
  * at the WOOD tool tier only - no iron/stone tiers, no upgrade path, no
  * workstation. Diggers / Fisherman / Builder-Hauler are vertical-slice.
  *
- * Material distinction (GDD 9, 5.2): TREES and BUSHES in the world are FOLIAGE
- * (now permeable to bodies). A lumberjack CHOPS foliage -> wood; a forager
+ * Material distinction (GDD 9, 5.2): a TREE is a TRUNK column with a FOLIAGE
+ * canopy; BUSHES are bare FOLIAGE (all permeable to bodies). A lumberjack
+ * FELLS a tree by its trunk -> wood; a forager
  * GATHERS the same foliage -> food - same material, different action/output/
  * timing. WOOD (id 6) is a placed STRUCTURE and is NEVER a harvest target. The
  * miner targets EXPOSED stone/ore (a rock cell with an AIR face) - you cannot
@@ -23,7 +24,7 @@
 import type { ResourceKind } from './resources';
 import { canAfford, spend, stockpilePoint } from './resources';
 import { get } from '../engine/grid';
-import { AIR, STONE, ORE, FOLIAGE, WATER, DIRT, SAND, SNOW, ASH } from '../engine/materials';
+import { AIR, STONE, ORE, FOLIAGE, TRUNK, WATER, DIRT, SAND, SNOW, ASH } from '../engine/materials';
 import { RESOURCE_SCAN_RADIUS, WOOD_TOOL_DURABILITY, ROLE_TINT_MIX } from '../config';
 import {
   CHOP_TICKS,
@@ -267,17 +268,19 @@ export const ROLES: Record<RoleName, RoleDef> = {
     workTicks: 0,
     craftCost: {},
   },
-  // Fells trees: walks THROUGH foliage and chops it to wood (GDD 9). The axe
-  // is FREE (AXE_WOOD_COST=0) so a colony at 0 wood can always bootstrap its
-  // wood economy through this role (playtest v0.9 P).
+  // Fells TREES (GDD 9): walks THROUGH woodland, targets a TRUNK cell and
+  // takes the whole oak down - the wood yield scales with trunk height
+  // (fellTree in survivor.ts), so grown oaks are worth waiting for. No trees
+  // in range -> no wood, ever. The axe is FREE (AXE_WOOD_COST=0) so a colony
+  // at 0 wood can always bootstrap its wood economy (playtest v0.9 P).
   lumberjack: {
     requiredTool: 'axe',
     output: 'wood',
-    harvestMaterial: FOLIAGE,
+    harvestMaterial: TRUNK,
     workTicks: CHOP_TICKS,
     craftCost: { wood: AXE_WOOD_COST },
   },
-  // Gathers from bushes: same FOLIAGE material, but yields food (GDD 9).
+  // Gathers from bushes and leaves (FOLIAGE): yields food (GDD 9).
   forager: {
     requiredTool: 'basket',
     output: 'food',
@@ -432,7 +435,8 @@ function nearestExposedRock(
 
 /**
  * Find the work target for a role from (fromX, fromY), or null if none in range:
- *   lumberjack/forager -> nearest FOLIAGE (tree/bush) within RESOURCE_SCAN_RADIUS.
+ *   lumberjack        -> nearest TRUNK (a tree to fell) within RESOURCE_SCAN_RADIUS.
+ *   forager           -> nearest FOLIAGE (bush/leaves) within RESOURCE_SCAN_RADIUS.
  *   miner             -> nearest EXPOSED stone/ore (skips fully-buried rock).
  *   fisherman         -> nearest WATER cell (the bank stand is survivor.ts' job).
  *   guard             -> the stockpile hold point (MVP "hold a point", GDD 6.2).
@@ -447,6 +451,7 @@ export function findTarget(
 ): { x: number; y: number } | null {
   switch (role) {
     case 'lumberjack':
+      return nearestMaterial(fromX, fromY, TRUNK, RESOURCE_SCAN_RADIUS);
     case 'forager':
       return nearestMaterial(fromX, fromY, FOLIAGE, RESOURCE_SCAN_RADIUS);
     case 'miner':

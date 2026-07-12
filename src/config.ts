@@ -140,6 +140,19 @@ export const WOOD_INTEGRITY = 60;
 export const FOLIAGE_INTEGRITY = 10;
 
 // ---------------------------------------------------------------------------
+// Oak trees (GDD 9 ecology: trees grow over time; lumberjacks fell trees)
+// ---------------------------------------------------------------------------
+// A tree is a column of TRUNK cells rooted on DIRT with a FOLIAGE canopy. It
+// grows via a SAPLING "growing tip" sitting on the trunk top: the tip matures
+// into one more TRUNK cell (the normal GROW_TICKS countdown), sprouts a fresh
+// tip above, and flanks the new top with FOLIAGE tufts - until the trunk
+// reaches TREE_TRUNK_MAX, when the tree crowns with a full oak canopy blob and
+// stops. Lumberjacks target TRUNK (not FOLIAGE) and FELL the whole tree - the
+// wood yield scales with trunk height, so a grown oak is worth letting grow.
+export const TRUNK_INTEGRITY = 12; // choppable/burnable, a touch tougher than leaves
+export const TREE_TRUNK_MAX = 9; // full-grown oak trunk height (cells)
+
+// ---------------------------------------------------------------------------
 // Plant-a-seed foliage growth (post-MVP backlog, playtest v0.6 #G; GDD 9)
 // ---------------------------------------------------------------------------
 // The player plants a SAPLING (material id 15) on soil; it matures into FOLIAGE
@@ -938,8 +951,19 @@ export const WOODLAND_CLUSTERS = 10;
 // Width (cells) of each woodland cluster footprint.
 export const WOODLAND_CLUSTER_W = 24;
 
-// Height (cells) of tree foliage above the surface in a woodland cluster.
+// Height (cells) of BUSH foliage above the surface in a woodland cluster
+// (bushes are the forager's food source; oaks are placed separately).
 export const FOLIAGE_HEIGHT = 6;
+
+// Oak spacing (columns) between tree bases inside a woodland cluster. Kept
+// wider than the full crown radius so neighbouring canopies barely touch and
+// felling one oak never guts the next tree's crown.
+export const TREE_SPACING = 6;
+
+// Per-column probability of a low bush (1..BUSH_MAX_HEIGHT FOLIAGE cells) on
+// the cluster columns between oaks - forager food that isn't a tree.
+export const BUSH_CHANCE = 0.4;
+export const BUSH_MAX_HEIGHT = 2;
 
 // -- Spawn-zone guarantees - GDD 5.3 ---------------------------------------
 // Survivors always start in a safe zone away from the zombie edge, with
@@ -952,6 +976,11 @@ export const SPAWN_ZONE_MARGIN = 360;
 // Number of WOOD cells that must exist within RESOURCE_SCAN_RADIUS of the
 // spawn zone; worldgen ensures this by seeding extra woodland if needed.
 export const SPAWN_GUARANTEE_WOOD_CELLS = 60;
+
+// Minimum TRUNK cells within RESOURCE_SCAN_RADIUS of spawn (the lumberjack's
+// wood source is TREES now - GDD 5.3 spawn wood guarantee, re-keyed to oaks).
+// ~3 mid-sized oaks; the guaranteed grove plants well above this.
+export const SPAWN_GUARANTEE_TRUNK_CELLS = 12;
 
 // Whether worldgen must guarantee at least one WATER cell reachable from the
 // spawn zone (places a small pool if none exists within RESOURCE_SCAN_RADIUS).

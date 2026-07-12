@@ -39,8 +39,9 @@ import {
   GROW_JITTER,
   GROW_WATER_SPEEDUP,
   GROW_RAIN_SPEEDUP,
-  FOLIAGE_GROW_MAX_HEIGHT,
   FOLIAGE_INTEGRITY,
+  TRUNK_INTEGRITY,
+  TREE_TRUNK_MAX,
   WEATHER_SKY_ROW,
   RAIN_SPAWN_CHANCE,
   RAIN_MAX_POOL_DEPTH,
@@ -64,7 +65,6 @@ import {
   SNOW_AMBIENT_MELT_CHANCE,
   REPRO_INTERVAL,
   REPRO_CHANCE,
-  REPRO_MIN_HEIGHT,
   SEED_MIN_DIST,
   SEED_MAX_DIST,
   PLANT_MIN_SPACING,
@@ -108,6 +108,7 @@ import {
   BLOOD,
   FOLIAGE,
   SAPLING,
+  TRUNK,
   SNOW,
   CAMPFIRE,
   STONE,
@@ -117,6 +118,7 @@ import {
   isFluid,
   isFlammable,
 } from './materials';
+import { forEachCanopyCell } from './trees';
 
 /**
  * Tick parity counter. Drives the per-tick column scan-direction flip so neither
@@ -530,10 +532,11 @@ function applySoak(): void {
  * Per column x (left -> right, fixed order on both paths):
  *   1) Walk down from the sky to the first non-AIR cell. If it is not FOLIAGE
  *      this column has no seeding plant top (a SNOW cap, a roof, bare ground
- *      and still-growing SAPLING tops all skip - only a grown, sky-open canopy
+ *      and still-growing SAPLING tips all skip - only a grown, sky-open canopy
  *      seeds).
- *   2) Measure the contiguous FOLIAGE column below it; under REPRO_MIN_HEIGHT
- *      the plant is a juvenile bush and does not seed.
+ *   2) Below the crown there must be a TRUNK column >= TREE_TRUNK_MAX: only a
+ *      FULL-GROWN OAK seeds (growing trees and bushes are juveniles), and only
+ *      through its own trunk column, so each oak seeds at most once per round.
  *   3) Roll simRand(x, topY, SALT_REPRO_ROLL) < REPRO_CHANCE.
  *   4) Draw a landing offset from SALT_REPRO_DIST: distance SEED_MIN_DIST..
  *      SEED_MAX_DIST, either side (one roll packs distance + sign).
@@ -571,12 +574,16 @@ function applyReproduction(): void {
     }
     if (topY === -1 || material[idx(x, topY)] !== FOLIAGE) continue;
 
-    // 2) Mature plants only: contiguous FOLIAGE column height from the top.
-    let height = 0;
-    for (let y = topY; y < WORLD_H && material[idx(x, y)] === FOLIAGE; y++) {
-      height++;
-    }
-    if (height < REPRO_MIN_HEIGHT) continue;
+    // 2) FULL-GROWN OAKS only: below the sky-open crown FOLIAGE there must be
+    //    a TRUNK column at least TREE_TRUNK_MAX tall (only the trunk's own
+    //    column qualifies - crown columns without trunk under them skip, so
+    //    each oak seeds at most once per round; growing trees and low bushes
+    //    never seed).
+    let y = topY;
+    while (y < WORLD_H && material[idx(x, y)] === FOLIAGE) y++;
+    let trunkH = 0;
+    for (; y < WORLD_H && material[idx(x, y)] === TRUNK; y++) trunkH++;
+    if (trunkH < TREE_TRUNK_MAX) continue;
 
     // 3) Does this plant seed this round?
     if (simRand(x, topY, SALT_REPRO_ROLL) >= REPRO_CHANCE) continue;
@@ -611,7 +618,7 @@ function applyReproduction(): void {
       const y1 = Math.min(WORLD_H - 1, groundY + 1);
       for (let cy = y0; cy <= y1; cy++) {
         const m = material[idx(cx, cy)];
-        if (m === FOLIAGE || m === SAPLING) {
+        if (m === FOLIAGE || m === SAPLING || m === TRUNK) {
           crowded = true;
           break;
         }
@@ -1022,8 +1029,9 @@ function snowAdjacent(x: number, y: number): boolean {
 
 /**
  * SAPLING rule (post-MVP backlog, playtest v0.6 #G; GDD 9 ecology). A planted
- * seed that does NOT fall - it stays pinned and MATURES into FOLIAGE over time,
- * sprouting a new sapling above so a plant grows UPWARD into a bush.
+ * seed that does NOT fall - it is an oak's GROWING TIP: it stays pinned and
+ * MATURES into TRUNK over time, sprouting a new tip above so a TREE grows
+ * UPWARD stage by stage until it crowns at TREE_TRUNK_MAX (growSapling).
  *
  * GROWTH TIMER via the integrity slot: exactly the FIRE-lifetime trick. A
  * sapling has no structural integrity, so it REUSES its `integrity` slot as a
@@ -1044,11 +1052,11 @@ function snowAdjacent(x: number, y: number): boolean {
  * Per tick:
  *   1) Seed the countdown if unseeded (integrity == 0).
  *   2) Decrement by 1, or GROW_WATER_SPEEDUP beside water.
- *   3) On expiry: if the cell below is soil (DIRT) or already-grown FOLIAGE,
- *      mature into FOLIAGE and (if there is AIR above and the foliage column is
- *      under FOLIAGE_GROW_MAX_HEIGHT) sprout a fresh sapling above. If there is
- *      NO soil below (a floating sapling) it WITHERS to AIR instead of growing -
- *      so a sapling planted in mid-air can never build an infinite tower.
+ *   3) On expiry: if the cell below is soil (DIRT) or the tree's own TRUNK,
+ *      harden into TRUNK, dress the new top in canopy and (if there is AIR
+ *      above and the trunk is under TREE_TRUNK_MAX) sprout a fresh tip above.
+ *      If there is NO soil below (a floating sapling) it WITHERS to AIR instead
+ *      of growing - so a sapling planted in mid-air can never build a tower.
  */
 function updateSapling(x: number, y: number): void {
   const s = idx(x, y);
@@ -1061,7 +1069,13 @@ function updateSapling(x: number, y: number): void {
   //    keeps it deterministic + chunk-byte-equivalent, and the sapling is
   //    already self-marking active every tick, so the chunked scan sees every
   //    roll the full scan does.
+  //    EXEMPT: a growing TIP riding its own TRUNK (snow settles on every
+  //    canopy each winter - killing tips there would stunt the whole forest;
+  //    the tip still PAUSES under snow weather in step 2, and only ground-level
+  //    seedlings die to drifts).
+  const tipOnTrunk = y < WORLD_H - 1 && material[idx(x, y + 1)] === TRUNK;
   if (
+    !tipOnTrunk &&
     snowAdjacent(x, y) &&
     simRand(x, y, SALT_SNOW_KILL) < SAPLING_SNOW_KILL_CHANCE
   ) {
@@ -1109,18 +1123,22 @@ function updateSapling(x: number, y: number): void {
 }
 
 /**
- * Mature a sapling at (x, y) (GDD 9). The countdown has expired: if the cell is
- * standing on soil it becomes FOLIAGE and may sprout a new sapling above;
- * otherwise (no soil below) it withers to AIR. Called only from updateSapling.
+ * Mature a sapling at (x, y) (GDD 9). The countdown has expired: a sapling is
+ * an oak's GROWING TIP - standing on soil (DIRT, the first stage) or on its own
+ * TRUNK (every later stage) it hardens into one more TRUNK cell, flanks the new
+ * trunk top with FOLIAGE tufts, and sprouts a fresh tip above - so a tree grows
+ * upward stage by stage. At TREE_TRUNK_MAX the tree CROWNS with the full oak
+ * canopy blob instead of sprouting, and stops for good. With no soil below (a
+ * floating sapling) it withers to AIR. Called only from updateSapling.
  */
 function growSapling(x: number, y: number): void {
   const s = idx(x, y);
 
-  // Validity: a sapling grows only on suitable soil - DIRT directly below, or
-  // already-grown FOLIAGE (so the plant stacks upward). Out-of-bounds below
-  // (bottom row) counts as no soil. (GDD 9 "grow over time on suitable soil".)
+  // Validity: a growing tip stands on suitable soil - DIRT directly below for
+  // a fresh seed, or the TRUNK it is itself growing (GDD 9 "grow over time on
+  // suitable soil"). Out-of-bounds below (bottom row) counts as no soil.
   const belowM = y < WORLD_H - 1 ? material[idx(x, y + 1)] : AIR;
-  const onSoil = belowM === DIRT || belowM === FOLIAGE;
+  const onSoil = belowM === DIRT || belowM === TRUNK;
 
   if (!onSoil) {
     // No soil -> wither (bounded; a floating sapling never towers - Done-when #3).
@@ -1131,29 +1149,44 @@ function growSapling(x: number, y: number): void {
     return;
   }
 
-  // Mature this cell into FOLIAGE (seed FOLIAGE's baseIntegrity so it is
-  // choppable/breachable exactly like worldgen-grown foliage).
-  material[s] = FOLIAGE;
-  integrity[s] = FOLIAGE_INTEGRITY;
+  // Harden this cell into TRUNK (seed TRUNK's baseIntegrity so it is choppable
+  // and burnable exactly like worldgen-grown trunk).
+  material[s] = TRUNK;
+  integrity[s] = TRUNK_INTEGRITY;
   markCellActive(x, y);
 
-  // Sprout a new sapling directly above, if there is room and the plant is still
-  // under its max height (GDD 9 grows upward; capped so it never towers).
+  // Measure the trunk: contiguous TRUNK from this newly-hardened top cell down.
+  let height = 1;
+  for (let yy = y + 1; yy < WORLD_H && material[idx(x, yy)] === TRUNK; yy++) {
+    height++;
+  }
+
+  // Dress the new top in canopy - side tufts while growing, the full oak crown
+  // at TREE_TRUNK_MAX (engine/trees.ts geometry). Writes go ONLY into AIR, so
+  // the canopy never eats snow, structures, or a neighbour's leaves. FOLIAGE is
+  // static (updateCell skips it), so writing it mid-scan cannot diverge the
+  // chunked and full paths - markCellActive just wakes the target chunk so the
+  // change is rendered/settled next tick.
+  forEachCanopyCell(x, y, height, (cx, cy) => {
+    if (cx < 0 || cx >= WORLD_W || cy < 0 || cy >= WORLD_H) return;
+    const c = idx(cx, cy);
+    if (material[c] !== AIR) return;
+    material[c] = FOLIAGE;
+    integrity[c] = FOLIAGE_INTEGRITY;
+    moved[c] = 1; // claim: identical no-op on both scan paths this tick
+    markCellActive(cx, cy);
+  });
+
+  if (height >= TREE_TRUNK_MAX) return; // crowned - a full oak, no new tip
+
+  // Sprout the next growing tip directly above, if there is room.
   const above = y - 1;
   if (above < 0) return;
   const a = idx(x, above);
   if (material[a] !== AIR) return;
 
-  // Count the contiguous FOLIAGE column below this newly-matured cell to measure
-  // the plant's height (this cell now counts as 1). Stop at the cap.
-  let height = 1;
-  for (let yy = y + 1; yy < WORLD_H && material[idx(x, yy)] === FOLIAGE; yy++) {
-    height++;
-  }
-  if (height >= FOLIAGE_GROW_MAX_HEIGHT) return; // capped - top stage, no sprout
-
-  // Place the new sapling above. Leave its integrity at 0 (auto-seeded on its
-  // first visit) and CLAIM it in the moved-guard so it does NOT age this tick.
+  // Place the new tip. Leave its integrity at 0 (auto-seeded on its first
+  // visit) and CLAIM it in the moved-guard so it does NOT age this tick.
   // This is the cross-chunk-safe pattern FIRE uses on spread: the full scan
   // (which would otherwise visit the cell again higher in this same pass) skips
   // it, matching the chunked scan, so the two stay byte-identical. markCellActive

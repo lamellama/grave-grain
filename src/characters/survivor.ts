@@ -37,8 +37,9 @@ import { layDownCorpse } from './damage';
 import type { Zombie } from './zombie';
 import { aimArrow, spawnArrow } from '../game/projectiles';
 import { get, set } from '../engine/grid';
-import { FIRE, CAMPFIRE, WATER, SNOW, FOLIAGE, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
+import { FIRE, CAMPFIRE, WATER, SNOW, FOLIAGE, SAPLING, TRUNK, AIR, WOOD, WALL, isFluid, isSolidForBody } from '../engine/materials';
 import { markTerrainEdit } from '../engine/navgrid';
+import { CANOPY_MAX_RADIUS, CANOPY_MAX_UP } from '../engine/trees';
 import { getWeather, getTemperature } from '../engine/weather';
 import type { Path } from '../game/pathfinding';
 import { findPath, isPathStale } from '../game/pathfinding';
@@ -883,6 +884,11 @@ function reachableWorkTarget(s: Survivor, role: RoleName): ReachTarget | null {
   if (role === 'fisherman') {
     return nearestReachable(s, (x, y) => get(x, y) === WATER);
   }
+  if (role === 'lumberjack') {
+    // Trees only (GDD 9): a lumberjack fells by the TRUNK - bare bushes are
+    // the forager's business and yield no wood.
+    return nearestReachable(s, (x, y) => get(x, y) === TRUNK);
+  }
   return nearestReachable(s, (x, y) => get(x, y) === FOLIAGE);
 }
 
@@ -1292,6 +1298,50 @@ function tierWorkTicks(base: number, tool: Tool | null): number {
 }
 
 /**
+ * FELL the whole tree whose TRUNK passes through (x, y) (GDD 9: lumberjacks
+ * fell trees). Removes the full trunk column (base found by walking down),
+ * the SAPLING growing tip if the tree was still growing, and every FOLIAGE
+ * cell in the tree's crown box - then returns the number of trunk cells
+ * removed, which the caller converts to wood (yield scales with height).
+ */
+function fellTree(x: number, y: number): number {
+  // Find the trunk base first - the axe may have landed mid-trunk.
+  let baseY = y;
+  while (get(x, baseY + 1) === TRUNK) baseY++;
+
+  // Take the trunk down bottom-up, counting cells for the wood yield.
+  let cells = 0;
+  let topY = baseY;
+  for (let cy = baseY; get(x, cy) === TRUNK; cy--) {
+    set(x, cy, AIR);
+    markTerrainEdit(x, cy);
+    cells++;
+    topY = cy;
+  }
+
+  // A still-growing tree's SAPLING tip rides the trunk top - it falls too.
+  if (get(x, topY - 1) === SAPLING) {
+    set(x, topY - 1, AIR);
+    markTerrainEdit(x, topY - 1);
+  }
+
+  // Clear the canopy: every FOLIAGE cell in the widest box an oak ever grows
+  // (engine/trees.ts), over the full trunk height - tufts accumulate down the
+  // trunk as a tree ages, and static leaves left unsupported would hang in the
+  // air forever. An overlapping neighbour's crown edge or an adjacent bush
+  // cell may get trimmed - felling flattens the undergrowth.
+  for (let cx = x - CANOPY_MAX_RADIUS; cx <= x + CANOPY_MAX_RADIUS; cx++) {
+    for (let cy = topY - CANOPY_MAX_UP; cy <= baseY; cy++) {
+      if (get(cx, cy) === FOLIAGE) {
+        set(cx, cy, AIR);
+        markTerrainEdit(cx, cy);
+      }
+    }
+  }
+  return cells;
+}
+
+/**
  * Run one tick of the role loop (GDD 6.2): find -> path -> work -> deposit ->
  * repeat. Only called when no need/fire override is active, role !== 'none' and
  * a tool is held. Sets body.moveDir (locomotion does the walk); harvests edit
@@ -1388,10 +1438,11 @@ function driveRole(s: Survivor, zombies: Zombie[]): void {
       }
       const m = get(t.x, t.y);
       let harvested = false;
-      if (role === 'lumberjack' && m === FOLIAGE) {
-        set(t.x, t.y, AIR); // GDD 9: chop the tree -> AIR
-        markTerrainEdit(t.x, t.y);
-        s.carrying += WOOD_PER_CHOP;
+      if (role === 'lumberjack' && m === TRUNK) {
+        // GDD 9: FELL the whole tree - trunk, canopy and growing tip come
+        // down together; the wood yield scales with trunk height, so a
+        // full-grown oak is worth many chops of a sapling.
+        s.carrying += fellTree(t.x, t.y) * WOOD_PER_CHOP;
         s.carryKind = 'wood';
         harvested = true;
       } else if (role === 'forager' && m === FOLIAGE) {

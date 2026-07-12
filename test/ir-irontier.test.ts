@@ -17,8 +17,8 @@ declare const process: any;
  *   5. Iron works faster: the work timer arms at round(base x
  *      IRON_WORK_TICKS_MULT) for a harvest role AND the digger.
  *   6. Iron fights harder: an iron-armed guard's strike arms attackCooldown at
- *      round(ATTACK_COOLDOWN x IRON_ATTACK_COOLDOWN_MULT); wood arms the full
- *      ATTACK_COOLDOWN.
+ *      round(ARROW_COOLDOWN x IRON_ATTACK_COOLDOWN_MULT); wood arms the full
+ *      ARROW_COOLDOWN (guards are ARCHERS since round 11 - the bow's cadence).
  */
 
 import {
@@ -28,7 +28,7 @@ import {
 } from '../src/characters/survivor';
 import { createZombie } from '../src/characters/zombie';
 import { material, set } from '../src/engine/grid';
-import { STONE, DIRT, FOLIAGE, AIR } from '../src/engine/materials';
+import { STONE, DIRT, TRUNK, AIR } from '../src/engine/materials';
 import { rebuildNavgrid } from '../src/engine/navgrid';
 import {
   addResource,
@@ -50,7 +50,7 @@ import {
   IRON_ATTACK_COOLDOWN_MULT,
   CHOP_TICKS,
   DIG_TICKS,
-  ATTACK_COOLDOWN,
+  ARROW_COOLDOWN,
   AXE_WOOD_COST,
   BASKET_WOOD_COST,
 } from '../src/config';
@@ -167,8 +167,9 @@ addResource('ore', IRON_TOOL_ORE_COST);
 console.log('5. work timers scale');
 clearGrid();
 floor(100, 400);
-for (let x = 250; x <= 262; x++)
-  for (let y = FLOOR - 4; y <= FLOOR - 1; y++) set(x, y, FOLIAGE);
+// Trees (TRUNK columns) - the lumberjack fells trees now, never bare foliage.
+for (let x = 250; x <= 262; x += 2)
+  for (let y = FLOOR - 4; y <= FLOOR - 1; y++) set(x, y, TRUNK);
 rebuildNavgrid();
 resetStockpile();
 setStockpilePoint(180, FLOOR - 1);
@@ -238,13 +239,13 @@ function guardCooldownWith(tier: 'wood' | 'iron'): number {
   return s.attackCooldown;
 }
 check(
-  guardCooldownWith('wood') === ATTACK_COOLDOWN,
-  '6: wood weapon re-arms at full ATTACK_COOLDOWN',
+  guardCooldownWith('wood') === ARROW_COOLDOWN,
+  '6: wood bow re-arms at full ARROW_COOLDOWN',
 );
 check(
   guardCooldownWith('iron') ===
-    Math.max(1, Math.round(ATTACK_COOLDOWN * IRON_ATTACK_COOLDOWN_MULT)),
-  '6: iron weapon re-arms at the reduced cooldown',
+    Math.max(1, Math.round(ARROW_COOLDOWN * IRON_ATTACK_COOLDOWN_MULT)),
+  '6: iron bow re-arms at the reduced cooldown',
 );
 
 if (failures > 0) {

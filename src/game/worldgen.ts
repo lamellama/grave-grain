@@ -34,9 +34,12 @@ import {
   WATER_POOL_MAX,
   WOODLAND_CLUSTERS,
   WOODLAND_CLUSTER_W,
-  FOLIAGE_HEIGHT,
+  TREE_SPACING,
+  TREE_TRUNK_MAX,
+  BUSH_CHANCE,
+  BUSH_MAX_HEIGHT,
   SPAWN_ZONE_MARGIN,
-  SPAWN_GUARANTEE_WOOD_CELLS,
+  SPAWN_GUARANTEE_TRUNK_CELLS,
   SPAWN_GUARANTEE_WATER,
   RESOURCE_SCAN_RADIUS,
   ZOMBIE_SPAWN_EDGE,
@@ -53,10 +56,13 @@ import {
   DIRT,
   ORE,
   FOLIAGE,
+  SAPLING,
+  TRUNK,
   WOOD,
   MATERIALS,
   isSolidForBody,
 } from '../engine/materials';
+import { forEachCanopyCell, CANOPY_MAX_UP } from '../engine/trees';
 
 // ---------------------------------------------------------------------------
 // Result type
@@ -217,8 +223,9 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
     carveSealedPool(x, cy, halfW, halfH);
   }
 
-  // 7. Woodland - FOLIAGE clusters spread across the width, each ~CLUSTER_W wide
-  //    and FOLIAGE_HEIGHT tall, sitting ON the surface (GDD 5.3 woodland).
+  // 7. Woodland - clusters spread across the width, each ~CLUSTER_W wide:
+  //    OAK TREES at mixed growth stages with FOLIAGE bushes between, sitting
+  //    ON the surface (GDD 5.3 woodland, GDD 9 trees).
   const spacing = WORLD_W / WOODLAND_CLUSTERS;
   for (let c = 0; c < WOODLAND_CLUSTERS; c++) {
     const jitter = Math.floor((rng() * 2 - 1) * spacing * 0.35);
@@ -245,9 +252,10 @@ export function generateWorld(seed: number = WORLDGEN_SEED): WorldGenResult {
   // 9. Spawn-zone guarantees (GDD 5.3): a survivor must always be able to chop
   //    wood and drink water near home, within RESOURCE_SCAN_RADIUS of spawnX.
 
-  // 9a. Wood: if the random woodland did not leave enough FOLIAGE in reach, seed
-  //     a guaranteed cluster beside the colony.
-  if (countMaterialNear(spawnX, FOLIAGE, RESOURCE_SCAN_RADIUS) < SPAWN_GUARANTEE_WOOD_CELLS) {
+  // 9a. Wood: if the random woodland did not leave enough TRUNK in reach (the
+  //     lumberjack's wood source is TREES), seed a guaranteed grove beside the
+  //     colony.
+  if (countMaterialNear(spawnX, TRUNK, RESOURCE_SCAN_RADIUS) < SPAWN_GUARANTEE_TRUNK_CELLS) {
     const woodX = clampX(spawnX + GUARANTEE_WOOD_OFFSET);
     placeGuaranteedGrove(woodX, surfaceY);
   }
@@ -416,28 +424,58 @@ function carveSealedPool(cx: number, cy: number, halfW: number, halfH: number): 
 }
 
 /**
- * Place one woodland cluster ON the surface: FOLIAGE columns rising
- * FOLIAGE_HEIGHT (with a little per-column variation) into the AIR above the
- * local surface row (GDD 5.3 trees + bushes). Foliage is placed via put() so
- * its integrity seeds (chop/breach read it).
+ * Plant one OAK TREE rooted on the surface at column x (GDD 9 trees): a TRUNK
+ * column `h` tall with the shared canopy shape around its top (side tufts
+ * while growing, the full crown at TREE_TRUNK_MAX - engine/trees.ts geometry).
+ * A tree still SHORT of full height gets a SAPLING growing tip above the trunk
+ * so worldgen forests keep growing into full oaks as the game runs. Cells are
+ * placed via put() so integrity seeds (chop/burn read it); canopy writes only
+ * into AIR, so overlapping neighbours never clobber each other.
+ */
+function plantOak(x: number, surfaceRow: number, h: number): void {
+  if (x < 0 || x >= WORLD_W) return;
+  const height = Math.max(1, Math.min(TREE_TRUNK_MAX, h));
+  for (let k = 1; k <= height; k++) put(x, surfaceRow - k, TRUNK);
+  const topY = surfaceRow - height;
+  forEachCanopyCell(x, topY, height, (cx, cy) => {
+    if (cx < 0 || cx >= WORLD_W || cy < 0 || cy >= WORLD_H) return;
+    if (material[idx(cx, cy)] === AIR) put(cx, cy, FOLIAGE);
+  });
+  if (height < TREE_TRUNK_MAX && topY - 1 >= 0 && material[idx(x, topY - 1)] === AIR) {
+    put(x, topY - 1, SAPLING); // growing tip: integrity 0 -> countdown auto-seeds
+  }
+}
+
+/**
+ * Place one woodland cluster ON the surface (GDD 5.3 trees + bushes): OAK
+ * TREES every TREE_SPACING columns at rng-mixed growth stages - some saplings,
+ * some adolescents, some full crowns, so the opening forest reads as a living
+ * one that keeps growing - with low FOLIAGE bushes (the forager's food)
+ * scattered on the columns between.
  */
 function placeWoodland(rng: () => number, cx: number, surfaceY: Int32Array): void {
   const half = WOODLAND_CLUSTER_W >> 1;
   for (let dx = -half; dx <= half; dx++) {
     const x = cx + dx;
     if (x < 0 || x >= WORLD_W) continue;
-    // Taper the canopy toward the cluster edges for a rounded clump.
-    const edge = 1 - Math.abs(dx) / (half + 1);
-    const h = Math.max(1, Math.round(FOLIAGE_HEIGHT * (0.55 + 0.45 * edge) + (rng() - 0.5) * 2));
     const top = surfaceY[x];
-    for (let k = 1; k <= h; k++) put(x, top - k, FOLIAGE);
+    if ((dx + half) % TREE_SPACING === 0) {
+      // Mixed ages: 1 (fresh sapling trunk) .. TREE_TRUNK_MAX (full oak).
+      plantOak(x, top, 1 + Math.floor(rng() * TREE_TRUNK_MAX));
+    } else if (rng() < BUSH_CHANCE) {
+      const h = 1 + Math.floor(rng() * BUSH_MAX_HEIGHT);
+      for (let k = 1; k <= h; k++) {
+        if (material[idx(x, top - k)] === AIR) put(x, top - k, FOLIAGE);
+      }
+    }
   }
 }
 
 /**
- * Guaranteed dense grove for the spawn zone - a wide, full-height FOLIAGE block
- * so the FOLIAGE count comfortably clears SPAWN_GUARANTEE_WOOD_CELLS within
- * reach of home (GDD 5.3 spawn wood guarantee).
+ * Guaranteed grove for the spawn zone: sturdy mid-to-full oaks every
+ * TREE_SPACING columns so the TRUNK count comfortably clears
+ * SPAWN_GUARANTEE_TRUNK_CELLS within reach of home (GDD 5.3 spawn wood
+ * guarantee), plus bushes between for the forager.
  */
 function placeGuaranteedGrove(cx: number, surfaceY: Int32Array): void {
   const half = WOODLAND_CLUSTER_W >> 1;
@@ -445,7 +483,12 @@ function placeGuaranteedGrove(cx: number, surfaceY: Int32Array): void {
     const x = cx + dx;
     if (x < 0 || x >= WORLD_W) continue;
     const top = surfaceY[x];
-    for (let k = 1; k <= FOLIAGE_HEIGHT; k++) put(x, top - k, FOLIAGE);
+    if ((dx + half) % TREE_SPACING === 0) {
+      // Deterministic mid/full heights (5..9): plenty of trunk, no rng needed.
+      plantOak(x, top, 5 + ((dx + half) % (TREE_TRUNK_MAX - 4)));
+    } else if ((dx + half) % 3 === 0) {
+      if (material[idx(x, top - 1)] === AIR) put(x, top - 1, FOLIAGE);
+    }
   }
 }
 
@@ -470,9 +513,13 @@ function carveSurfacePond(cx: number, surfaceRow: number): void {
         put(x, y, WATER); // interior column of water, open at the top
       }
     }
-    // Strip any foliage sitting directly over the open water so it is drinkable.
-    for (let k = 1; k <= FOLIAGE_HEIGHT && !isWall; k++) {
-      if (material[idx(x, surfaceRow - k)] === FOLIAGE) put(x, surfaceRow - k, AIR);
+    // Strip any plant matter (bush, trunk, sapling tip or canopy) sitting
+    // directly over the open water so it is drinkable and nothing regrows
+    // through the pond surface.
+    const stripUp = TREE_TRUNK_MAX + CANOPY_MAX_UP + 1;
+    for (let k = 1; k <= stripUp && !isWall; k++) {
+      const m = material[idx(x, surfaceRow - k)];
+      if (m === FOLIAGE || m === TRUNK || m === SAPLING) put(x, surfaceRow - k, AIR);
     }
   }
 }

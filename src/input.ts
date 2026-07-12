@@ -28,7 +28,7 @@ import { cycleSimSpeed, getSimSpeed, minimapXToWorld, MINIMAP_HEIGHT_PX, MINIMAP
 import { spendAmmo, getAmmo } from './game/resources';
 import { getRenderer } from './render/renderer';
 import * as grid from './engine/grid';
-import { AIR, SAND, STONE, WATER, DIRT, FOLIAGE, SAPLING, isFlammable } from './engine/materials';
+import { AIR, SAND, STONE, WATER, DIRT, SAPLING, isFlammable } from './engine/materials';
 import { ignite } from './engine/simulation';
 import { placeStructure, canPlace, type StructureKind } from './game/building';
 import { addBlueprint, blueprintAt, cancelBlueprintAt } from './game/buildqueue';
@@ -425,7 +425,7 @@ function forEachDiscCell(
  */
 function paintDisc(centerWorldX: number, centerWorldY: number, materialId: number): void {
   // Plant-a-seed (playtest v0.6 #G, GDD 9): the Plant tool drops a SINGLE
-  // SAPLING that grows into foliage on its own, rather than painting a blob of
+  // SAPLING that grows into an oak on its own, rather than painting a blob of
   // material. Route it through plantSeed so it only lands on suitable soil and
   // never paves over the terrain it needs to grow from.
   if (materialId === SAPLING) {
@@ -439,11 +439,12 @@ function paintDisc(centerWorldX: number, centerWorldY: number, materialId: numbe
 
 /**
  * Plant a single SAPLING (Plant tool, playtest v0.6 #G; GDD 9). Drops one seed
- * on suitable soil: the sapling goes into an AIR cell that sits directly on DIRT
- * or already-grown FOLIAGE. Clicking the soil itself plants in the AIR just
- * above it (forgiving). placeMaterial leaves the SAPLING's integrity at 0; the
- * growth rule (simulation.updateSapling) seeds the GROW_TICKS countdown on the
- * sapling's first sim visit, so no special integrity seeding is needed here.
+ * on suitable soil: the sapling goes into an AIR cell that sits directly on
+ * DIRT - it is an oak's growing tip, and a tree needs earth to root in.
+ * Clicking the soil itself plants in the AIR just above it (forgiving).
+ * placeMaterial leaves the SAPLING's integrity at 0; the growth rule
+ * (simulation.updateSapling) seeds the GROW_TICKS countdown on the sapling's
+ * first sim visit, so no special integrity seeding is needed here.
  */
 function plantSeed(centerWorldX: number, centerWorldY: number): void {
   let x = Math.floor(centerWorldX);
@@ -451,10 +452,9 @@ function plantSeed(centerWorldX: number, centerWorldY: number): void {
   if (!grid.inBounds(x, y)) return;
   const here = grid.get(x, y);
   // Clicked on the ground itself -> plant in the AIR cell just above it.
-  if (here === DIRT || here === FOLIAGE) y -= 1;
+  if (here === DIRT) y -= 1;
   if (!grid.inBounds(x, y) || grid.get(x, y) !== AIR) return;
-  const below = grid.get(x, y + 1);
-  if (below !== DIRT && below !== FOLIAGE) return; // grow only on suitable soil
+  if (grid.get(x, y + 1) !== DIRT) return; // a tree roots only in earth
   grid.placeMaterial(x, y, SAPLING); // integrity 0 -> updateSapling seeds the timer
 }
 

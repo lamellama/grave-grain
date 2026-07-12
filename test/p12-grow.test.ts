@@ -105,53 +105,57 @@ function firstDiff(a: Uint8Array, b: Uint8Array): number {
 }
 
 // ===========================================================================
-// 1. GROWS — sapling → foliage, climbing upward to the cap, then stops.
+// 1. GROWS — sapling → oak trunk, climbing upward to TREE_TRUNK_MAX, then stops.
 // ===========================================================================
 {
   const s = freshSim();
   s.sim.setChunkingEnabled(false);
   seedPlant(s);
-  const MAX = s.config.FOLIAGE_GROW_MAX_HEIGHT;
+  const MAX = s.config.TREE_TRUNK_MAX;
 
-  // Sample the foliage count over time so we can report the growth curve.
+  // Sample the trunk count over time so we can report the growth curve.
   const SAMPLE_EVERY = 240;
-  const TOTAL = 4000; // > MAX stages × (GROW_TICKS+jitter) so it fully matures
-  const curve: Array<{ t: number; foliage: number; sapling: number }> = [];
+  // > MAX stages × (GROW_TICKS+jitter) so it fully matures.
+  const TOTAL = (MAX + 2) * (s.config.GROW_TICKS + s.config.GROW_JITTER);
+  const curve: Array<{ t: number; trunk: number; sapling: number }> = [];
   let everSapling = false;
   for (let t = 1; t <= TOTAL; t++) {
     s.sim.step();
     if (countMat(s, s.mats.SAPLING) > 0) everSapling = true;
     if (t % SAMPLE_EVERY === 0) {
-      curve.push({ t, foliage: countMat(s, s.mats.FOLIAGE), sapling: countMat(s, s.mats.SAPLING) });
+      curve.push({ t, trunk: countMat(s, s.mats.TRUNK), sapling: countMat(s, s.mats.SAPLING) });
     }
   }
 
-  const finalFoliage = countMat(s, s.mats.FOLIAGE);
+  const finalTrunk = countMat(s, s.mats.TRUNK);
   const finalSapling = countMat(s, s.mats.SAPLING);
+  const finalFoliage = countMat(s, s.mats.FOLIAGE);
 
-  console.log('GROWTH CURVE (tick : foliage cells : live saplings):');
-  for (const p of curve) console.log(`  t=${String(p.t).padStart(4)}  foliage=${p.foliage}  sapling=${p.sapling}`);
-  console.log(`  final: foliage=${finalFoliage} sapling=${finalSapling} (cap=${MAX})`);
+  console.log('GROWTH CURVE (tick : trunk cells : live saplings):');
+  for (const p of curve) console.log(`  t=${String(p.t).padStart(4)}  trunk=${p.trunk}  sapling=${p.sapling}`);
+  console.log(`  final: trunk=${finalTrunk} foliage=${finalFoliage} sapling=${finalSapling} (cap=${MAX})`);
 
-  // (a) The plant actually grew: at least one foliage cell exists.
-  if (finalFoliage < 1) fail('sapling never matured into FOLIAGE');
-  // (b) It grew UPWARD into a multi-cell column (more than just the seed cell).
-  if (finalFoliage < 2) fail('plant did not grow upward (only one foliage cell)');
-  // (c) Foliage climbed over time (monotonic non-decreasing across samples).
+  // (a) The tree actually grew: trunk exists.
+  if (finalTrunk < 1) fail('sapling never matured into TRUNK');
+  // (b) It grew UPWARD into a multi-cell trunk (more than just the seed cell).
+  if (finalTrunk < 2) fail('tree did not grow upward (only one trunk cell)');
+  // (c) Trunk climbed over time (monotonic non-decreasing across samples).
   for (let i = 1; i < curve.length; i++) {
-    if (curve[i].foliage < curve[i - 1].foliage)
-      fail(`foliage count went DOWN (t=${curve[i].t}: ${curve[i].foliage} < ${curve[i - 1].foliage})`);
+    if (curve[i].trunk < curve[i - 1].trunk)
+      fail(`trunk count went DOWN (t=${curve[i].t}: ${curve[i].trunk} < ${curve[i - 1].trunk})`);
   }
-  // (d) It STOPPED at the cap (foliage column ≤ MAX, and no live sapling remains).
-  if (finalFoliage > MAX) fail(`plant exceeded its max height (${finalFoliage} > ${MAX})`);
-  if (finalSapling !== 0) fail(`plant never stopped — ${finalSapling} live saplings remain at the cap`);
+  // (d) It STOPPED at the cap (trunk column === MAX, no live growing tip left).
+  if (finalTrunk !== MAX) fail(`trunk height ${finalTrunk} !== TREE_TRUNK_MAX ${MAX}`);
+  if (finalSapling !== 0) fail(`tree never stopped — ${finalSapling} live saplings remain at the cap`);
   if (!everSapling) fail('SAPLING never observed (auto-seed/dispatch broken)');
+  // (e) A crowned oak wears leaves.
+  if (finalFoliage < 12) fail(`crowned oak has a sparse canopy (${finalFoliage} FOLIAGE cells)`);
 
-  // The growth must form a contiguous vertical FOLIAGE column above the soil.
+  // The growth must form a contiguous vertical TRUNK column above the soil.
   let col = 0;
-  for (let y = PLANT_Y; y >= 0 && s.grid.material[y * s.config.WORLD_W + PLANT_X] === s.mats.FOLIAGE; y--) col++;
-  if (col !== finalFoliage) fail(`foliage is not a single contiguous column (col=${col}, total=${finalFoliage})`);
-  ok(`grows: sapling → ${finalFoliage}-cell FOLIAGE column (cap ${MAX}), climbed monotonically, then stopped`);
+  for (let y = PLANT_Y; y >= 0 && s.grid.material[y * s.config.WORLD_W + PLANT_X] === s.mats.TRUNK; y--) col++;
+  if (col !== finalTrunk) fail(`trunk is not a single contiguous column (col=${col}, total=${finalTrunk})`);
+  ok(`grows: sapling → ${finalTrunk}-cell TRUNK oak with ${finalFoliage}-leaf canopy (cap ${MAX}), climbed monotonically, then stopped`);
 }
 
 // ===========================================================================

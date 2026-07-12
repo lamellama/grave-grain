@@ -3,8 +3,8 @@
  * (GDD §9 ecology, Beyond item 2 of the user-prioritized order).
  *
  * New sim behaviour under test:
- *  - REPRODUCE: every REPRO_INTERVAL ticks each MATURE plant top (contiguous
- *    FOLIAGE column ≥ REPRO_MIN_HEIGHT, open to the sky) rolls REPRO_CHANCE to
+ *  - REPRODUCE: every REPRO_INTERVAL ticks each FULL-GROWN OAK (a sky-open
+ *    FOLIAGE crown over a TRUNK column ≥ TREE_TRUNK_MAX) rolls REPRO_CHANCE to
  *    drop a seed SEED_MIN_DIST..SEED_MAX_DIST columns away; the seed germinates
  *    into a SAPLING only on open DIRT with no plant within PLANT_MIN_SPACING
  *    columns (crowding cap).
@@ -53,7 +53,8 @@ function freshSim() {
   const mats = require('../src/engine/materials');
   const weather = require('../src/engine/weather');
   const sim = require('../src/engine/simulation');
-  return { config, grid, mats, weather, sim };
+  const trees = require('../src/engine/trees');
+  return { config, grid, mats, weather, sim, trees };
 }
 type Sim = ReturnType<typeof freshSim>;
 
@@ -66,7 +67,7 @@ const GROUND_Y = 150; // top dirt row (plant stems sit at GROUND_Y - 1)
 const BED_X0 = 400;
 const BED_X1 = 560;
 const PARENT_X = 480;
-const TREE_H = 5; // >= REPRO_MIN_HEIGHT(3) -> mature
+const TREE_H = 9; // = TREE_TRUNK_MAX -> a full-grown, seeding oak
 
 function seedPlain(s: Sim): void {
   const { grid, mats } = s;
@@ -96,22 +97,25 @@ function seedPlain(s: Sim): void {
 }
 
 function seedParentTree(s: Sim, x: number): void {
-  for (let k = 1; k <= TREE_H; k++) s.grid.placeMaterial
-    ? s.grid.placeMaterial(x, GROUND_Y - k, s.mats.FOLIAGE)
-    : s.grid.set(x, GROUND_Y - k, s.mats.FOLIAGE);
-  // Foliage carries chop/breach integrity like worldgen trees.
-  for (let k = 1; k <= TREE_H; k++)
-    s.grid.setIntegrity(x, GROUND_Y - k, s.config.FOLIAGE_INTEGRITY);
+  // A FULL-GROWN OAK exactly as growth leaves it: TREE_TRUNK_MAX trunk cells
+  // plus the crown (shared geometry from engine/trees.ts) - only full oaks
+  // seed under the oak-trees contract.
+  for (let k = 1; k <= TREE_H; k++) s.grid.placeMaterial(x, GROUND_Y - k, s.mats.TRUNK);
+  s.trees.forEachCanopyCell(x, GROUND_Y - TREE_H, TREE_H, (cx: number, cy: number) => {
+    if (s.grid.material[cy * s.config.WORLD_W + cx] === s.mats.AIR)
+      s.grid.placeMaterial(cx, cy, s.mats.FOLIAGE);
+  });
 }
 
-/** Column x-positions of every plant STEM (SAPLING or FOLIAGE with soil below). */
+/** Column x-positions of every plant STEM (SAPLING or TRUNK on the soil row —
+ * FOLIAGE at that row is a canopy tuft flanking a stem, not a stem itself). */
 function stems(s: Sim): number[] {
   const { grid, mats, config } = s;
   const out: number[] = [];
   const y = GROUND_Y - 1;
   for (let x = BED_X0; x <= BED_X1; x++) {
     const m = grid.material[y * config.WORLD_W + x];
-    if (m === mats.SAPLING || m === mats.FOLIAGE) out.push(x);
+    if (m === mats.SAPLING || m === mats.TRUNK) out.push(x);
   }
   return out;
 }
@@ -206,13 +210,13 @@ function firstDiff(a: Uint8Array, b: Uint8Array): number {
   for (let t = 1; t <= TOTAL; t++) s.sim.step();
   const after = stems(s).length;
   if (after > before) fail(`plants reproduced under snow (${before} -> ${after} stems)`);
-  // The parent's foliage column is still standing (snow kills saplings, not trees).
+  // The parent's trunk column is still standing (snow kills saplings, not trees).
   let col = 0;
   for (let k = 1; k <= TREE_H; k++) {
-    if (s.grid.material[(GROUND_Y - k) * s.config.WORLD_W + PARENT_X] === s.mats.FOLIAGE) col++;
+    if (s.grid.material[(GROUND_Y - k) * s.config.WORLD_W + PARENT_X] === s.mats.TRUNK) col++;
   }
-  if (col !== TREE_H) fail(`grown FOLIAGE died in winter (${col}/${TREE_H} cells left)`);
-  ok(`winter gate: 0 new plants over ${TOTAL} snow ticks; grown foliage survives`);
+  if (col !== TREE_H) fail(`grown TRUNK died in winter (${col}/${TREE_H} cells left)`);
+  ok(`winter gate: 0 new plants over ${TOTAL} snow ticks; grown trunk survives`);
 }
 
 {
@@ -241,7 +245,7 @@ function firstDiff(a: Uint8Array, b: Uint8Array): number {
   // Thaw: growth resumes and the sapling matures into FOLIAGE.
   s.weather.__setWeatherForTest('clear');
   for (let t = 0; t < s.config.GROW_TICKS + s.config.GROW_JITTER + 5; t++) s.sim.step();
-  const matured = s.grid.material[(GROUND_Y - 1) * W + SAP_X] === s.mats.FOLIAGE;
+  const matured = s.grid.material[(GROUND_Y - 1) * W + SAP_X] === s.mats.TRUNK;
   if (!matured) fail('sapling did not resume growing after the thaw');
   ok(`pause: countdown held at ${held} across 700 snow ticks, resumed and matured after thaw`);
 }
@@ -267,7 +271,7 @@ function firstDiff(a: Uint8Array, b: Uint8Array): number {
   // The freed cell is AIR the moment it withers (the snow above may then fall
   // into it on a later tick — either material is acceptable evidence of death,
   // but FOLIAGE would mean it matured instead).
-  if (cell === s.mats.FOLIAGE) fail('snow-touching sapling MATURED instead of withering');
+  if (cell === s.mats.TRUNK) fail('snow-touching sapling MATURED instead of withering');
   ok('kill: snow contact withers the sapling (no maturation)');
 }
 

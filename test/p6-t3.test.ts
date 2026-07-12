@@ -10,7 +10,7 @@
  *     still enforced for costed tools: empty stockpile → canAssign('miner',[])
  *     ===false; after adding PICKAXE_WOOD_COST wood → true; craftToolFor
  *     deducts the wood; canAssign('miner',['pickaxe'])===true even when broke.
- *  3. findTarget over a seeded grid: lumberjack/forager → FOLIAGE; miner →
+ *  3. findTarget over a seeded grid: lumberjack → TRUNK; forager → FOLIAGE; miner →
  *     EXPOSED stone (skips a fully-buried block, picks the one-exposed-face
  *     cell); guard → stockpilePoint.
  *  4. (build is verified separately via `npm run build`).
@@ -31,7 +31,7 @@ import {
   setStockpilePoint,
 } from '../src/game/resources';
 import { set, get } from '../src/engine/grid';
-import { AIR, STONE, ORE, FOLIAGE } from '../src/engine/materials';
+import { AIR, STONE, ORE, FOLIAGE, TRUNK } from '../src/engine/materials';
 import {
   WOOD_TOOL_DURABILITY,
   PICKAXE_WOOD_COST,
@@ -87,12 +87,17 @@ check(craftToolFor('none') === null, "craftToolFor('none') returns null");
 console.log('\n--- 3. findTarget over a seeded grid ---');
 setStockpilePoint(500, 120);
 
-// Seed FOLIAGE (tree/bush) at a known cell. Probe from a DIFFERENT point: the
-// ring-scan starts at radius 1, so a target sitting exactly on the probe cell
-// would be missed — survivors never harvest the cell they stand on anyway.
+// Seed a bush (FOLIAGE) and a tree TRUNK at known cells. Probe from a
+// DIFFERENT point: the ring-scan starts at radius 1, so a target sitting
+// exactly on the probe cell would be missed — survivors never harvest the
+// cell they stand on anyway. The TRUNK sits FARTHER from the probe than the
+// bush, proving the lumberjack skips bushes for trees.
 const FX = 60;
 const FY = 50;
 set(FX, FY, FOLIAGE);
+const TX = 70;
+const TY = 50;
+set(TX, TY, TRUNK);
 
 // Solid 5x5 STONE block from (108,58)..(112,62), centre (110,60). The inner 3x3
 // (109..111, 59..61) is FULLY BURIED — every orthogonal neighbour is stone, no
@@ -105,9 +110,10 @@ for (let dy = -2; dy <= 2; dy++) {
 // A separate exposed ORE cell, isolated in AIR (every face is AIR → exposed).
 set(180, 60, ORE);
 
-// Lumberjack/forager probe from (40,50): nearest FOLIAGE is the seeded (60,50).
+// Lumberjack probes from (40,50): nearest TRUNK is the seeded (70,50) — the
+// NEARER bush at (60,50) is not a tree and must be skipped.
 const lumb = findTarget('lumberjack', 40, 50);
-check(lumb !== null && lumb.x === FX && lumb.y === FY, `lumberjack → FOLIAGE at (${FX},${FY}) (got ${JSON.stringify(lumb)})`);
+check(lumb !== null && lumb.x === TX && lumb.y === TY, `lumberjack → TRUNK at (${TX},${TY}), past the nearer bush (got ${JSON.stringify(lumb)})`);
 
 const forg = findTarget('forager', 40, 50);
 check(forg !== null && forg.x === FX && forg.y === FY, `forager → FOLIAGE at (${FX},${FY}) (got ${JSON.stringify(forg)})`);

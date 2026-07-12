@@ -21,6 +21,7 @@ import {
   FOLIAGE_INTEGRITY,
   WALL_INTEGRITY,
   DOOR_INTEGRITY,
+  TRUNK_INTEGRITY,
 } from '../config';
 
 /**
@@ -69,6 +70,8 @@ export const CAMPFIRE = 17;
 export const DOOR = 18;
 // Material ID - round 11 SPIKE trap (GDD 8 defenses; do NOT renumber)
 export const SPIKE = 19;
+// Material ID - oak-tree TRUNK (living wood; GDD 9 trees; do NOT renumber)
+export const TRUNK = 20;
 
 /**
  * MATERIALS - indexed lookup table of material properties.
@@ -358,6 +361,24 @@ export const MATERIALS: Material[] = [
     permeableToBodies: false,
     hasIntegrity: false,
     baseIntegrity: 0,
+  },
+  // TRUNK (id=20) - a LIVING oak trunk (GDD 9 trees). Like FOLIAGE it is
+  // permeable to bodies (characters walk THROUGH trees - woodland is
+  // concealment, not cover) and flammable (forests burn). Unlike FOLIAGE it is
+  // the LUMBERJACK's harvest material: chopping a trunk cell fells the whole
+  // tree for wood scaled by trunk height (survivor.ts fellTree). Static like
+  // foliage; integrity seeds so fire/breach code treats it like living wood.
+  // A warm bark brown, distinct from placed WOOD (#5a3a1a) and DIRT (#7a5230).
+  {
+    name: 'trunk',
+    color: '#8a6134', // oak bark
+    density: DENSITY_STONE, // static
+    isFluid: false,
+    isStatic: true,
+    flammable: true,
+    permeableToBodies: true, // walk through trees (GDD 5.2 / 9)
+    hasIntegrity: true,
+    baseIntegrity: TRUNK_INTEGRITY,
   },
 ];
 
